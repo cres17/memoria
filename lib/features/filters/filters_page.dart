@@ -1,8 +1,11 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
+import '../../core/l10n/app_locale.dart';
+import '../../core/l10n/strings.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/utils/platform_utils.dart';
 import '../../data/repositories/filter_repository_impl.dart';
 import '../../domain/models/filter_preset.dart';
 import '../../monetization/banner_ad_widget.dart';
@@ -15,9 +18,7 @@ class FiltersPage extends StatefulWidget {
   State<FiltersPage> createState() => _FiltersPageState();
 }
 
-class _FiltersPageState extends State<FiltersPage>
-    with SingleTickerProviderStateMixin {
-  late TabController _tabCtrl;
+class _FiltersPageState extends State<FiltersPage> {
   List<FilterPreset> _customPresets = [];
   FeatureFlagsService? _flags;
   bool _loading = true;
@@ -25,70 +26,82 @@ class _FiltersPageState extends State<FiltersPage>
   @override
   void initState() {
     super.initState();
-    _tabCtrl = TabController(length: 2, vsync: this);
     _load();
   }
 
   Future<void> _load() async {
-    final repo = FilterRepositoryImpl();
-    final presets = await repo.getCustomPresets();
-    final flags = await FeatureFlagsService.create();
-    if (mounted) {
-      setState(() {
-        _customPresets = presets;
-        _flags = flags;
-        _loading = false;
-      });
+    try {
+      final repo = FilterRepositoryImpl();
+      final presets = await repo.getCustomPresets();
+      final flags = await FeatureFlagsService.create();
+      if (mounted) {
+        setState(() {
+          _customPresets = presets;
+          _flags = flags;
+          _loading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
     }
   }
 
-  @override
-  void dispose() {
-    _tabCtrl.dispose();
-    super.dispose();
-  }
+  List<FilterPreset> get _items => [
+        ..._customPresets,
+        ...BuiltinPresets.all.where((p) => p.id != 'original'),
+      ];
 
   @override
   Widget build(BuildContext context) {
+    return ValueListenableBuilder<Locale>(
+      valueListenable: localeNotifier,
+      builder: (_, __, ___) => _buildScaffold(context),
+    );
+  }
+
+  Widget _buildScaffold(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.oceanDeep,
+      backgroundColor: AppColors.cloudPure,
       body: Column(
         children: [
           Expanded(
-            child: NestedScrollView(
-              headerSliverBuilder: (_, __) => [_buildHeader()],
-              body: TabBarView(
-                controller: _tabCtrl,
-                children: [
-                  _BuiltinFilterGrid(),
-                  _CustomFilterGrid(
-                    presets: _customPresets,
-                    loading: _loading,
-                    onRefresh: _load,
+            child: CustomScrollView(
+              slivers: [
+                _buildHeader(),
+                SliverPadding(
+                  padding: EdgeInsets.fromLTRB(28, 22, 28, safeBottom(context) + 100),
+                  sliver: SliverGrid(
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 2,
+                      mainAxisSpacing: 24,
+                      crossAxisSpacing: 22,
+                      childAspectRatio: 1,
+                    ),
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) {
+                        if (index == 0) {
+                          return _CreateFilterCard(onTap: _openCreateFilter);
+                        }
+                        final preset = _items[index - 1];
+                        return _FilterCard(
+                          preset: preset,
+                          index: index - 1,
+                          onTap: () => _openFilter(preset),
+                          onDelete: preset.isCustom
+                              ? () => _deletePreset(preset.id)
+                              : null,
+                        );
+                      },
+                      childCount: _items.length + 1,
+                    ),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
           if (_flags != null) BannerAdWidget(flags: _flags!),
         ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          HapticFeedback.mediumImpact();
-          context.pushNamed('createFilter').then((_) => _load());
-        },
-        backgroundColor: AppColors.accentPrimary,
-        icon: const Icon(Icons.auto_awesome_rounded,
-            color: AppColors.cloudWhite),
-        label: const Text(
-          'AI 필터 만들기',
-          style: TextStyle(
-            fontFamily: 'Pretendard',
-            fontWeight: FontWeight.w600,
-            color: AppColors.cloudWhite,
-          ),
-        ),
       ),
     );
   }
@@ -96,144 +109,120 @@ class _FiltersPageState extends State<FiltersPage>
   Widget _buildHeader() {
     return SliverAppBar(
       pinned: true,
-      backgroundColor: AppColors.oceanDeep,
-      title: const Text(
-        '필터',
-        style: TextStyle(
-          fontFamily: 'Pretendard',
-          fontSize: 22,
-          fontWeight: FontWeight.w700,
-          color: AppColors.textOnDark,
-          letterSpacing: -0.5,
-        ),
-      ),
-      bottom: PreferredSize(
-        preferredSize: const Size.fromHeight(48),
-        child: _buildTabBar(),
-      ),
-    );
-  }
-
-  Widget _buildTabBar() {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-      height: 40,
-      decoration: BoxDecoration(
-        color: AppColors.oceanMid,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: TabBar(
-        controller: _tabCtrl,
-        indicator: BoxDecoration(
-          color: AppColors.oceanTeal,
-          borderRadius: BorderRadius.circular(10),
-        ),
-        indicatorSize: TabBarIndicatorSize.tab,
-        dividerColor: Colors.transparent,
-        labelStyle: const TextStyle(
-          fontFamily: 'Pretendard',
-          fontSize: 14,
-          fontWeight: FontWeight.w600,
-        ),
-        unselectedLabelStyle: const TextStyle(
-          fontFamily: 'Pretendard',
-          fontSize: 14,
-          fontWeight: FontWeight.w400,
-        ),
-        labelColor: AppColors.cloudWhite,
-        unselectedLabelColor: AppColors.textOnDarkTert,
-        tabs: const [
-          Tab(text: '기본 필터'),
-          Tab(text: '내 필터'),
+      expandedHeight: 204,
+      backgroundColor: AppColors.cloudPure,
+      surfaceTintColor: Colors.transparent,
+      title: const Row(
+        children: [
+          Icon(Icons.auto_awesome_rounded, color: AppColors.oceanFoam),
+          SizedBox(width: 10),
+          Text(
+            'Memoria',
+            style: TextStyle(
+              fontFamily: 'Domine',
+              fontSize: 25,
+              fontWeight: FontWeight.w700,
+              color: AppColors.oceanFoam,
+            ),
+          ),
         ],
       ),
-    );
-  }
-}
-
-class _BuiltinFilterGrid extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    final presets = BuiltinPresets.all;
-    return GridView.builder(
-      padding: const EdgeInsets.all(20),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        childAspectRatio: 0.85,
-        mainAxisSpacing: 16,
-        crossAxisSpacing: 16,
-      ),
-      itemCount: presets.length,
-      itemBuilder: (ctx, i) => _FilterCard(preset: presets[i]),
-    );
-  }
-}
-
-class _CustomFilterGrid extends StatelessWidget {
-  final List<FilterPreset> presets;
-  final bool loading;
-  final VoidCallback onRefresh;
-
-  const _CustomFilterGrid({
-    required this.presets,
-    required this.loading,
-    required this.onRefresh,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    if (loading) {
-      return const Center(
-        child: CircularProgressIndicator(color: AppColors.oceanFoam),
-      );
-    }
-
-    if (presets.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.auto_awesome_outlined,
-                color: AppColors.textOnDarkTert, size: 48),
-            const SizedBox(height: 16),
-            const Text(
-              '아직 만든 필터가 없어요',
-              style: TextStyle(
-                fontFamily: 'Pretendard',
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: AppColors.textOnDarkSub,
+      flexibleSpace: FlexibleSpaceBar(
+        background: Padding(
+          padding: const EdgeInsets.fromLTRB(28, 104, 28, 0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                S.get('filters.title'),
+                style: TextStyle(
+                  fontFamily: 'Domine',
+                  fontSize: 43,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.oceanFoam,
+                  height: 1.05,
+                ),
               ),
+              const SizedBox(height: 16),
+              Text(
+                _loading ? S.get('filters.loading') : S.get('filters.subtitle'),
+                style: const TextStyle(
+                  fontSize: 18,
+                  height: 1.5,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _openCreateFilter() {
+    hapticMedium();
+    context.pushNamed('createFilter').then((_) => _load());
+  }
+
+  Future<void> _openFilter(FilterPreset preset) async {
+    hapticLight();
+    final xFile = await ImagePicker().pickImage(source: ImageSource.gallery);
+    if (xFile == null || !mounted) return;
+    context.pushNamed('editor', extra: {
+      'imagePath': xFile.path,
+      'presetId': preset.id,
+    });
+  }
+
+  Future<void> _deletePreset(String id) async {
+    await FilterRepositoryImpl().deletePreset(id);
+    await _load();
+  }
+}
+
+class _CreateFilterCard extends StatelessWidget {
+  final VoidCallback onTap;
+  const _CreateFilterCard({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        decoration: BoxDecoration(
+          color: AppColors.cloudWhite,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: AppColors.cloudVeil),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x0F032111),
+              blurRadius: 18,
+              offset: Offset(0, 8),
             ),
-            const SizedBox(height: 8),
-            const Text(
-              '사진 한 장으로 나만의 AI 필터를 만들어보세요',
+          ],
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const CircleAvatar(
+              radius: 42,
+              backgroundColor: AppColors.oceanTeal,
+              child: Icon(Icons.add_rounded,
+                  color: AppColors.accentGlow, size: 42),
+            ),
+            const SizedBox(height: 26),
+            Text(
+              S.get('filters.new'),
               style: TextStyle(
-                fontFamily: 'Pretendard',
-                fontSize: 14,
-                color: AppColors.textOnDarkTert,
+                fontFamily: 'Domine',
+                fontSize: 23,
+                fontWeight: FontWeight.w700,
+                color: AppColors.oceanFoam,
+                letterSpacing: 1.8,
               ),
             ),
           ],
         ),
-      );
-    }
-
-    return GridView.builder(
-      padding: const EdgeInsets.all(20),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        childAspectRatio: 0.85,
-        mainAxisSpacing: 16,
-        crossAxisSpacing: 16,
-      ),
-      itemCount: presets.length,
-      itemBuilder: (ctx, i) => _FilterCard(
-        preset: presets[i],
-        showDelete: true,
-        onDelete: () {
-          FilterRepositoryImpl().deletePreset(presets[i].id).then((_) => onRefresh());
-        },
       ),
     );
   }
@@ -241,80 +230,102 @@ class _CustomFilterGrid extends StatelessWidget {
 
 class _FilterCard extends StatelessWidget {
   final FilterPreset preset;
-  final bool showDelete;
+  final int index;
+  final VoidCallback onTap;
   final VoidCallback? onDelete;
 
   const _FilterCard({
     required this.preset,
-    this.showDelete = false,
+    required this.index,
+    required this.onTap,
     this.onDelete,
   });
+
+  static const _fallbackFrames = [
+    'assets/frames/hp_frame_00_medium.jpg',
+    'assets/frames/hp_frame_04_medium.jpg',
+    'assets/frames/hp_frame_07_medium.jpg',
+    'assets/frames/hp_frame_10_medium.jpg',
+    'assets/frames/hp_frame_02_medium.jpg',
+    'assets/frames/hp_frame_11_medium.jpg',
+  ];
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: () {
-        HapticFeedback.selectionClick();
-        // Navigate to editor with this preset applied
-      },
-      child: Container(
-        decoration: BoxDecoration(
-          color: AppColors.oceanMid,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: AppColors.oceanNavy),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+      onTap: onTap,
+      onLongPress: onDelete,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: Stack(
+          fit: StackFit.expand,
           children: [
-            Expanded(
-              child: ClipRRect(
-                borderRadius:
-                    const BorderRadius.vertical(top: Radius.circular(19)),
-                child: _thumbnail(),
+            _thumbnail(),
+            const DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Colors.transparent, Color(0xCC000000)],
+                ),
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: Row(
+            Positioned(
+              left: 14,
+              right: 14,
+              bottom: 14,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          preset.name,
-                          style: const TextStyle(
-                            fontFamily: 'Pretendard',
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.textOnDark,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          preset.isCustom ? '커스텀' : '기본',
-                          style: TextStyle(
-                            fontFamily: 'Pretendard',
-                            fontSize: 11,
-                            color: preset.isCustom
-                                ? AppColors.oceanFoam
-                                : AppColors.textOnDarkTert,
-                          ),
-                        ),
-                      ],
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: AppColors.cloudWhite.withValues(alpha: 0.22),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(
+                        color: AppColors.cloudWhite.withValues(alpha: 0.18),
+                      ),
+                    ),
+                    child: Text(
+                      preset.isCustom ? 'CUSTOM' : _tagFor(preset.name),
+                      style: const TextStyle(
+                        color: AppColors.cloudWhite,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.8,
+                      ),
                     ),
                   ),
-                  if (showDelete && onDelete != null)
-                    GestureDetector(
-                      onTap: onDelete,
-                      child: const Icon(Icons.delete_outline_rounded,
-                          color: AppColors.accentError, size: 20),
+                  const SizedBox(height: 8),
+                  Text(
+                    preset.name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontFamily: 'Domine',
+                      color: AppColors.cloudWhite,
+                      fontSize: 23,
+                      height: 1.05,
+                      fontWeight: FontWeight.w700,
                     ),
+                  ),
                 ],
               ),
             ),
+            if (onDelete != null)
+              Positioned(
+                top: 8,
+                right: 8,
+                child: IconButton.filledTonal(
+                  style: IconButton.styleFrom(
+                    backgroundColor: Colors.black.withValues(alpha: 0.28),
+                    foregroundColor: AppColors.cloudWhite,
+                  ),
+                  icon: const Icon(Icons.delete_outline_rounded, size: 18),
+                  onPressed: onDelete,
+                ),
+              ),
           ],
         ),
       ),
@@ -323,23 +334,43 @@ class _FilterCard extends StatelessWidget {
 
   Widget _thumbnail() {
     final path = preset.thumbnailPath;
-    if (path.startsWith('assets/')) {
-      return Image.asset(path, fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => _placeholder());
-    } else if (path.isNotEmpty) {
-      return Image.file(File(path), fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => _placeholder());
+    if (path.startsWith('assets/') &&
+        path != 'assets/images/${preset.id}_thumb.jpg') {
+      return Image.asset(path, fit: BoxFit.cover, errorBuilder: (_, __, ___) {
+        return _fallback();
+      });
     }
-    return _placeholder();
+    if (path.isNotEmpty && !path.startsWith('assets/')) {
+      return Image.file(File(path), fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) {
+        return _fallback();
+      });
+    }
+    return _fallback();
   }
 
-  Widget _placeholder() {
-    return Container(
-      color: AppColors.oceanNavy,
-      child: const Center(
-        child: Icon(Icons.filter_rounded,
-            color: AppColors.textOnDarkTert, size: 32),
-      ),
+  Widget _fallback() {
+    return Image.asset(
+      _fallbackFrames[index % _fallbackFrames.length],
+      fit: BoxFit.cover,
+      errorBuilder: (_, __, ___) => Container(color: AppColors.oceanNavy),
     );
+  }
+
+  String _tagFor(String name) {
+    switch (name.toLowerCase()) {
+      case 'noir':
+        return 'B&W';
+      case 'warm':
+      case 'golden':
+        return 'WARM';
+      case 'cool':
+        return 'COOL';
+      case 'fade':
+      case 'pastel':
+        return 'VINTAGE';
+      default:
+        return 'TONE';
+    }
   }
 }

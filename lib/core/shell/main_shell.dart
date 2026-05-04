@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 import '../theme/app_colors.dart';
+import '../utils/platform_utils.dart';
 
 class MainShell extends StatelessWidget {
   final Widget child;
@@ -12,13 +14,14 @@ class MainShell extends StatelessWidget {
     final navIndex = _navIndex(location);
 
     return Scaffold(
+      extendBody: true,
       body: child,
       bottomNavigationBar: _BottomNav(currentIndex: navIndex),
     );
   }
 
   int _navIndex(String location) {
-    if (location.startsWith('/filters')) return 1;
+    if (location.startsWith('/filters')) return 3;
     return 0;
   }
 }
@@ -27,35 +30,65 @@ class _BottomNav extends StatelessWidget {
   final int currentIndex;
   const _BottomNav({required this.currentIndex});
 
+  Future<void> _pickAndEdit(BuildContext context) async {
+    hapticMedium();
+    final xFile = await ImagePicker().pickImage(source: ImageSource.gallery);
+    if (xFile != null && context.mounted) {
+      context.pushNamed('editor', extra: xFile.path);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final bottomPad = safeBottom(context);
+    final navBottom = bottomPad > 0 ? bottomPad : 18.0;
     return Container(
-      decoration: BoxDecoration(
-        color: AppColors.oceanMid,
-        border: const Border(
-          top: BorderSide(color: AppColors.oceanNavy, width: 0.5),
-        ),
-      ),
-      child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _NavItem(
-                icon: Icons.home_rounded,
-                label: '홈',
-                selected: currentIndex == 0,
-                onTap: () => context.go('/'),
-              ),
-              _NavItem(
-                icon: Icons.tune_rounded,
-                label: '필터',
-                selected: currentIndex == 1,
-                onTap: () => context.go('/filters'),
-              ),
-            ],
+      margin: EdgeInsets.fromLTRB(20, 0, 20, navBottom),
+      decoration: const BoxDecoration(
+        color: AppColors.cloudWhite,
+        borderRadius: BorderRadius.all(Radius.circular(32)),
+        boxShadow: [
+          BoxShadow(
+            color: Color(0x14032111),
+            blurRadius: 24,
+            offset: Offset(0, 8),
           ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceAround,
+          children: [
+            _NavItem(
+              icon: Icons.home_outlined,
+              selectedIcon: Icons.home_rounded,
+              label: 'HOME',
+              selected: currentIndex == 0,
+              onTap: () => context.go('/'),
+            ),
+            _NavItem(
+              icon: Icons.add_circle_outline_rounded,
+              selectedIcon: Icons.add_circle_rounded,
+              label: 'CREATE',
+              selected: currentIndex == 1,
+              onTap: () => context.pushNamed('createFilter'),
+            ),
+            _NavItem(
+              icon: Icons.tune_outlined,
+              selectedIcon: Icons.tune_rounded,
+              label: 'EDIT',
+              selected: currentIndex == 2,
+              onTap: () => _pickAndEdit(context),
+            ),
+            _NavItem(
+              icon: Icons.photo_library_outlined,
+              selectedIcon: Icons.photo_library_rounded,
+              label: 'GALLERY',
+              selected: currentIndex == 3,
+              onTap: () => context.go('/filters'),
+            ),
+          ],
         ),
       ),
     );
@@ -64,12 +97,14 @@ class _BottomNav extends StatelessWidget {
 
 class _NavItem extends StatelessWidget {
   final IconData icon;
+  final IconData selectedIcon;
   final String label;
   final bool selected;
   final VoidCallback onTap;
 
   const _NavItem({
     required this.icon,
+    required this.selectedIcon,
     required this.label,
     required this.selected,
     required this.onTap,
@@ -82,31 +117,27 @@ class _NavItem extends StatelessWidget {
       behavior: HitTestBehavior.opaque,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
         decoration: BoxDecoration(
-          color: selected ? AppColors.oceanTeal.withOpacity(0.15) : Colors.transparent,
-          borderRadius: BorderRadius.circular(20),
+          color: selected ? AppColors.oceanBlue : Colors.transparent,
+          borderRadius: BorderRadius.circular(28),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            AnimatedScale(
-              scale: selected ? 1.1 : 1.0,
-              duration: const Duration(milliseconds: 200),
-              child: Icon(
-                icon,
-                color: selected ? AppColors.oceanFoam : AppColors.textOnDarkTert,
-                size: 24,
-              ),
+            Icon(
+              selected ? selectedIcon : icon,
+              color: selected ? AppColors.oceanFoam : AppColors.cloudShadow,
+              size: 24,
             ),
             const SizedBox(height: 4),
             Text(
               label,
               style: TextStyle(
-                fontFamily: 'Pretendard',
-                fontSize: 11,
-                fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-                color: selected ? AppColors.oceanFoam : AppColors.textOnDarkTert,
+                fontSize: 10,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                letterSpacing: 1.2,
+                color: selected ? AppColors.oceanFoam : AppColors.cloudShadow,
               ),
             ),
           ],

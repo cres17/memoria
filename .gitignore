@@ -1,0 +1,44 @@
+# Flutter/Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+pubspec.lock
+build/
+*.g.dart
+*.freezed.dart
+
+# Android
+android/local.properties
+android/.gradle/
+android/app/build/
+android/captures/
+.android/
+
+# iOS
+ios/.symlinks/
+ios/Pods/
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
+.ios/
+
+# IDE
+.idea/workspace.xml
+.idea/tasks.xml
+.idea/usage.statistics.xml
+*.iml
+*.ipr
+*.iws
+
+# Generated ML/data artifacts
+.claude/worktrees/
+ml/test_checkpoints/
+ml/test_data/
+ml/__pycache__/
+ml_pipeline/checkpoints/
+ml_pipeline/data/
+ml_pipeline/exports/
+snapseed/
+
+# OS
+.DS_Store
+Thumbs.db

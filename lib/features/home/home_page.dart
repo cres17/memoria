@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
+import '../../core/l10n/app_locale.dart';
+import '../../core/l10n/strings.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/utils/platform_utils.dart';
 import '../../monetization/banner_ad_widget.dart';
 import '../../monetization/feature_flags_service.dart';
 
@@ -13,44 +15,35 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
-  late AnimationController _waveCtrl;
-  late FeatureFlagsService? _flags;
+class _HomePageState extends State<HomePage> {
+  FeatureFlagsService? _flags;
 
   @override
   void initState() {
     super.initState();
-    _waveCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 4),
-    )..repeat();
     _loadFlags();
   }
 
   Future<void> _loadFlags() async {
-    final f = await FeatureFlagsService.create();
-    if (mounted) setState(() => _flags = f);
-  }
-
-  @override
-  void dispose() {
-    _waveCtrl.dispose();
-    super.dispose();
+    try {
+      final flags = await FeatureFlagsService.create();
+      if (mounted) setState(() => _flags = flags);
+    } catch (_) {
+      // 플래그 로드 실패 시 기본값(광고 비활성) 유지
+    }
   }
 
   Future<void> _pickImage() async {
-    HapticFeedback.mediumImpact();
-    final picker = ImagePicker();
-    final xFile = await picker.pickImage(source: ImageSource.gallery);
+    hapticMedium();
+    final xFile = await ImagePicker().pickImage(source: ImageSource.gallery);
     if (xFile != null && mounted) {
       context.pushNamed('editor', extra: xFile.path);
     }
   }
 
   Future<void> _takePhoto() async {
-    HapticFeedback.mediumImpact();
-    final picker = ImagePicker();
-    final xFile = await picker.pickImage(source: ImageSource.camera);
+    hapticMedium();
+    final xFile = await ImagePicker().pickImage(source: ImageSource.camera);
     if (xFile != null && mounted) {
       context.pushNamed('editor', extra: xFile.path);
     }
@@ -58,8 +51,15 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
+    return ValueListenableBuilder<Locale>(
+      valueListenable: localeNotifier,
+      builder: (_, __, ___) => _buildScaffold(context),
+    );
+  }
+
+  Widget _buildScaffold(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.oceanDeep,
+      backgroundColor: AppColors.cloudPure,
       body: Column(
         children: [
           Expanded(
@@ -67,14 +67,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               slivers: [
                 _buildAppBar(),
                 SliverToBoxAdapter(child: _buildHero()),
-                SliverToBoxAdapter(child: _buildQuickActions()),
-                SliverToBoxAdapter(child: _buildRecentSection()),
-                const SliverToBoxAdapter(child: SizedBox(height: 120)),
+                SliverToBoxAdapter(child: _buildFeatureImage()),
+                SliverToBoxAdapter(child: _buildQuickCards()),
+                SliverToBoxAdapter(child: SizedBox(height: safeBottom(context) + 100)),
               ],
             ),
           ),
-          if (_flags != null)
-            BannerAdWidget(flags: _flags!),
+          if (_flags != null) BannerAdWidget(flags: _flags!),
         ],
       ),
     );
@@ -83,270 +82,233 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   Widget _buildAppBar() {
     return SliverAppBar(
       pinned: true,
-      expandedHeight: 0,
-      backgroundColor: AppColors.oceanDeep,
-      title: Row(
+      backgroundColor: AppColors.cloudPure.withValues(alpha: 0.94),
+      surfaceTintColor: Colors.transparent,
+      title: const Row(
         children: [
-          Container(
-            width: 32,
-            height: 32,
-            decoration: BoxDecoration(
-              gradient: AppColors.foamGradient,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: const Icon(Icons.water_drop_rounded,
-                color: AppColors.cloudWhite, size: 18),
-          ),
-          const SizedBox(width: 10),
-          const Text(
+          Icon(Icons.auto_awesome_rounded,
+              color: AppColors.oceanFoam, size: 26),
+          SizedBox(width: 10),
+          Text(
             'Memoria',
             style: TextStyle(
-              fontFamily: 'Pretendard',
-              fontSize: 22,
+              fontFamily: 'Domine',
+              fontSize: 26,
               fontWeight: FontWeight.w700,
-              color: AppColors.textOnDark,
-              letterSpacing: -0.5,
+              color: AppColors.oceanFoam,
             ),
           ),
         ],
       ),
       actions: [
-        IconButton(
-          icon: const Icon(Icons.settings_rounded,
-              color: AppColors.textOnDarkSub, size: 22),
-          onPressed: () => context.pushNamed('settings'),
+        Padding(
+          padding: const EdgeInsets.only(right: 16),
+          child: IconButton.filledTonal(
+            style: IconButton.styleFrom(
+              backgroundColor: AppColors.cloudVeil,
+              foregroundColor: AppColors.oceanFoam,
+            ),
+            icon: const Icon(Icons.settings_outlined),
+            onPressed: () => context.pushNamed('settings'),
+          ),
         ),
       ],
     );
   }
 
   Widget _buildHero() {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(20, 8, 20, 0),
-      height: 220,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(28),
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Color(0xFF0D2137),
-            Color(0xFF1A4A80),
-            Color(0xFF0F3560),
-          ],
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.oceanBlue.withOpacity(0.3),
-            blurRadius: 24,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Stack(
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 36, 24, 22),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Animated wave circles
-          AnimatedBuilder(
-            animation: _waveCtrl,
-            builder: (_, __) => CustomPaint(
-              painter: _WavePainter(_waveCtrl.value),
-              size: const Size(double.infinity, 220),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: AppColors.oceanBlue.withValues(alpha: 0.72),
+              borderRadius: BorderRadius.circular(999),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.end,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: AppColors.oceanFoam.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: AppColors.oceanFoam.withOpacity(0.3),
-                    ),
-                  ),
-                  child: const Text(
-                    'AI 필터 생성',
-                    style: TextStyle(
-                      fontFamily: 'Pretendard',
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.oceanFoam,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                const Text(
-                  '사진 한 장으로\n나만의 필터를',
-                  style: TextStyle(
-                    fontFamily: 'Pretendard',
-                    fontSize: 26,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textOnDark,
-                    height: 1.2,
-                    letterSpacing: -0.5,
-                  ),
-                ),
-                const SizedBox(height: 4),
+                const Icon(Icons.auto_awesome_rounded,
+                    color: AppColors.oceanMist, size: 15),
+                const SizedBox(width: 8),
                 Text(
-                  '스타일 이미지를 업로드하면 AI가 커스텀 LUT 필터를 생성합니다',
+                  S.get('app.tagline'),
                   style: TextStyle(
-                    fontFamily: 'Pretendard',
-                    fontSize: 13,
-                    fontWeight: FontWeight.w400,
-                    color: AppColors.textOnDark.withOpacity(0.6),
-                    height: 1.4,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.oceanMist,
                   ),
                 ),
               ],
             ),
           ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildQuickActions() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            '시작하기',
-            style: TextStyle(
-              fontFamily: 'Pretendard',
-              fontSize: 18,
+          const SizedBox(height: 26),
+          Text(
+            S.get('home.headline'),
+            style: const TextStyle(
+              fontFamily: 'Domine',
+              fontSize: 34,
+              height: 1.12,
               fontWeight: FontWeight.w700,
-              color: AppColors.textOnDark,
-              letterSpacing: -0.3,
+              color: AppColors.textPrimary,
             ),
           ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: _ActionCard(
-                  icon: Icons.photo_library_rounded,
-                  title: '갤러리에서\n사진 선택',
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF1B6CA8), Color(0xFF2E87C8)],
-                  ),
-                  onTap: _pickImage,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _ActionCard(
-                  icon: Icons.camera_alt_rounded,
-                  title: '카메라로\n촬영',
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF0D3A6B), Color(0xFF1E5082)],
-                  ),
-                  onTap: _takePhoto,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _ActionCard(
-                  icon: Icons.auto_awesome_rounded,
-                  title: '필터\n만들기',
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF2C5F8A), Color(0xFF4B9CD3)],
-                  ),
-                  onTap: () => context.pushNamed('createFilter'),
-                ),
-              ),
-            ],
+          const SizedBox(height: 26),
+          Text(
+            S.get('home.subtitle'),
+            style: TextStyle(
+              fontSize: 17,
+              height: 1.55,
+              color: AppColors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 34),
+          FilledButton.icon(
+            onPressed: _pickImage,
+            icon: const Icon(Icons.add_a_photo_outlined),
+            label: Text(S.get('home.cta')),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildRecentSection() {
+  Widget _buildFeatureImage() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 28, 20, 0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                '최근 편집',
-                style: TextStyle(
-                  fontFamily: 'Pretendard',
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textOnDark,
-                  letterSpacing: -0.3,
-                ),
-              ),
-              TextButton(
-                onPressed: () {},
-                child: const Text('전체보기',
-                    style: TextStyle(
-                      fontFamily: 'Pretendard',
-                      fontSize: 14,
-                      color: AppColors.oceanFoam,
-                    )),
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: GestureDetector(
+        onTap: _pickImage,
+        child: Container(
+          height: 328,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(32),
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFFC17A55), Color(0xFF3A1D14)],
+            ),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x1A032111),
+                blurRadius: 28,
+                offset: Offset(0, 14),
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          _buildEmptyRecent(),
-        ],
+          child: Stack(
+            children: [
+              Center(
+                child: Container(
+                  width: 168,
+                  height: 238,
+                  decoration: BoxDecoration(
+                    color: AppColors.cloudVeil,
+                    borderRadius: BorderRadius.circular(28),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x33000000),
+                        blurRadius: 22,
+                        offset: Offset(0, 10),
+                      ),
+                    ],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(28),
+                    child: Image.asset(
+                      'assets/frames/hp_frame_04_medium.jpg',
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => const Icon(
+                        Icons.photo_outlined,
+                        size: 48,
+                        color: AppColors.textTertiary,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                left: 26,
+                bottom: 26,
+                right: 80,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _Pill(
+                      icon: Icons.circle,
+                      label: S.get('home.location'),
+                      light: true,
+                    ),
+                    SizedBox(height: 12),
+                    Text(
+                      S.get('home.photo_title'),
+                      style: TextStyle(
+                        fontFamily: 'Domine',
+                        fontSize: 25,
+                        height: 1.15,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.cloudWhite,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Positioned(
+                right: 24,
+                bottom: 36,
+                child: _CircleButton(
+                  icon: Icons.favorite_border_rounded,
+                  onTap: _takePhoto,
+                  light: true,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
 
-  Widget _buildEmptyRecent() {
-    return Container(
-      height: 120,
-      decoration: BoxDecoration(
-        color: AppColors.oceanMid,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.oceanNavy),
-      ),
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.photo_album_outlined,
-                color: AppColors.textOnDarkTert, size: 32),
-            const SizedBox(height: 8),
-            Text(
-              '아직 편집한 사진이 없어요',
-              style: TextStyle(
-                fontFamily: 'Pretendard',
-                fontSize: 14,
-                color: AppColors.textOnDarkTert,
-              ),
-            ),
-          ],
-        ),
+  Widget _buildQuickCards() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+      child: Column(
+        children: [
+          _InfoCard(
+            icon: Icons.filter_vintage_rounded,
+            title: S.get('home.card_tones'),
+            body: S.get('home.card_tones_body'),
+            onTap: () => context.go('/filters'),
+          ),
+          const SizedBox(height: 16),
+          _InfoCard(
+            icon: Icons.auto_awesome_rounded,
+            title: S.get('home.card_ai'),
+            body: S.get('home.card_ai_body'),
+            tinted: true,
+            onTap: () => context.pushNamed('createFilter'),
+          ),
+        ],
       ),
     );
   }
 }
 
-class _ActionCard extends StatelessWidget {
+class _InfoCard extends StatelessWidget {
   final IconData icon;
   final String title;
-  final LinearGradient gradient;
+  final String body;
+  final bool tinted;
   final VoidCallback onTap;
 
-  const _ActionCard({
+  const _InfoCard({
     required this.icon,
     required this.title,
-    required this.gradient,
+    required this.body,
     required this.onTap,
+    this.tinted = false,
   });
 
   @override
@@ -354,32 +316,49 @@ class _ActionCard extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        height: 110,
+        width: double.infinity,
+        padding: const EdgeInsets.all(30),
         decoration: BoxDecoration(
-          gradient: gradient,
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
+          color: tinted ? AppColors.oceanBlue : AppColors.cloudWhite,
+          borderRadius: BorderRadius.circular(32),
+          border: Border.all(color: AppColors.cloudVeil),
+          boxShadow: const [
             BoxShadow(
-              color: AppColors.oceanBlue.withOpacity(0.2),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
+              color: Color(0x0F032111),
+              blurRadius: 22,
+              offset: Offset(0, 10),
             ),
           ],
         ),
-        padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(icon, color: AppColors.cloudWhite, size: 26),
-            const Spacer(),
+            Container(
+              width: 58,
+              height: 58,
+              decoration: BoxDecoration(
+                color: AppColors.oceanFoam.withValues(alpha: 0.08),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, color: AppColors.oceanFoam, size: 26),
+            ),
+            const SizedBox(height: 24),
             Text(
               title,
               style: const TextStyle(
-                fontFamily: 'Pretendard',
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: AppColors.cloudWhite,
-                height: 1.3,
+                fontFamily: 'Domine',
+                fontSize: 24,
+                fontWeight: FontWeight.w700,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              body,
+              style: const TextStyle(
+                fontSize: 16,
+                height: 1.55,
+                color: AppColors.textSecondary,
               ),
             ),
           ],
@@ -389,27 +368,73 @@ class _ActionCard extends StatelessWidget {
   }
 }
 
-class _WavePainter extends CustomPainter {
-  final double t;
-  _WavePainter(this.t);
+class _Pill extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool light;
+
+  const _Pill({required this.icon, required this.label, this.light = false});
 
   @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = AppColors.oceanFoam.withOpacity(0.05)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5;
-
-    for (int i = 0; i < 3; i++) {
-      final r = 60.0 + 50.0 * i + (t * 30) % 50;
-      canvas.drawCircle(
-        Offset(size.width * 0.85, size.height * 0.25),
-        r,
-        paint,
-      );
-    }
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      decoration: BoxDecoration(
+        color: light
+            ? AppColors.cloudWhite.withValues(alpha: 0.22)
+            : AppColors.oceanBlue,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon,
+              size: 9,
+              color: light ? AppColors.accentGlow : AppColors.oceanFoam),
+          const SizedBox(width: 8),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: light ? AppColors.cloudWhite : AppColors.oceanFoam,
+            ),
+          ),
+        ],
+      ),
+    );
   }
+}
+
+class _CircleButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+  final bool light;
+
+  const _CircleButton({
+    required this.icon,
+    required this.onTap,
+    this.light = false,
+  });
 
   @override
-  bool shouldRepaint(_WavePainter old) => old.t != t;
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 52,
+        height: 52,
+        decoration: BoxDecoration(
+          color: light
+              ? AppColors.cloudWhite.withValues(alpha: 0.18)
+              : AppColors.cloudVeil,
+          shape: BoxShape.circle,
+        ),
+        child: Icon(
+          icon,
+          color: light ? AppColors.cloudWhite : AppColors.oceanFoam,
+        ),
+      ),
+    );
+  }
 }

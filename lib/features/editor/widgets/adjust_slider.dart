@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/utils/platform_utils.dart';
 
 class AdjustSliderItem {
   final String label;
@@ -27,7 +27,6 @@ class AdjustSlider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final pct = ((item.value - item.min) / (item.max - item.min)).clamp(0.0, 1.0);
     final isNeutral = item.value.abs() < 0.5;
 
     return Column(
@@ -47,7 +46,7 @@ class AdjustSlider extends StatelessWidget {
                   Text(
                     item.label,
                     style: const TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NotoSerif',
                       fontSize: 14,
                       fontWeight: FontWeight.w500,
                       color: AppColors.textOnDarkSub,
@@ -61,19 +60,19 @@ class AdjustSlider extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: isNeutral
                       ? AppColors.oceanNavy
-                      : AppColors.oceanTeal.withOpacity(0.2),
+                      : AppColors.oceanTeal.withValues(alpha:0.2),
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(
                     color: isNeutral
                         ? Colors.transparent
-                        : AppColors.oceanFoam.withOpacity(0.4),
+                        : AppColors.oceanFoam.withValues(alpha:0.4),
                     width: 0.8,
                   ),
                 ),
                 child: Text(
                   _formatValue(item.value),
                   style: TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NotoSerif',
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
                     color: isNeutral
@@ -91,7 +90,7 @@ class AdjustSlider extends StatelessWidget {
             activeTrackColor: AppColors.oceanFoam,
             inactiveTrackColor: AppColors.oceanNavy,
             thumbColor: AppColors.cloudWhite,
-            overlayColor: AppColors.oceanFoam.withOpacity(0.15),
+            overlayColor: AppColors.oceanFoam.withValues(alpha:0.15),
             trackHeight: 3,
             thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 10),
           ),
@@ -100,7 +99,7 @@ class AdjustSlider extends StatelessWidget {
             min: item.min,
             max: item.max,
             onChanged: (v) {
-              HapticFeedback.selectionClick();
+              hapticLight();
               item.onChanged(v);
             },
           ),
@@ -143,7 +142,7 @@ class AdjustParamsPanel extends StatelessWidget {
               final selected = i == selectedIndex;
               return GestureDetector(
                 onTap: () {
-                  HapticFeedback.selectionClick();
+                  hapticLight();
                   onSelectIndex(i);
                 },
                 child: AnimatedContainer(
@@ -165,7 +164,7 @@ class AdjustParamsPanel extends StatelessWidget {
                       Text(
                         items[i].label,
                         style: TextStyle(
-                          fontFamily: 'Pretendard',
+                          fontFamily: 'NotoSerif',
                           fontSize: 11,
                           fontWeight: FontWeight.w500,
                           color: selected

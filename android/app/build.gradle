@@ -1,0 +1,64 @@
+plugins {
+    id "com.android.application"
+    id "kotlin-android"
+    id "dev.flutter.flutter-gradle-plugin"
+}
+
+android {
+    namespace "com.memoria"
+    compileSdk flutter.compileSdkVersion
+    ndkVersion flutter.ndkVersion
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
+    defaultConfig {
+        applicationId "com.memoria.photofilter"
+        minSdk 24
+        targetSdk flutter.targetSdkVersion
+        versionCode flutter.versionCode
+        versionName flutter.versionName
+        multiDexEnabled true
+    }
+
+    // TODO(release): create signingConfigs.release before store upload
+    // Steps:
+    //   1. keytool -genkey -v -keystore memoria-release.jks -alias memoria -keyalg RSA -keysize 2048 -validity 10000
+    //   2. Add to signingConfigs block:
+    //      release {
+    //          storeFile file("../../memoria-release.jks")   // keep outside repo
+    //          storePassword System.getenv("KEYSTORE_PASS")
+    //          keyAlias "memoria"
+    //          keyPassword System.getenv("KEY_PASS")
+    //      }
+    //   3. Change release.signingConfig to signingConfigs.release
+    buildTypes {
+        debug {
+            shrinkResources false
+            minifyEnabled false
+        }
+        release {
+            // TODO(release): change to signingConfigs.release after keystore setup
+            signingConfig signingConfigs.debug
+            shrinkResources true
+            minifyEnabled true
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+        }
+    }
+}
+
+flutter {
+    source "../.."
+}
+
+dependencies {
+    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8"
+    implementation "androidx.core:core-ktx:1.12.0"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"
+}

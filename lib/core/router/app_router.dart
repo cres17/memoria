@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
 import '../../features/home/home_page.dart';
 import '../../features/editor/editor_page.dart';
@@ -6,11 +6,17 @@ import '../../features/filters/filters_page.dart';
 import '../../features/create_filter/create_filter_page.dart';
 import '../../features/settings/settings_page.dart';
 import '../../features/settings/dev_panel_page.dart';
+import '../../features/splash/splash_page.dart';
 import '../shell/main_shell.dart';
 
 final appRouter = GoRouter(
-  initialLocation: '/',
+  initialLocation: '/splash',
   routes: [
+    GoRoute(
+      path: '/splash',
+      name: 'splash',
+      builder: (context, state) => const SplashPage(),
+    ),
     ShellRoute(
       builder: (context, state, child) => MainShell(child: child),
       routes: [
@@ -30,8 +36,14 @@ final appRouter = GoRouter(
       path: '/editor',
       name: 'editor',
       builder: (context, state) {
-        final imagePath = state.extra as String?;
-        return EditorPage(imagePath: imagePath);
+        final extra = state.extra;
+        if (extra is Map<String, String?>) {
+          return EditorPage(
+            imagePath: extra['imagePath'],
+            initialPresetId: extra['presetId'],
+          );
+        }
+        return EditorPage(imagePath: extra as String?);
       },
     ),
     GoRoute(
@@ -44,10 +56,11 @@ final appRouter = GoRouter(
       name: 'settings',
       builder: (context, state) => const SettingsPage(),
     ),
-    GoRoute(
-      path: '/dev-panel',
-      name: 'devPanel',
-      builder: (context, state) => const DevPanelPage(),
-    ),
+    if (kDebugMode)
+      GoRoute(
+        path: '/dev-panel',
+        name: 'devPanel',
+        builder: (context, state) => const DevPanelPage(),
+      ),
   ],
 );

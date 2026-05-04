@@ -9,21 +9,21 @@ class AppTheme {
   static ThemeData _buildDark() {
     const base = ColorScheme.dark(
       brightness: Brightness.dark,
-      primary:        AppColors.oceanFoam,
-      onPrimary:      AppColors.oceanAbyss,
-      secondary:      AppColors.oceanMist,
-      onSecondary:    AppColors.oceanAbyss,
-      surface:        AppColors.oceanMid,
-      onSurface:      AppColors.textOnDark,
-      error:          AppColors.accentError,
-      onError:        AppColors.cloudWhite,
+      primary: AppColors.oceanFoam,
+      onPrimary: AppColors.oceanAbyss,
+      secondary: AppColors.oceanMist,
+      onSecondary: AppColors.oceanAbyss,
+      surface: AppColors.oceanMid,
+      onSurface: AppColors.textOnDark,
+      error: AppColors.accentError,
+      onError: AppColors.cloudWhite,
     );
 
     return ThemeData(
       useMaterial3: true,
       colorScheme: base,
       scaffoldBackgroundColor: AppColors.oceanDeep,
-      fontFamily: 'Pretendard',
+      fontFamily: 'NotoSerif',
       appBarTheme: const AppBarTheme(
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -31,7 +31,7 @@ class AppTheme {
         systemOverlayStyle: SystemUiOverlayStyle.light,
         iconTheme: IconThemeData(color: AppColors.textOnDark),
         titleTextStyle: TextStyle(
-          fontFamily: 'Pretendard',
+          fontFamily: 'Domine',
           fontSize: 18,
           fontWeight: FontWeight.w600,
           color: AppColors.textOnDark,
@@ -55,7 +55,7 @@ class AppTheme {
       ),
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: AppColors.oceanMid,
-        indicatorColor: AppColors.oceanTeal.withOpacity(0.3),
+        indicatorColor: AppColors.oceanTeal.withValues(alpha: 0.3),
         iconTheme: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.selected)) {
             return const IconThemeData(color: AppColors.oceanFoam);
@@ -65,14 +65,14 @@ class AppTheme {
         labelTextStyle: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.selected)) {
             return const TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NotoSerif',
               fontSize: 11,
               fontWeight: FontWeight.w600,
               color: AppColors.oceanFoam,
             );
           }
           return const TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NotoSerif',
             fontSize: 11,
             fontWeight: FontWeight.w400,
             color: AppColors.textOnDarkTert,
@@ -83,7 +83,7 @@ class AppTheme {
         activeTrackColor: AppColors.oceanFoam,
         inactiveTrackColor: AppColors.oceanNavy,
         thumbColor: AppColors.cloudWhite,
-        overlayColor: AppColors.oceanFoam.withOpacity(0.2),
+        overlayColor: AppColors.oceanFoam.withValues(alpha: 0.2),
         trackHeight: 3,
         thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 10),
       ),
@@ -106,7 +106,7 @@ class AppTheme {
             borderRadius: BorderRadius.circular(16),
           ),
           textStyle: const TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NotoSerif',
             fontSize: 16,
             fontWeight: FontWeight.w600,
             letterSpacing: -0.2,
@@ -122,7 +122,7 @@ class AppTheme {
             borderRadius: BorderRadius.circular(16),
           ),
           textStyle: const TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NotoSerif',
             fontSize: 16,
             fontWeight: FontWeight.w600,
             letterSpacing: -0.2,
@@ -133,7 +133,7 @@ class AppTheme {
         style: TextButton.styleFrom(
           foregroundColor: AppColors.oceanFoam,
           textStyle: const TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NotoSerif',
             fontSize: 15,
             fontWeight: FontWeight.w500,
           ),
@@ -146,10 +146,11 @@ class AppTheme {
           borderRadius: BorderRadius.circular(14),
           borderSide: BorderSide.none,
         ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         hintStyle: const TextStyle(
           color: AppColors.textOnDarkTert,
-          fontFamily: 'Pretendard',
+          fontFamily: 'NotoSerif',
           fontSize: 15,
         ),
       ),
@@ -159,20 +160,20 @@ class AppTheme {
   static ThemeData _buildLight() {
     const base = ColorScheme.light(
       brightness: Brightness.light,
-      primary:        AppColors.oceanTeal,
-      onPrimary:      AppColors.cloudWhite,
-      secondary:      AppColors.oceanSky,
-      onSecondary:    AppColors.cloudWhite,
-      surface:        AppColors.cloudWhite,
-      onSurface:      AppColors.textPrimary,
-      error:          AppColors.accentError,
+      primary: AppColors.oceanFoam,
+      onPrimary: AppColors.cloudWhite,
+      secondary: AppColors.oceanMist,
+      onSecondary: AppColors.cloudWhite,
+      surface: AppColors.cloudWhite,
+      onSurface: AppColors.textPrimary,
+      error: AppColors.accentError,
     );
 
     return ThemeData(
       useMaterial3: true,
       colorScheme: base,
-      scaffoldBackgroundColor: AppColors.cloudSilk,
-      fontFamily: 'Pretendard',
+      scaffoldBackgroundColor: AppColors.cloudPure,
+      fontFamily: 'NotoSerif',
       appBarTheme: const AppBarTheme(
         backgroundColor: AppColors.cloudPure,
         elevation: 0,
@@ -181,11 +182,10 @@ class AppTheme {
         systemOverlayStyle: SystemUiOverlayStyle.dark,
         iconTheme: IconThemeData(color: AppColors.textPrimary),
         titleTextStyle: TextStyle(
-          fontFamily: 'Pretendard',
-          fontSize: 18,
-          fontWeight: FontWeight.w600,
-          color: AppColors.textPrimary,
-          letterSpacing: -0.3,
+          fontFamily: 'Domine',
+          fontSize: 22,
+          fontWeight: FontWeight.w700,
+          color: AppColors.oceanFoam,
         ),
       ),
       cardTheme: CardThemeData(
@@ -194,6 +194,53 @@ class AppTheme {
         shadowColor: AppColors.cloudMist,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(20),
+        ),
+      ),
+      sliderTheme: SliderThemeData(
+        activeTrackColor: AppColors.oceanFoam,
+        inactiveTrackColor: AppColors.oceanNavy,
+        thumbColor: AppColors.cloudWhite,
+        overlayColor: AppColors.oceanFoam.withValues(alpha: 0.12),
+        trackHeight: 12,
+        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 16),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          backgroundColor: AppColors.accentPrimary,
+          foregroundColor: AppColors.cloudWhite,
+          minimumSize: const Size.fromHeight(56),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(28),
+          ),
+          textStyle: const TextStyle(
+            fontFamily: 'NotoSerif',
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: AppColors.cloudWhite,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: AppColors.cloudMist),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: AppColors.cloudMist),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: AppColors.oceanFoam, width: 1.2),
+        ),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        hintStyle: const TextStyle(color: AppColors.textTertiary),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          foregroundColor: AppColors.oceanFoam,
         ),
       ),
     );
