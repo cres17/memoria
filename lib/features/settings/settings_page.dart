@@ -1,8 +1,11 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
+import 'package:path_provider/path_provider.dart';
+import '../../core/l10n/app_locale.dart';
+import '../../core/l10n/strings.dart';
 import '../../core/theme/app_colors.dart';
-import '../../monetization/feature_flags_service.dart';
+import '../../core/utils/platform_utils.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -12,34 +15,134 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  FeatureFlagsService? _flags;
   int _versionTapCount = 0;
 
   @override
   void initState() {
     super.initState();
-    _load();
+    setStatusBarForDark();
   }
 
-  Future<void> _load() async {
-    final f = await FeatureFlagsService.create();
-    if (mounted) setState(() => _flags = f);
+  @override
+  void dispose() {
+    setStatusBarForLight();
+    super.dispose();
+  }
+
+  Future<void> _clearCache() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: AppColors.oceanMid,
+        title: const Text('캐시 지우기', style: TextStyle(color: AppColors.textOnDark)),
+        content: const Text('임시 파일을 모두 삭제합니다.', style: TextStyle(color: AppColors.textOnDarkSub)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('취소', style: TextStyle(color: AppColors.textOnDarkTert)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('삭제', style: TextStyle(color: AppColors.oceanFoam)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    try {
+      final temp = await getTemporaryDirectory();
+      for (final e in temp.listSync()) {
+        try { e.deleteSync(recursive: true); } catch (_) {}
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('캐시가 삭제되었습니다.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('삭제 실패: $e'), behavior: SnackBarBehavior.floating),
+        );
+      }
+    }
+  }
+
+  void _showLanguagePicker() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.oceanMid,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 12),
+            Container(
+              width: 40, height: 4,
+              decoration: BoxDecoration(
+                color: AppColors.oceanNavy,
+                borderRadius: BorderRadius.circular(99),
+              ),
+            ),
+            const SizedBox(height: 16),
+            ListTile(
+              leading: const Icon(Icons.check_rounded, color: Colors.transparent),
+              title: const Text('한국어', style: TextStyle(color: AppColors.textOnDark)),
+              trailing: ValueListenableBuilder<Locale>(
+                valueListenable: localeNotifier,
+                builder: (_, locale, __) => locale.languageCode == 'ko'
+                    ? const Icon(Icons.check_rounded, color: AppColors.oceanFoam)
+                    : const SizedBox.shrink(),
+              ),
+              onTap: () { setLocale('ko'); Navigator.pop(context); },
+            ),
+            ListTile(
+              leading: const Icon(Icons.check_rounded, color: Colors.transparent),
+              title: const Text('English', style: TextStyle(color: AppColors.textOnDark)),
+              trailing: ValueListenableBuilder<Locale>(
+                valueListenable: localeNotifier,
+                builder: (_, locale, __) => locale.languageCode == 'en'
+                    ? const Icon(Icons.check_rounded, color: AppColors.oceanFoam)
+                    : const SizedBox.shrink(),
+              ),
+              onTap: () { setLocale('en'); Navigator.pop(context); },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showLicenses() {
+    showLicensePage(
+      context: context,
+      applicationName: 'Memoria',
+      applicationVersion: '1.0.0',
+    );
   }
 
   void _onVersionTap() {
+    if (!kDebugMode) return;
     _versionTapCount++;
     if (_versionTapCount >= 7) {
       _versionTapCount = 0;
-      HapticFeedback.heavyImpact();
+      hapticHeavy();
       context.pushNamed('devPanel');
     } else if (_versionTapCount >= 4) {
-      HapticFeedback.selectionClick();
+      hapticLight();
       final remaining = 7 - _versionTapCount;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             '개발자 모드까지 $remaining번 더 탭하세요',
-            style: const TextStyle(fontFamily: 'Pretendard'),
           ),
           duration: const Duration(seconds: 1),
           backgroundColor: AppColors.oceanNavy,
@@ -57,14 +160,13 @@ class _SettingsPageState extends State<SettingsPage> {
       appBar: AppBar(
         backgroundColor: AppColors.oceanDeep,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_rounded,
-              color: AppColors.textOnDark),
+          icon: Icon(backIcon(), color: AppColors.textOnDark),
           onPressed: () => context.pop(),
         ),
-        title: const Text(
-          '설정',
+        title: Text(
+          S.get('settings.title'),
           style: TextStyle(
-            fontFamily: 'Pretendard',
+            fontFamily: 'NotoSerif',
             fontSize: 18,
             fontWeight: FontWeight.w700,
             color: AppColors.textOnDark,
@@ -74,48 +176,63 @@ class _SettingsPageState extends State<SettingsPage> {
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
-          _SectionHeader(title: '저장소'),
+          const _SectionHeader(title: '저장소'),
           _SettingCard(
             children: [
-              _SettingRow(
+              const _SettingRow(
                 icon: Icons.folder_outlined,
                 title: '필터 저장 위치',
                 subtitle: '앱 내부 저장소',
-                onTap: () {},
+                onTap: null,
               ),
               const _Divider(),
               _SettingRow(
                 icon: Icons.delete_sweep_outlined,
                 title: '캐시 지우기',
-                onTap: () {},
+                onTap: _clearCache,
               ),
             ],
           ),
           const SizedBox(height: 24),
-          _SectionHeader(title: '화질'),
+          const _SectionHeader(title: '언어'),
           _SettingCard(
+            children: [
+              ValueListenableBuilder<Locale>(
+                valueListenable: localeNotifier,
+                builder: (_, locale, __) => _SettingRow(
+                  icon: Icons.language_rounded,
+                  title: '언어',
+                  subtitle: locale.languageCode == 'ko' ? '한국어' : 'English',
+                  onTap: () => _showLanguagePicker(),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          const _SectionHeader(title: '화질'),
+          const _SettingCard(
             children: [
               _SettingRow(
                 icon: Icons.high_quality_rounded,
                 title: '내보내기 품질',
-                subtitle: 'JPEG 90%',
-                onTap: () {},
+                subtitle: 'JPEG 95%',
+                onTap: null,
               ),
             ],
           ),
           const SizedBox(height: 24),
-          _SectionHeader(title: '앱 정보'),
+          const _SectionHeader(title: '앱 정보'),
           _SettingCard(
             children: [
               _SettingRow(
                 icon: Icons.info_outline_rounded,
                 title: '오픈소스 라이선스',
-                onTap: () {},
+                onTap: _showLicenses,
               ),
               const _Divider(),
               GestureDetector(
                 onTap: _onVersionTap,
-                child: _SettingRow(
+                child: const _SettingRow(
                   icon: Icons.apps_rounded,
                   title: '버전',
                   subtitle: '1.0.0 (1)',
@@ -141,7 +258,7 @@ class _SectionHeader extends StatelessWidget {
       child: Text(
         title,
         style: const TextStyle(
-          fontFamily: 'Pretendard',
+          fontFamily: 'NotoSerif',
           fontSize: 13,
           fontWeight: FontWeight.w600,
           color: AppColors.textOnDarkTert,
@@ -208,7 +325,7 @@ class _SettingRow extends StatelessWidget {
                   Text(
                     title,
                     style: const TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NotoSerif',
                       fontSize: 15,
                       fontWeight: FontWeight.w500,
                       color: AppColors.textOnDark,
@@ -219,7 +336,7 @@ class _SettingRow extends StatelessWidget {
                     Text(
                       subtitle!,
                       style: const TextStyle(
-                        fontFamily: 'Pretendard',
+                        fontFamily: 'NotoSerif',
                         fontSize: 13,
                         color: AppColors.textOnDarkTert,
                       ),

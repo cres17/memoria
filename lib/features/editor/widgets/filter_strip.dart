@@ -1,8 +1,7 @@
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/utils/platform_utils.dart';
 import '../../../domain/models/filter_preset.dart';
 
 class FilterStrip extends StatelessWidget {
@@ -33,7 +32,7 @@ class FilterStrip extends StatelessWidget {
 
           return GestureDetector(
             onTap: () {
-              HapticFeedback.selectionClick();
+              hapticLight();
               onSelect(selected ? null : preset);
             },
             child: AnimatedContainer(
@@ -64,7 +63,7 @@ class FilterStrip extends StatelessWidget {
                   Text(
                     preset.name,
                     style: TextStyle(
-                      fontFamily: 'Pretendard',
+                      fontFamily: 'NotoSerif',
                       fontSize: 11,
                       fontWeight: selected
                           ? FontWeight.w600
@@ -120,7 +119,7 @@ class _FilterThumbnail extends StatelessWidget {
         image,
         if (selected)
           Container(
-            color: AppColors.oceanFoam.withOpacity(0.15),
+            color: AppColors.oceanFoam.withValues(alpha:0.15),
           ),
       ],
     );
@@ -157,7 +156,7 @@ class IntensitySlider extends StatelessWidget {
           const Text(
             '강도',
             style: TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NotoSerif',
               fontSize: 13,
               fontWeight: FontWeight.w500,
               color: AppColors.textOnDarkSub,
@@ -170,7 +169,7 @@ class IntensitySlider extends StatelessWidget {
                 activeTrackColor: AppColors.oceanFoam,
                 inactiveTrackColor: AppColors.oceanNavy,
                 thumbColor: AppColors.cloudWhite,
-                overlayColor: AppColors.oceanFoam.withOpacity(0.15),
+                overlayColor: AppColors.oceanFoam.withValues(alpha:0.15),
                 trackHeight: 3,
               ),
               child: Slider(
@@ -178,7 +177,7 @@ class IntensitySlider extends StatelessWidget {
                 min: 0.0,
                 max: 1.0,
                 onChanged: (v) {
-                  HapticFeedback.selectionClick();
+                  hapticLight();
                   onChanged(v);
                 },
               ),
@@ -188,7 +187,7 @@ class IntensitySlider extends StatelessWidget {
           Text(
             '${(value * 100).round()}%',
             style: const TextStyle(
-              fontFamily: 'Pretendard',
+              fontFamily: 'NotoSerif',
               fontSize: 13,
               fontWeight: FontWeight.w600,
               color: AppColors.oceanFoam,

@@ -17,7 +17,8 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
   BannerAd? _ad;
   bool _loaded = false;
 
-  // Test ad unit — replace with real IDs in production
+  // TODO(release): replace with real AdMob banner unit ID from AdMob console
+  // Current value is Google's official test ID — using this in production violates AdMob policy
   static const _adUnitId = 'ca-app-pub-3940256099942544/6300978111';
 
   @override

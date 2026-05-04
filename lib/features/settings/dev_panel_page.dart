@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/utils/platform_utils.dart';
 import '../../monetization/feature_flags_service.dart';
 
 /// Hidden developer panel — accessible by tapping version 7× in Settings.
@@ -33,8 +34,7 @@ class _DevPanelPageState extends State<DevPanelPage> {
       appBar: AppBar(
         backgroundColor: AppColors.oceanDeep,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_rounded,
-              color: AppColors.textOnDark),
+          icon: Icon(backIcon(), color: AppColors.textOnDark),
           onPressed: () => context.pop(),
         ),
         title: Row(
@@ -42,13 +42,13 @@ class _DevPanelPageState extends State<DevPanelPage> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
-                color: AppColors.accentWarning.withOpacity(0.15),
+                color: AppColors.accentWarning.withValues(alpha:0.15),
                 borderRadius: BorderRadius.circular(6),
               ),
               child: const Text(
                 'DEV',
                 style: TextStyle(
-                  fontFamily: 'Pretendard',
+                  fontFamily: 'NotoSerif',
                   fontSize: 11,
                   fontWeight: FontWeight.w700,
                   color: AppColors.accentWarning,
@@ -60,7 +60,7 @@ class _DevPanelPageState extends State<DevPanelPage> {
             const Text(
               '개발자 패널',
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NotoSerif',
                 fontSize: 18,
                 fontWeight: FontWeight.w700,
                 color: AppColors.textOnDark,
@@ -119,13 +119,13 @@ class _DevPanelPageState extends State<DevPanelPage> {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppColors.accentWarning.withOpacity(0.1),
+        color: AppColors.accentWarning.withValues(alpha:0.1),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
-            color: AppColors.accentWarning.withOpacity(0.3)),
+            color: AppColors.accentWarning.withValues(alpha:0.3)),
       ),
-      child: Row(
-        children: const [
+      child: const Row(
+        children: [
           Icon(Icons.warning_amber_rounded,
               color: AppColors.accentWarning, size: 20),
           SizedBox(width: 10),
@@ -133,7 +133,7 @@ class _DevPanelPageState extends State<DevPanelPage> {
             child: Text(
               '이 패널은 개발/테스트 전용입니다. 배포 전 접근을 차단하세요.',
               style: TextStyle(
-                fontFamily: 'Pretendard',
+                fontFamily: 'NotoSerif',
                 fontSize: 13,
                 color: AppColors.accentWarning,
               ),
@@ -150,7 +150,7 @@ class _DevPanelPageState extends State<DevPanelPage> {
       child: Text(
         title,
         style: const TextStyle(
-          fontFamily: 'Pretendard',
+          fontFamily: 'NotoSerif',
           fontSize: 13,
           fontWeight: FontWeight.w600,
           color: AppColors.textOnDarkTert,
@@ -190,7 +190,7 @@ class _DevPanelPageState extends State<DevPanelPage> {
                 child: Text(
                   e.key,
                   style: const TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NotoSerif',
                     fontSize: 12,
                     color: AppColors.textOnDarkTert,
                   ),
@@ -200,14 +200,14 @@ class _DevPanelPageState extends State<DevPanelPage> {
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
                   color: e.value
-                      ? AppColors.accentSuccess.withOpacity(0.15)
-                      : AppColors.accentError.withOpacity(0.15),
+                      ? AppColors.accentSuccess.withValues(alpha:0.15)
+                      : AppColors.accentError.withValues(alpha:0.15),
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
                   e.value ? 'ON' : 'OFF',
                   style: TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NotoSerif',
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
                     color: e.value
@@ -250,7 +250,7 @@ class _FlagRow extends StatelessWidget {
                 Text(
                   title,
                   style: const TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NotoSerif',
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
                     color: AppColors.textOnDark,
@@ -260,7 +260,7 @@ class _FlagRow extends StatelessWidget {
                 Text(
                   subtitle,
                   style: const TextStyle(
-                    fontFamily: 'Pretendard',
+                    fontFamily: 'NotoSerif',
                     fontSize: 12,
                     color: AppColors.textOnDarkTert,
                   ),
@@ -271,8 +271,8 @@ class _FlagRow extends StatelessWidget {
           Switch(
             value: value,
             onChanged: onChanged,
-            activeColor: AppColors.oceanFoam,
-            activeTrackColor: AppColors.oceanTeal.withOpacity(0.4),
+            activeThumbColor: AppColors.oceanFoam,
+            activeTrackColor: AppColors.oceanTeal.withValues(alpha:0.4),
             inactiveThumbColor: AppColors.textOnDarkTert,
             inactiveTrackColor: AppColors.oceanNavy,
           ),
