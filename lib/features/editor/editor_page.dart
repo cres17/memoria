@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -6,10 +8,13 @@ import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
+import 'package:gal/gal.dart';
 import 'package:path_provider/path_provider.dart';
+import '../../core/l10n/strings.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/platform_utils.dart';
+import '../../data/repositories/filter_repository_impl.dart';
 import '../../engine/blend_modes.dart' as bm;
 import '../../engine/portrait_engine.dart';
 import '../../domain/models/adjust_params.dart';
@@ -22,6 +27,7 @@ import '../../engine/lut_engine.dart';
 import '../../engine/white_balance.dart';
 import '../../monetization/feature_flags_service.dart';
 import '../../monetization/fullscreen_ad_service.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'widgets/adjust_slider.dart';
 import 'widgets/curve_editor.dart';
 import 'widgets/filter_strip.dart';
@@ -46,6 +52,9 @@ class _EditorPageState extends State<EditorPage> {
   int _adjustIndex = 0;
   bool _exporting = false;
   double _exportProgress = 0.0;
+  bool _exportCancelled = false;
+  Isolate? _exportIsolateRef;
+  String? _exportTempPath;
 
   // Phase 2: 채널별 커브 상태
   final Map<CurveChannel, CurveData> _curves = {};
@@ -102,6 +111,7 @@ class _EditorPageState extends State<EditorPage> {
   Uint8List? _lutBytes;
   Uint8List? _previewBytes;
   bool _processingPreview = false;
+  Timer? _previewDebounce;
 
   static Float32List _radialDepthMap(int w, int h) {
     final map = Float32List(w * h);
@@ -136,6 +146,9 @@ class _EditorPageState extends State<EditorPage> {
     return img.copyCrop(image, x: x, y: y, width: cropW, height: cropH);
   }
 
+  /// Isolate 전달용: 크롭 비율을 double?으로 변환.
+  double? _currentCropRect() => _cropRatio.ratio;
+
   late List<FilterPreset> _allPresets;
   FullScreenAdService? _adService;
 
@@ -143,19 +156,13 @@ class _EditorPageState extends State<EditorPage> {
   void initState() {
     super.initState();
     _allPresets = BuiltinPresets.all;
-    _loadServices();
-    if (widget.imagePath != null) _renderPreview();
-    if (widget.initialPresetId != null) {
-      _selectedPreset = _allPresets.firstWhere(
-        (p) => p.id == widget.initialPresetId,
-        orElse: () => _allPresets.first,
-      );
-    }
+    _loadEditorState();
     setStatusBarForDark();
   }
 
   @override
   void dispose() {
+    _previewDebounce?.cancel();
     setStatusBarForLight();
     super.dispose();
   }
@@ -183,17 +190,64 @@ class _EditorPageState extends State<EditorPage> {
       x: (newW - W) ~/ 2, y: (newH - H) ~/ 2, width: W, height: H);
   }
 
-  Future<void> _loadServices() async {
-    final f = await FeatureFlagsService.create();
-    if (mounted) setState(() { _adService = FullScreenAdService(f); });
+  Future<void> _loadEditorState() async {
+    try {
+      final flags = await FeatureFlagsService.create();
+      final customPresets = await FilterRepositoryImpl().getCustomPresets();
+      final presets = [
+        ...customPresets,
+        ...BuiltinPresets.all,
+      ];
+
+      FilterPreset? initialPreset;
+      if (widget.initialPresetId != null) {
+        for (final preset in presets) {
+          if (preset.id == widget.initialPresetId) {
+            initialPreset = preset;
+            break;
+          }
+        }
+      }
+
+      final initialLut = initialPreset == null
+          ? null
+          : await loadLutBytes(initialPreset.lutPath);
+
+      if (!mounted) return;
+      setState(() {
+        _adService = FullScreenAdService(flags);
+        _allPresets = presets;
+        _selectedPreset = initialPreset;
+        _params = initialPreset?.params ?? AdjustParams.zero;
+        _intensity = initialPreset?.defaultIntensity ?? 1.0;
+        _lutBytes = initialLut;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _allPresets = BuiltinPresets.all;
+      });
+    }
+
+    if (widget.imagePath != null) {
+      await _renderPreview();
+    }
   }
 
   Future<void> _selectPreset(FilterPreset? preset) async {
-    setState(() => _selectedPreset = preset);
-    _lutBytes = preset == null
-        ? null
-        : await loadLutBytes(preset.lutPath);
+    final lutBytes = preset == null ? null : await loadLutBytes(preset.lutPath);
+    setState(() {
+      _selectedPreset = preset;
+      _params = preset?.params ?? AdjustParams.zero;
+      _intensity = preset?.defaultIntensity ?? 1.0;
+      _lutBytes = lutBytes;
+    });
     await _renderPreview();
+  }
+
+  void _debouncedPreview() {
+    _previewDebounce?.cancel();
+    _previewDebounce = Timer(const Duration(milliseconds: 250), _renderPreview);
   }
 
   Future<void> _renderPreview() async {
@@ -202,7 +256,16 @@ class _EditorPageState extends State<EditorPage> {
 
     try {
       final bytes = File(widget.imagePath!).readAsBytesSync();
-      var image   = img.decodeImage(bytes)!;
+      final decoded = img.decodeImage(bytes);
+      if (decoded == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(S.get('editor.invalid_image')), behavior: SnackBarBehavior.floating),
+          );
+        }
+        return;
+      }
+      var image = decoded;
 
       // Phase 5: 기하학 변환 (크롭 → 회전/플립 순서)
       image = _applyCropToImage(image);
@@ -282,87 +345,97 @@ class _EditorPageState extends State<EditorPage> {
       await _adService!.show(FullScreenAdTrigger.applyOrExport);
     }
 
-    setState(() { _exporting = true; _exportProgress = 0; });
+    setState(() { _exporting = true; _exportProgress = 0; _exportCancelled = false; });
+
+    final receivePort = ReceivePort();
+    String? tempPath;
 
     try {
-      final bytes = File(widget.imagePath!).readAsBytesSync();
-      var image   = img.decodeImage(bytes)!;
+      final tempDir = await getTemporaryDirectory();
+      tempPath = '${tempDir.path}/memoria_${DateTime.now().microsecondsSinceEpoch}.jpg';
+      _exportTempPath = tempPath;
 
-      // Phase 5: 기하학 변환
-      image = _applyCropToImage(image);
-      if (_flipH || _flipV) {
-        final dir = _flipH && _flipV
-            ? img.FlipDirection.both
-            : _flipH ? img.FlipDirection.horizontal : img.FlipDirection.vertical;
-        image = img.copyFlip(image, direction: dir);
-      }
-      if (_rotation != 0) {
-        image = img.copyRotate(image, angle: _rotation);
-      }
-      if (_perspH != 0 || _perspV != 0) {
-        image = _applyPerspectiveSkew(image, _perspH, _perspV);
-      }
-
-      var out = applyImagePipeline(
-        image:     image,  // already geom-transformed
-        params:    _params,
-        lutBytes:  _lutBytes,
-        intensity: _intensity,
+      final params = _ExportParams(
+        imagePath:      widget.imagePath!,
+        outPath:        tempPath,
+        adjustParams:   _params,
+        lutBytes:       _lutBytes,
+        intensity:      _intensity,
+        cropRect:       _currentCropRect(),
+        flipH:          _flipH,
+        flipV:          _flipV,
+        rotation:       _rotation,
+        perspH:         _perspH,
+        perspV:         _perspV,
+        effect:         _effect,
+        effectStrength: _effectStrength,
+        grainVariant:   _grainVariant,
+        selActive:      _selActive,
+        selX: _selX, selY: _selY,
+        selBright: _selBright, selContrast: _selContrast,
+        selSat: _selSat, selRadius: _selRadius,
+        dbActive:       _dbActive,
+        dodgeStrength:  _dodgeStrength, dodgeY: _dodgeY, dodgeRadius: _dodgeRadius,
+        burnStrength:   _burnStrength,  burnY:  _burnY,  burnRadius:  _burnRadius,
+        tiltActive:     _tiltActive,
+        tiltFocusCenter: _tiltFocusCenter, tiltBandWidth: _tiltBandWidth, tiltMaxBlur: _tiltMaxBlur,
+        lensActive:     _lensActive,
+        lensFocusDepth: _lensFocusDepth, lensMaxRadius: _lensMaxRadius,
+        sendPort:       receivePort.sendPort,
       );
 
-      // Phase 6: 로컬 조정
-      if (_selActive) {
-        out = applySelectiveAdjust(out, [
-          SelectivePoint(x: _selX, y: _selY, brightness: _selBright,
-              contrast: _selContrast, saturation: _selSat, radius: _selRadius),
-        ]);
-      }
-      if (_dbActive) {
-        out = applyDodgeBurn(out, [
-          if (_dodgeStrength > 0) BrushStroke(x: 0.5, y: _dodgeY,
-              radius: _dodgeRadius, strength: _dodgeStrength, isDodge: true),
-          if (_burnStrength  > 0) BrushStroke(x: 0.5, y: _burnY,
-              radius: _burnRadius,  strength: _burnStrength,  isDodge: false),
-        ]);
-      }
-      if (_tiltActive) {
-        out = applyLinearTiltShift(image: out, focusCenter: _tiltFocusCenter,
-            focusBandWidth: _tiltBandWidth, maxBlur: _tiltMaxBlur);
-      }
-      if (_lensActive) {
-        out = applyLensBlur(image: out,
-            depthMap: _radialDepthMap(out.width, out.height),
-            focusDepth: _lensFocusDepth, maxBlurRadius: _lensMaxRadius);
+      _exportIsolateRef = await Isolate.spawn(_exportWorker, params);
+
+      await for (final msg in receivePort) {
+        if (_exportCancelled) break;
+        if (msg is double) {
+          if (mounted) setState(() => _exportProgress = msg);
+        } else if (msg == 'done') {
+          break;
+        } else if (msg is String && msg.startsWith('error:')) {
+          throw Exception(msg.substring(6));
+        }
       }
 
-      if (mounted) setState(() => _exportProgress = 0.9);
+      if (_exportCancelled) return;
 
-      // 결과물 저장
-      final docsDir = await getApplicationDocumentsDirectory();
-      final outPath = '${docsDir.path}/export_${DateTime.now().millisecondsSinceEpoch}.jpg';
-      final outFile = File(outPath);
-      outFile.writeAsBytesSync(img.encodeJpg(out, quality: 95));
-
-      if (!outFile.existsSync() || outFile.lengthSync() == 0) {
-        throw Exception('저장 파일이 생성되지 않았습니다.');
-      }
-
+      await Gal.putImage(tempPath);
       if (mounted) setState(() => _exportProgress = 1.0);
       hapticMedium();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('사진이 저장되었습니다.'), behavior: SnackBarBehavior.floating),
+          SnackBar(content: Text(S.get('editor.saved_to_gallery')), behavior: SnackBarBehavior.floating),
         );
       }
     } catch (e) {
-      if (mounted) {
+      if (!_exportCancelled && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('저장 실패: $e'), behavior: SnackBarBehavior.floating),
+          SnackBar(content: Text('${S.get('editor.save_failed')}: $e'), behavior: SnackBarBehavior.floating),
         );
       }
     } finally {
+      receivePort.close();
+      _exportIsolateRef?.kill(priority: Isolate.immediate);
+      _exportIsolateRef = null;
+      if (tempPath != null) {
+        final f = File(tempPath);
+        if (await f.exists()) await f.delete();
+      }
+      _exportTempPath = null;
       if (mounted) setState(() { _exporting = false; _exportProgress = 0; });
     }
+  }
+
+  void _cancelExport() {
+    _exportCancelled = true;
+    _exportIsolateRef?.kill(priority: Isolate.immediate);
+    _exportIsolateRef = null;
+    if (_exportTempPath != null) {
+      final f = File(_exportTempPath!);
+      f.exists().then((exists) { if (exists) f.delete(); });
+      _exportTempPath = null;
+    }
+    if (mounted) setState(() { _exporting = false; _exportProgress = 0; });
   }
 
   // ── Phase 6: 로컬 조정 빌더 ─────────────────────────────
@@ -554,72 +627,72 @@ class _EditorPageState extends State<EditorPage> {
     AdjustSliderItem(
       label: '노출', icon: '☀️',
       value: _params.exposure, min: -2.0, max: 2.0,
-      onChanged: (v) { setState(() => _params = _params.copyWith(exposure: v)); _renderPreview(); },
+      onChanged: (v) { setState(() => _params = _params.copyWith(exposure: v)); _debouncedPreview(); },
     ),
     AdjustSliderItem(
       label: '명암', icon: '◑',
       value: _params.contrast, min: -100, max: 100,
-      onChanged: (v) { setState(() => _params = _params.copyWith(contrast: v)); _renderPreview(); },
+      onChanged: (v) { setState(() => _params = _params.copyWith(contrast: v)); _debouncedPreview(); },
     ),
     AdjustSliderItem(
       label: '채도', icon: '🌈',
       value: _params.saturation, min: -100, max: 100,
-      onChanged: (v) { setState(() => _params = _params.copyWith(saturation: v)); _renderPreview(); },
+      onChanged: (v) { setState(() => _params = _params.copyWith(saturation: v)); _debouncedPreview(); },
     ),
     AdjustSliderItem(
       label: '색온도', icon: '🌡',
       value: _params.temperature, min: -100, max: 100,
-      onChanged: (v) { setState(() => _params = _params.copyWith(temperature: v)); _renderPreview(); },
+      onChanged: (v) { setState(() => _params = _params.copyWith(temperature: v)); _debouncedPreview(); },
     ),
     AdjustSliderItem(
       label: '틴트', icon: '💜',
       value: _params.tint, min: -100, max: 100,
-      onChanged: (v) { setState(() => _params = _params.copyWith(tint: v)); _renderPreview(); },
+      onChanged: (v) { setState(() => _params = _params.copyWith(tint: v)); _debouncedPreview(); },
     ),
     AdjustSliderItem(
       label: '하이라이트', icon: '✦',
       value: _params.highlights, min: -100, max: 100,
-      onChanged: (v) { setState(() => _params = _params.copyWith(highlights: v)); _renderPreview(); },
+      onChanged: (v) { setState(() => _params = _params.copyWith(highlights: v)); _debouncedPreview(); },
     ),
     AdjustSliderItem(
       label: '쉐도우', icon: '🌑',
       value: _params.shadows, min: -100, max: 100,
-      onChanged: (v) { setState(() => _params = _params.copyWith(shadows: v)); _renderPreview(); },
+      onChanged: (v) { setState(() => _params = _params.copyWith(shadows: v)); _debouncedPreview(); },
     ),
     AdjustSliderItem(
       label: '선명도', icon: '🔍',
       value: _params.sharpen, min: 0, max: 100,
-      onChanged: (v) { setState(() => _params = _params.copyWith(sharpen: v)); _renderPreview(); },
+      onChanged: (v) { setState(() => _params = _params.copyWith(sharpen: v)); _debouncedPreview(); },
     ),
     AdjustSliderItem(
       label: '비네팅', icon: '⬛',
       value: _params.vignette, min: 0, max: 100,
-      onChanged: (v) { setState(() => _params = _params.copyWith(vignette: v)); _renderPreview(); },
+      onChanged: (v) { setState(() => _params = _params.copyWith(vignette: v)); _debouncedPreview(); },
     ),
     AdjustSliderItem(
       label: '구조감', icon: '◈',
       value: _params.structure, min: -100, max: 100,
-      onChanged: (v) { setState(() => _params = _params.copyWith(structure: v)); _renderPreview(); },
+      onChanged: (v) { setState(() => _params = _params.copyWith(structure: v)); _debouncedPreview(); },
     ),
     AdjustSliderItem(
       label: '명료도', icon: '◎',
       value: _params.clarity, min: -100, max: 100,
-      onChanged: (v) { setState(() => _params = _params.copyWith(clarity: v)); _renderPreview(); },
+      onChanged: (v) { setState(() => _params = _params.copyWith(clarity: v)); _debouncedPreview(); },
     ),
     AdjustSliderItem(
       label: '톤 그늘', icon: '▼',
       value: _params.tonalShadows, min: -100, max: 100,
-      onChanged: (v) { setState(() => _params = _params.copyWith(tonalShadows: v)); _renderPreview(); },
+      onChanged: (v) { setState(() => _params = _params.copyWith(tonalShadows: v)); _debouncedPreview(); },
     ),
     AdjustSliderItem(
       label: '톤 미드', icon: '◆',
       value: _params.tonalMidtones, min: -100, max: 100,
-      onChanged: (v) { setState(() => _params = _params.copyWith(tonalMidtones: v)); _renderPreview(); },
+      onChanged: (v) { setState(() => _params = _params.copyWith(tonalMidtones: v)); _debouncedPreview(); },
     ),
     AdjustSliderItem(
       label: '톤 밝음', icon: '▲',
       value: _params.tonalHighlights, min: -100, max: 100,
-      onChanged: (v) { setState(() => _params = _params.copyWith(tonalHighlights: v)); _renderPreview(); },
+      onChanged: (v) { setState(() => _params = _params.copyWith(tonalHighlights: v)); _debouncedPreview(); },
     ),
   ];
 
@@ -681,11 +754,50 @@ class _EditorPageState extends State<EditorPage> {
     );
   }
 
+  Future<void> _pickImageFromEmpty() async {
+    final status = await Permission.photos.request();
+    if (!status.isGranted) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(S.get('permission.photos_denied')), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
+    final xFile = await ImagePicker().pickImage(source: ImageSource.gallery);
+    if (xFile != null && mounted) {
+      context.pop();
+      context.pushNamed('editor', extra: xFile.path);
+    }
+  }
+
   Widget _buildPreviewArea() {
     if (widget.imagePath == null) {
-      return const Center(
-        child: Text('사진을 선택하세요',
-            style: TextStyle(color: AppColors.textOnDarkSub)),
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              S.get('editor.no_image_selected'),
+              style: const TextStyle(color: AppColors.textOnDarkSub),
+            ),
+            const SizedBox(height: 24),
+            FilledButton.icon(
+              onPressed: _pickImageFromEmpty,
+              icon: const Icon(Icons.photo_library_outlined),
+              label: Text(S.get('editor.select_photo')),
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.accentGlow,
+                foregroundColor: AppColors.accentPrimary,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextButton.icon(
+              onPressed: () => context.pop(),
+              icon: const Icon(Icons.arrow_back, size: 16, color: AppColors.textOnDarkSub),
+              label: Text(S.get('editor.go_back'), style: const TextStyle(color: AppColors.textOnDarkSub)),
+            ),
+          ],
+        ),
       );
     }
 
@@ -995,9 +1107,9 @@ class _EditorPageState extends State<EditorPage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text(
-                '내보내는 중...',
-                style: TextStyle(
+              Text(
+                S.get('editor.exporting'),
+                style: const TextStyle(
                   fontFamily: 'NotoSerif',
                   fontSize: 16,
                   fontWeight: FontWeight.w600,
@@ -1019,6 +1131,14 @@ class _EditorPageState extends State<EditorPage> {
                   fontFamily: 'NotoSerif',
                   fontSize: 14,
                   color: AppColors.textOnDarkSub,
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextButton(
+                onPressed: _cancelExport,
+                child: Text(
+                  S.get('editor.cancel_export'),
+                  style: const TextStyle(color: AppColors.textOnDarkSub),
                 ),
               ),
             ],
@@ -2216,5 +2336,166 @@ class _CreativePanelState extends State<_CreativePanel> {
       ),
     );
   }
+}
+
+// ── Export Isolate ────────────────────────────────────────────
+
+class _ExportParams {
+  final String imagePath;
+  final String outPath;
+  final AdjustParams adjustParams;
+  final Uint8List? lutBytes;
+  final double intensity;
+  final double? cropRect;
+  final bool flipH, flipV;
+  final double rotation;
+  final double perspH, perspV;
+  final ArtisticEffect effect;
+  final double effectStrength;
+  final int grainVariant;
+  final bool selActive;
+  final double selX, selY, selBright, selContrast, selSat, selRadius;
+  final bool dbActive;
+  final double dodgeStrength, dodgeY, dodgeRadius;
+  final double burnStrength, burnY, burnRadius;
+  final bool tiltActive;
+  final double tiltFocusCenter, tiltBandWidth, tiltMaxBlur;
+  final bool lensActive;
+  final double lensFocusDepth, lensMaxRadius;
+  final SendPort sendPort;
+
+  const _ExportParams({
+    required this.imagePath,
+    required this.outPath,
+    required this.adjustParams,
+    required this.lutBytes,
+    required this.intensity,
+    required this.cropRect,
+    required this.flipH,
+    required this.flipV,
+    required this.rotation,
+    required this.perspH,
+    required this.perspV,
+    required this.effect,
+    required this.effectStrength,
+    required this.grainVariant,
+    required this.selActive,
+    required this.selX,
+    required this.selY,
+    required this.selBright,
+    required this.selContrast,
+    required this.selSat,
+    required this.selRadius,
+    required this.dbActive,
+    required this.dodgeStrength,
+    required this.dodgeY,
+    required this.dodgeRadius,
+    required this.burnStrength,
+    required this.burnY,
+    required this.burnRadius,
+    required this.tiltActive,
+    required this.tiltFocusCenter,
+    required this.tiltBandWidth,
+    required this.tiltMaxBlur,
+    required this.lensActive,
+    required this.lensFocusDepth,
+    required this.lensMaxRadius,
+    required this.sendPort,
+  });
+}
+
+Future<void> _exportWorker(_ExportParams p) async {
+  try {
+    final bytes = File(p.imagePath).readAsBytesSync();
+    var image = img.decodeImage(bytes);
+    if (image == null) {
+      p.sendPort.send('error:Unable to open image.');
+      return;
+    }
+
+    if (p.cropRect != null) {
+      final ratio = p.cropRect!;
+      final W = image.width.toDouble(), H = image.height.toDouble();
+      int cropW, cropH, x, y;
+      if (W / H > ratio) {
+        cropH = H.round(); cropW = (H * ratio).round();
+      } else {
+        cropW = W.round(); cropH = (W / ratio).round();
+      }
+      x = ((W - cropW) / 2).round();
+      y = ((H - cropH) / 2).round();
+      image = img.copyCrop(image, x: x, y: y, width: cropW, height: cropH);
+    }
+
+    if (p.flipH || p.flipV) {
+      final dir = p.flipH && p.flipV
+          ? img.FlipDirection.both
+          : p.flipH ? img.FlipDirection.horizontal : img.FlipDirection.vertical;
+      image = img.copyFlip(image, direction: dir);
+    }
+    if (p.rotation != 0) image = img.copyRotate(image, angle: p.rotation);
+
+    p.sendPort.send(0.2);
+
+    var out = applyImagePipeline(
+      image: image,
+      params: p.adjustParams,
+      lutBytes: p.lutBytes,
+      intensity: p.intensity,
+    );
+
+    p.sendPort.send(0.5);
+
+    if (p.effect != ArtisticEffect.none) {
+      out = await applyArtisticEffect(out, p.effect,
+          strength: p.effectStrength, grainVariant: p.grainVariant);
+    }
+    if (p.selActive) {
+      out = applySelectiveAdjust(out, [
+        SelectivePoint(x: p.selX, y: p.selY, brightness: p.selBright,
+            contrast: p.selContrast, saturation: p.selSat, radius: p.selRadius),
+      ]);
+    }
+    if (p.dbActive) {
+      out = applyDodgeBurn(out, [
+        if (p.dodgeStrength > 0) BrushStroke(x: 0.5, y: p.dodgeY,
+            radius: p.dodgeRadius, strength: p.dodgeStrength, isDodge: true),
+        if (p.burnStrength  > 0) BrushStroke(x: 0.5, y: p.burnY,
+            radius: p.burnRadius,  strength: p.burnStrength,  isDodge: false),
+      ]);
+    }
+    if (p.tiltActive) {
+      out = applyLinearTiltShift(image: out, focusCenter: p.tiltFocusCenter,
+          focusBandWidth: p.tiltBandWidth, maxBlur: p.tiltMaxBlur);
+    }
+    if (p.lensActive) {
+      final depthMap = _radialDepthMapTopLevel(out.width, out.height);
+      out = applyLensBlur(image: out, depthMap: depthMap,
+          focusDepth: p.lensFocusDepth, maxBlurRadius: p.lensMaxRadius);
+    }
+
+    p.sendPort.send(0.85);
+
+    final encoded = img.encodeJpg(out, quality: 95);
+    await File(p.outPath).writeAsBytes(encoded);
+
+    p.sendPort.send(0.95);
+    p.sendPort.send('done');
+  } catch (e) {
+    p.sendPort.send('error:$e');
+  }
+}
+
+Float32List _radialDepthMapTopLevel(int w, int h) {
+  final map = Float32List(w * h);
+  final cx = w / 2.0, cy = h / 2.0;
+  final maxD = math.sqrt(cx * cx + cy * cy);
+  for (int py = 0; py < h; py++) {
+    for (int px = 0; px < w; px++) {
+      final dx = px - cx, dy = py - cy;
+      map[py * w + px] = math.sqrt(dx * dx + dy * dy) / maxD;
+    }
+  }
+  return map;
 }
 

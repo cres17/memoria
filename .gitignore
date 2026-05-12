@@ -22,6 +22,7 @@ ios/Flutter/Flutter.podspec
 .ios/
 
 # IDE
+.idea/
 .idea/workspace.xml
 .idea/tasks.xml
 .idea/usage.statistics.xml
@@ -30,6 +31,8 @@ ios/Flutter/Flutter.podspec
 *.iws
 
 # Generated ML/data artifacts
+.claude/
+exampleui/
 .claude/worktrees/
 ml/test_checkpoints/
 ml/test_data/

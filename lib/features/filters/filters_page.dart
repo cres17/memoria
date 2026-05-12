@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../core/l10n/app_locale.dart';
@@ -10,6 +11,7 @@ import '../../data/repositories/filter_repository_impl.dart';
 import '../../domain/models/filter_preset.dart';
 import '../../monetization/banner_ad_widget.dart';
 import '../../monetization/feature_flags_service.dart';
+import '../create_filter/create_filter_page.dart' show kPhotoFilterGenerationEnabled;
 
 class FiltersPage extends StatefulWidget {
   const FiltersPage({super.key});
@@ -22,6 +24,7 @@ class _FiltersPageState extends State<FiltersPage> {
   List<FilterPreset> _customPresets = [];
   FeatureFlagsService? _flags;
   bool _loading = true;
+  bool _loadError = false;
 
   @override
   void initState() {
@@ -30,6 +33,7 @@ class _FiltersPageState extends State<FiltersPage> {
   }
 
   Future<void> _load() async {
+    setState(() { _loading = true; _loadError = false; });
     try {
       final repo = FilterRepositoryImpl();
       final presets = await repo.getCustomPresets();
@@ -42,7 +46,7 @@ class _FiltersPageState extends State<FiltersPage> {
         });
       }
     } catch (_) {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) setState(() { _loading = false; _loadError = true; });
     }
   }
 
@@ -68,7 +72,30 @@ class _FiltersPageState extends State<FiltersPage> {
             child: CustomScrollView(
               slivers: [
                 _buildHeader(),
-                SliverPadding(
+                if (_loading)
+                  const SliverFillRemaining(
+                    child: Center(child: CircularProgressIndicator()),
+                  )
+                else if (_loadError)
+                  SliverFillRemaining(
+                    child: Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.error_outline_rounded, size: 48, color: AppColors.textSecondary),
+                          const SizedBox(height: 16),
+                          Text(S.get('filters.load_error'), style: const TextStyle(color: AppColors.textSecondary)),
+                          const SizedBox(height: 16),
+                          OutlinedButton(
+                            onPressed: _load,
+                            child: Text(S.get('filters.retry')),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                else
+                  SliverPadding(
                   padding: EdgeInsets.fromLTRB(28, 22, 28, safeBottom(context) + 100),
                   sliver: SliverGrid(
                     gridDelegate:
@@ -80,20 +107,26 @@ class _FiltersPageState extends State<FiltersPage> {
                     ),
                     delegate: SliverChildBuilderDelegate(
                       (context, index) {
-                        if (index == 0) {
-                          return _CreateFilterCard(onTap: _openCreateFilter);
+                        if (kPhotoFilterGenerationEnabled) {
+                          if (index == 0) return _CreateFilterCard(onTap: _openCreateFilter);
+                          final preset = _items[index - 1];
+                          return _FilterCard(
+                            preset: preset,
+                            index: index - 1,
+                            onTap: () => _openFilter(preset),
+                            onDelete: preset.isCustom ? () => _deletePreset(preset.id) : null,
+                          );
+                        } else {
+                          final preset = _items[index];
+                          return _FilterCard(
+                            preset: preset,
+                            index: index,
+                            onTap: () => _openFilter(preset),
+                            onDelete: preset.isCustom ? () => _deletePreset(preset.id) : null,
+                          );
                         }
-                        final preset = _items[index - 1];
-                        return _FilterCard(
-                          preset: preset,
-                          index: index - 1,
-                          onTap: () => _openFilter(preset),
-                          onDelete: preset.isCustom
-                              ? () => _deletePreset(preset.id)
-                              : null,
-                        );
                       },
-                      childCount: _items.length + 1,
+                      childCount: _items.length + (kPhotoFilterGenerationEnabled ? 1 : 0),
                     ),
                   ),
                 ),
@@ -135,7 +168,7 @@ class _FiltersPageState extends State<FiltersPage> {
             children: [
               Text(
                 S.get('filters.title'),
-                style: TextStyle(
+                style: const TextStyle(
                   fontFamily: 'Domine',
                   fontSize: 43,
                   fontWeight: FontWeight.w700,
@@ -166,6 +199,15 @@ class _FiltersPageState extends State<FiltersPage> {
 
   Future<void> _openFilter(FilterPreset preset) async {
     hapticLight();
+    final status = await Permission.photos.request();
+    if (!status.isGranted) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(S.get('permission.photos_denied')), behavior: SnackBarBehavior.floating),
+        );
+      }
+      return;
+    }
     final xFile = await ImagePicker().pickImage(source: ImageSource.gallery);
     if (xFile == null || !mounted) return;
     context.pushNamed('editor', extra: {
@@ -213,7 +255,7 @@ class _CreateFilterCard extends StatelessWidget {
             const SizedBox(height: 26),
             Text(
               S.get('filters.new'),
-              style: TextStyle(
+              style: const TextStyle(
                 fontFamily: 'Domine',
                 fontSize: 23,
                 fontWeight: FontWeight.w700,
@@ -334,8 +376,7 @@ class _FilterCard extends StatelessWidget {
 
   Widget _thumbnail() {
     final path = preset.thumbnailPath;
-    if (path.startsWith('assets/') &&
-        path != 'assets/images/${preset.id}_thumb.jpg') {
+    if (path.startsWith('assets/')) {
       return Image.asset(path, fit: BoxFit.cover, errorBuilder: (_, __, ___) {
         return _fallback();
       });

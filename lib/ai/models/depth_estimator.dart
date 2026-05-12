@@ -119,7 +119,7 @@ class DepthEstimator {
 
     for (int y = 0; y < _inWH; y++) {
       for (int x = 0; x < _inWH; x++) {
-        final v = (raw[0][y][x] as double);
+        final v = raw[0][y][x];
         flat[y * _inWH + x] = v;
         if (v < minV) minV = v;
         if (v > maxV) maxV = v;

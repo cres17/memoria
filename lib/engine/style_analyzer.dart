@@ -331,29 +331,47 @@ List<String> deriveStyleTags(StyleProfile profile) {
   final tags = <String>[];
 
   // Luminance
-  if (profile.meanL < 35) tags.add('Dark');
-  else if (profile.meanL > 65) tags.add('Bright');
-  else tags.add('Natural');
+  if (profile.meanL < 35) {
+    tags.add('Dark');
+  } else if (profile.meanL > 65) {
+    tags.add('Bright');
+  } else {
+    tags.add('Natural');
+  }
 
   // Color temperature from midtone cast Lab b: positive=warm, negative=cool
-  if (profile.midtoneCast.b > 6) tags.add('Warm');
-  else if (profile.midtoneCast.b < -6) tags.add('Cool');
+  if (profile.midtoneCast.b > 6) {
+    tags.add('Warm');
+  } else if (profile.midtoneCast.b < -6) {
+    tags.add('Cool');
+  }
 
   // Blue style
-  if (profile.blueCastStrength > 0.3) tags.add('Ocean');
-  else if (profile.blueDominance > 0.15) tags.add('Blue');
+  if (profile.blueCastStrength > 0.3) {
+    tags.add('Ocean');
+  } else if (profile.blueDominance > 0.15) {
+    tags.add('Blue');
+  }
 
   // Green cast
-  if (profile.midtoneCast.a < -5) tags.add('Green');
+  if (profile.midtoneCast.a < -5) {
+    tags.add('Green');
+  }
 
   // Skin/sunset tones
-  if (profile.midtoneCast.a > 6 && profile.midtoneCast.b > 8) tags.add('Warm Skin');
+  if (profile.midtoneCast.a > 6 && profile.midtoneCast.b > 8) {
+    tags.add('Warm Skin');
+  }
 
   // Vintage: de-saturated + warm shadows
-  if (profile.shadowCast.b > 4 && profile.meanL < 55) tags.add('Vintage');
+  if (profile.shadowCast.b > 4 && profile.meanL < 55) {
+    tags.add('Vintage');
+  }
 
   // Moody: dark with teal shadows
-  if (profile.shadowCast.b < -4 && profile.meanL < 50) tags.add('Moody');
+  if (profile.shadowCast.b < -4 && profile.meanL < 50) {
+    tags.add('Moody');
+  }
 
   return tags.take(3).toList();
 }

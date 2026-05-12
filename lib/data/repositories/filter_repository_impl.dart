@@ -22,9 +22,13 @@ class FilterRepositoryImpl implements FilterRepository {
   Future<List<String>> _readIndex() async {
     final file = await _indexFilePath;
     if (!await file.exists()) return [];
-    final raw = await file.readAsString();
-    final list = jsonDecode(raw) as List<dynamic>;
-    return list.cast<String>();
+    try {
+      final raw = await file.readAsString();
+      final list = jsonDecode(raw) as List<dynamic>;
+      return list.whereType<String>().toList();
+    } catch (_) {
+      return [];
+    }
   }
 
   Future<void> _writeIndex(List<String> ids) async {
@@ -36,9 +40,16 @@ class FilterRepositoryImpl implements FilterRepository {
   Future<List<FilterPreset>> getCustomPresets() async {
     final ids = await _readIndex();
     final results = <FilterPreset>[];
+    final validIds = <String>[];
     for (final id in ids) {
       final preset = await getPresetById(id);
-      if (preset != null) results.add(preset);
+      if (preset != null) {
+        results.add(preset);
+        validIds.add(id);
+      }
+    }
+    if (validIds.length != ids.length) {
+      await _writeIndex(validIds);
     }
     return results;
   }
@@ -48,8 +59,12 @@ class FilterRepositoryImpl implements FilterRepository {
     final dir = await _filtersDir;
     final metaFile = File('${dir.path}/$id/meta.json');
     if (!await metaFile.exists()) return null;
-    final raw = await metaFile.readAsString();
-    return FilterPreset.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+    try {
+      final raw = await metaFile.readAsString();
+      return FilterPreset.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+    } catch (_) {
+      return null;
+    }
   }
 
   @override

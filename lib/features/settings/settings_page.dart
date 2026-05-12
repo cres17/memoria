@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:path_provider/path_provider.dart';
+import '../../ai/ai_manager.dart';
 import '../../core/l10n/app_locale.dart';
 import '../../core/l10n/strings.dart';
 import '../../core/theme/app_colors.dart';
@@ -16,15 +17,27 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsPageState extends State<SettingsPage> {
   int _versionTapCount = 0;
+  ModelState _colorModelState = const ModelState(status: ModelStatus.notDownloaded);
 
   @override
   void initState() {
     super.initState();
     setStatusBarForDark();
+    _refreshModelState();
+    AiManager.instance.addListener(_onModelStateChanged);
   }
+
+  void _refreshModelState() {
+    setState(() {
+      _colorModelState = AiManager.instance.stateOf(kModelColorTransfer.key);
+    });
+  }
+
+  void _onModelStateChanged() => _refreshModelState();
 
   @override
   void dispose() {
+    AiManager.instance.removeListener(_onModelStateChanged);
     setStatusBarForLight();
     super.dispose();
   }
@@ -34,16 +47,16 @@ class _SettingsPageState extends State<SettingsPage> {
       context: context,
       builder: (_) => AlertDialog(
         backgroundColor: AppColors.oceanMid,
-        title: const Text('캐시 지우기', style: TextStyle(color: AppColors.textOnDark)),
-        content: const Text('임시 파일을 모두 삭제합니다.', style: TextStyle(color: AppColors.textOnDarkSub)),
+        title: Text(S.get('settings.clear_cache_title'), style: const TextStyle(color: AppColors.textOnDark)),
+        content: Text(S.get('settings.clear_cache_body'), style: const TextStyle(color: AppColors.textOnDarkSub)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('취소', style: TextStyle(color: AppColors.textOnDarkTert)),
+            child: Text(S.get('settings.clear_cache_cancel'), style: const TextStyle(color: AppColors.textOnDarkTert)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('삭제', style: TextStyle(color: AppColors.oceanFoam)),
+            child: Text(S.get('settings.clear_cache_confirm'), style: const TextStyle(color: AppColors.oceanFoam)),
           ),
         ],
       ),
@@ -57,8 +70,8 @@ class _SettingsPageState extends State<SettingsPage> {
       }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('캐시가 삭제되었습니다.'),
+          SnackBar(
+            content: Text(S.get('settings.clear_cache_done')),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -66,7 +79,7 @@ class _SettingsPageState extends State<SettingsPage> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('삭제 실패: $e'), behavior: SnackBarBehavior.floating),
+          SnackBar(content: Text('${S.get('settings.clear_cache_fail')}: $e'), behavior: SnackBarBehavior.floating),
         );
       }
     }
@@ -142,7 +155,7 @@ class _SettingsPageState extends State<SettingsPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            '개발자 모드까지 $remaining번 더 탭하세요',
+            S.get('settings.dev_hint').replaceAll('{n}', '$remaining'),
           ),
           duration: const Duration(seconds: 1),
           backgroundColor: AppColors.oceanNavy,
@@ -155,6 +168,13 @@ class _SettingsPageState extends State<SettingsPage> {
 
   @override
   Widget build(BuildContext context) {
+    return ValueListenableBuilder<Locale>(
+      valueListenable: localeNotifier,
+      builder: (_, __, ___) => _buildScaffold(),
+    );
+  }
+
+  Widget _buildScaffold() {
     return Scaffold(
       backgroundColor: AppColors.oceanDeep,
       appBar: AppBar(
@@ -176,65 +196,79 @@ class _SettingsPageState extends State<SettingsPage> {
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
-          const _SectionHeader(title: '저장소'),
+          _SectionHeader(title: S.get('settings.storage')),
           _SettingCard(
             children: [
-              const _SettingRow(
+              _SettingRow(
                 icon: Icons.folder_outlined,
-                title: '필터 저장 위치',
-                subtitle: '앱 내부 저장소',
+                title: S.get('settings.filter_location'),
+                subtitle: S.get('settings.filter_loc_sub'),
                 onTap: null,
               ),
               const _Divider(),
               _SettingRow(
                 icon: Icons.delete_sweep_outlined,
-                title: '캐시 지우기',
+                title: S.get('settings.clear_cache'),
                 onTap: _clearCache,
               ),
             ],
           ),
           const SizedBox(height: 24),
-          const _SectionHeader(title: '언어'),
+          _SectionHeader(title: S.get('settings.language')),
           _SettingCard(
             children: [
-              ValueListenableBuilder<Locale>(
-                valueListenable: localeNotifier,
-                builder: (_, locale, __) => _SettingRow(
-                  icon: Icons.language_rounded,
-                  title: '언어',
-                  subtitle: locale.languageCode == 'ko' ? '한국어' : 'English',
-                  onTap: () => _showLanguagePicker(),
-                ),
+              _SettingRow(
+                icon: Icons.language_rounded,
+                title: S.get('settings.language'),
+                subtitle: localeNotifier.value.languageCode == 'ko'
+                    ? S.get('settings.lang_ko')
+                    : S.get('settings.lang_en'),
+                onTap: () => _showLanguagePicker(),
               ),
             ],
           ),
           const SizedBox(height: 24),
-          const _SectionHeader(title: '화질'),
-          const _SettingCard(
+          _SectionHeader(title: S.get('settings.quality')),
+          _SettingCard(
             children: [
               _SettingRow(
                 icon: Icons.high_quality_rounded,
-                title: '내보내기 품질',
-                subtitle: 'JPEG 95%',
+                title: S.get('settings.export_quality'),
+                subtitle: S.get('settings.export_quality_sub'),
                 onTap: null,
               ),
             ],
           ),
           const SizedBox(height: 24),
-          const _SectionHeader(title: '앱 정보'),
+          _SectionHeader(title: S.get('settings.ai')),
+          _SettingCard(
+            children: [
+              _AiModelRow(
+                icon: Icons.palette_outlined,
+                title: S.get('settings.ai_color'),
+                subtitle: S.get('settings.ai_color_sub'),
+                state: _colorModelState,
+                onDownload: kModelColorTransfer.url.isEmpty
+                    ? null
+                    : () => AiManager.instance.preload(kModelColorTransfer),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          _SectionHeader(title: S.get('settings.about')),
           _SettingCard(
             children: [
               _SettingRow(
                 icon: Icons.info_outline_rounded,
-                title: '오픈소스 라이선스',
+                title: S.get('settings.licenses'),
                 onTap: _showLicenses,
               ),
               const _Divider(),
               GestureDetector(
                 onTap: _onVersionTap,
-                child: const _SettingRow(
+                child: _SettingRow(
                   icon: Icons.apps_rounded,
-                  title: '버전',
+                  title: S.get('settings.version'),
                   subtitle: '1.0.0 (1)',
                   onTap: null,
                 ),
@@ -364,5 +398,145 @@ class _Divider extends StatelessWidget {
       padding: EdgeInsets.only(left: 66),
       child: Divider(height: 1, color: AppColors.oceanNavy),
     );
+  }
+}
+
+class _AiModelRow extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final ModelState state;
+  final VoidCallback? onDownload;
+
+  const _AiModelRow({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.state,
+    this.onDownload,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: AppColors.oceanNavy,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, color: AppColors.textOnDarkSub, size: 18),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title,
+                    style: const TextStyle(
+                      fontFamily: 'NotoSerif',
+                      fontSize: 15,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.textOnDark,
+                    )),
+                const SizedBox(height: 2),
+                Text(subtitle,
+                    style: const TextStyle(
+                      fontFamily: 'NotoSerif',
+                      fontSize: 13,
+                      color: AppColors.textOnDarkTert,
+                    )),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          _statusWidget(),
+        ],
+      ),
+    );
+  }
+
+  Widget _statusWidget() {
+    switch (state.status) {
+      case ModelStatus.ready:
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: AppColors.oceanTeal.withValues(alpha: 0.3),
+            borderRadius: BorderRadius.circular(99),
+          ),
+          child: Text(
+            S.get('settings.ai_ready'),
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: AppColors.oceanFoam,
+            ),
+          ),
+        );
+      case ModelStatus.downloading:
+        return SizedBox(
+          width: 72,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '${(state.progress * 100).round()}%',
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: AppColors.oceanFoam,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 4),
+              LinearProgressIndicator(
+                value: state.progress,
+                backgroundColor: AppColors.oceanNavy,
+                color: AppColors.oceanFoam,
+                borderRadius: BorderRadius.circular(99),
+              ),
+            ],
+          ),
+        );
+      case ModelStatus.error:
+        return TextButton(
+          onPressed: onDownload,
+          style: TextButton.styleFrom(
+            foregroundColor: Colors.redAccent,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          ),
+          child: Text(S.get('settings.ai_error')),
+        );
+      case ModelStatus.notDownloaded:
+        if (onDownload == null) {
+          return Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: AppColors.oceanNavy,
+              borderRadius: BorderRadius.circular(99),
+            ),
+            child: Text(
+              'N/A',
+              style: const TextStyle(
+                fontSize: 12,
+                color: AppColors.textOnDarkTert,
+              ),
+            ),
+          );
+        }
+        return TextButton(
+          onPressed: onDownload,
+          style: TextButton.styleFrom(
+            foregroundColor: AppColors.oceanFoam,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          ),
+          child: Text(S.get('settings.ai_download')),
+        );
+    }
   }
 }
