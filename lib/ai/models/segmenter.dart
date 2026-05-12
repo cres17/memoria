@@ -148,7 +148,7 @@ class SelfieSegmenter {
     final flat = Float32List(_inW * _inH);
     for (int y = 0; y < _inH; y++) {
       for (int x = 0; x < _inW; x++) {
-        final raw = output[0][y][x][0] as double;
+        final raw = output[0][y][x][0];
         flat[y * _inW + x] = _sigmoid(raw);
       }
     }
@@ -169,7 +169,6 @@ class SelfieSegmenter {
   }
   static double _expApprox(double x) {
     // Reasonable approximation for sigmoid range
-    const p = [1.0, 1.0, 0.5, 0.16667, 0.04167, 0.00833];
     double r = 1, term = 1;
     for (int i = 1; i <= 5; i++) {
       term *= x / i;

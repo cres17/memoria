@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import '../core/theme/app_colors.dart';
@@ -27,7 +30,9 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
     if (widget.flags.enableBannerAd) _loadAd();
   }
 
-  void _loadAd() {
+  Future<void> _loadAd() async {
+    if (!await _hasNetwork()) return;
+
     _ad = BannerAd(
       adUnitId: _adUnitId,
       size: AdSize.banner,
@@ -43,6 +48,16 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
         },
       ),
     )..load();
+  }
+
+  Future<bool> _hasNetwork() async {
+    try {
+      final result = await InternetAddress.lookup('google.com')
+          .timeout(const Duration(milliseconds: 800));
+      return result.isNotEmpty && result.first.rawAddress.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
   }
 
   @override

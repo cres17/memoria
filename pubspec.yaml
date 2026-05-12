@@ -34,6 +34,12 @@ dependencies:
   http: ^1.2.1
   crypto: ^3.0.3
 
+  # Permissions
+  permission_handler: ^11.3.1
+
+  # Gallery save
+  gal: ^2.3.0
+
   # Utilities
   uuid: ^4.4.0
 
@@ -57,47 +63,3 @@ flutter:
     - assets/overlays/grunge/
     - assets/frames/
 
-  fonts:
-    - family: AmaticSC
-      fonts:
-        - asset: assets/fonts/AmaticSC-Regular.ttf
-          weight: 400
-        - asset: assets/fonts/AmaticSC-Bold.ttf
-          weight: 700
-    - family: Dosis
-      fonts:
-        - asset: assets/fonts/Dosis-Light.ttf
-          weight: 300
-    - family: Oswald
-      fonts:
-        - asset: assets/fonts/Oswald-Regular.ttf
-          weight: 400
-        - asset: assets/fonts/Oswald-Bold.ttf
-          weight: 700
-    - family: Pacifico
-      fonts:
-        - asset: assets/fonts/Pacifico.ttf
-          weight: 400
-    - family: PlayfairDisplay
-      fonts:
-        - asset: assets/fonts/PlayfairDisplay-Italic.ttf
-          style: italic
-    - family: Raleway
-      fonts:
-        - asset: assets/fonts/Raleway-Light.ttf
-          weight: 300
-    - family: Montserrat
-      fonts:
-        - asset: assets/fonts/Montserrat-Regular.ttf
-          weight: 400
-  # fonts:  # Uncomment after placing Pretendard font files in assets/fonts/
-  #   - family: Pretendard
-  #     fonts:
-  #       - asset: assets/fonts/Pretendard-Regular.otf
-  #         weight: 400
-  #       - asset: assets/fonts/Pretendard-Medium.otf
-  #         weight: 500
-  #       - asset: assets/fonts/Pretendard-SemiBold.otf
-  #         weight: 600
-  #       - asset: assets/fonts/Pretendard-Bold.otf
-  #         weight: 700

@@ -1,4 +1,4 @@
-package com.memoria
+package com.memoria.photofilter
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -33,7 +33,7 @@ class LutEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
 
     companion object {
         const val CHANNEL = "com.memoria/lut_engine"
-        const val LUT_DIM = 33
+        const val LUT_DIM = 65
     }
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
@@ -96,14 +96,14 @@ class LutEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         val ratioA = (stats.sigA / NeutralStats.SIG_A).coerceIn(0.5, 2.0)
         val ratioB = (stats.sigB / NeutralStats.SIG_B).coerceIn(0.5, 2.0)
 
-        // Generate 33³ LUT → float16
+        // Generate 65³ LUT → float16
         val total = LUT_DIM * LUT_DIM * LUT_DIM
         val lutBuffer = ByteBuffer.allocate(total * 3 * 2).order(ByteOrder.LITTLE_ENDIAN)
 
         for (r in 0 until LUT_DIM) {
             for (g in 0 until LUT_DIM) {
                 for (b in 0 until LUT_DIM) {
-                    val rgb = floatArrayOf(r / 32f, g / 32f, b / 32f)
+                    val rgb = floatArrayOf(r / 64f, g / 64f, b / 64f)
                     val lab = rgbToLab(rgb)
 
                     val lBin = (lab[0] * 255f / 100f).toInt().coerceIn(0, 255)

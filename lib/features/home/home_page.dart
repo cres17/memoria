@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../../core/l10n/app_locale.dart';
 import '../../core/l10n/strings.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/platform_utils.dart';
 import '../../monetization/banner_ad_widget.dart';
 import '../../monetization/feature_flags_service.dart';
+import '../create_filter/create_filter_page.dart' show kPhotoFilterGenerationEnabled;
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -35,6 +37,13 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _pickImage() async {
     hapticMedium();
+    final status = await Permission.photos.request();
+    if (!status.isGranted) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(S.get('permission.photos_denied')), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
     final xFile = await ImagePicker().pickImage(source: ImageSource.gallery);
     if (xFile != null && mounted) {
       context.pushNamed('editor', extra: xFile.path);
@@ -43,6 +52,13 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _takePhoto() async {
     hapticMedium();
+    final status = await Permission.camera.request();
+    if (!status.isGranted) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(S.get('permission.camera_denied')), behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
     final xFile = await ImagePicker().pickImage(source: ImageSource.camera);
     if (xFile != null && mounted) {
       context.pushNamed('editor', extra: xFile.path);
@@ -282,14 +298,16 @@ class _HomePageState extends State<HomePage> {
             body: S.get('home.card_tones_body'),
             onTap: () => context.go('/filters'),
           ),
-          const SizedBox(height: 16),
-          _InfoCard(
-            icon: Icons.auto_awesome_rounded,
-            title: S.get('home.card_ai'),
-            body: S.get('home.card_ai_body'),
-            tinted: true,
-            onTap: () => context.pushNamed('createFilter'),
-          ),
+          if (kPhotoFilterGenerationEnabled) ...[
+            const SizedBox(height: 16),
+            _InfoCard(
+              icon: Icons.auto_awesome_rounded,
+              title: S.get('home.card_ai'),
+              body: S.get('home.card_ai_body'),
+              tinted: true,
+              onTap: () => context.pushNamed('createFilter'),
+            ),
+          ],
         ],
       ),
     );

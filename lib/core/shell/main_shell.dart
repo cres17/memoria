@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:permission_handler/permission_handler.dart';
+import '../../features/create_filter/create_filter_page.dart'
+    show kPhotoFilterGenerationEnabled;
+import '../l10n/strings.dart';
 import '../theme/app_colors.dart';
 import '../utils/platform_utils.dart';
 
@@ -32,6 +36,18 @@ class _BottomNav extends StatelessWidget {
 
   Future<void> _pickAndEdit(BuildContext context) async {
     hapticMedium();
+    final status = await Permission.photos.request();
+    if (!status.isGranted) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(S.get('permission.photos_denied')),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return;
+    }
     final xFile = await ImagePicker().pickImage(source: ImageSource.gallery);
     if (xFile != null && context.mounted) {
       context.pushNamed('editor', extra: xFile.path);
@@ -67,13 +83,14 @@ class _BottomNav extends StatelessWidget {
               selected: currentIndex == 0,
               onTap: () => context.go('/'),
             ),
-            _NavItem(
-              icon: Icons.add_circle_outline_rounded,
-              selectedIcon: Icons.add_circle_rounded,
-              label: 'CREATE',
-              selected: currentIndex == 1,
-              onTap: () => context.pushNamed('createFilter'),
-            ),
+            if (kPhotoFilterGenerationEnabled)
+              _NavItem(
+                icon: Icons.add_circle_outline_rounded,
+                selectedIcon: Icons.add_circle_rounded,
+                label: 'CREATE',
+                selected: currentIndex == 1,
+                onTap: () => context.pushNamed('createFilter'),
+              ),
             _NavItem(
               icon: Icons.tune_outlined,
               selectedIcon: Icons.tune_rounded,

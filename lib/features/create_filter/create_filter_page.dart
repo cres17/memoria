@@ -1,10 +1,13 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/l10n/app_locale.dart';
 import '../../core/l10n/strings.dart';
 import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/platform_utils.dart';
 import '../../data/repositories/filter_repository_impl.dart';
@@ -14,6 +17,8 @@ import '../../engine/lut_engine.dart';
 import '../../engine/style_analyzer.dart';
 import '../../monetization/feature_flags_service.dart';
 import '../../monetization/fullscreen_ad_service.dart';
+
+const bool kPhotoFilterGenerationEnabled = true;
 
 class CreateFilterPage extends StatefulWidget {
   const CreateFilterPage({super.key});
@@ -51,6 +56,11 @@ class _CreateFilterPageState extends State<CreateFilterPage> {
 
   Future<void> _pickStyleImage() async {
     hapticMedium();
+    final status = await Permission.photos.request();
+    if (!status.isGranted) {
+      _showSnack(S.get('permission.photos_denied'));
+      return;
+    }
     final xFile = await ImagePicker().pickImage(source: ImageSource.gallery);
     if (xFile == null || !mounted) return;
     setState(() {
@@ -77,12 +87,17 @@ class _CreateFilterPageState extends State<CreateFilterPage> {
 
   Future<void> _generate() async {
     if (_styleImagePath == null) {
-      _showSnack('스타일 이미지를 선택해주세요.');
+      _showSnack(S.get('create.need_image'));
       return;
     }
     final name = _nameCtrl.text.trim();
     if (name.isEmpty) {
-      _showSnack('필터 이름을 입력해주세요.');
+      _showSnack(S.get('create.need_name'));
+      return;
+    }
+
+    if (!kPhotoFilterGenerationEnabled) {
+      _showSnack(S.get('create.deferred'));
       return;
     }
 
@@ -97,8 +112,14 @@ class _CreateFilterPageState extends State<CreateFilterPage> {
     hapticHeavy();
 
     try {
-      setState(() => _progress = 0.35);
-      final result = await generateLutFromStyle(_styleImagePath!);
+      setState(() => _progress = 0.15);
+      // 헤비 작업: 별도 isolate에서 실행해 UI 블로킹 방지
+      final styleImagePath = _styleImagePath!;
+      final base = await getApplicationDocumentsDirectory();
+      final result = await compute(
+        _generateLutIsolate,
+        {'styleImagePath': styleImagePath, 'basePath': base.path},
+      );
       setState(() => _progress = 0.82);
 
       final now = DateTime.now();
@@ -121,7 +142,7 @@ class _CreateFilterPageState extends State<CreateFilterPage> {
       await Future.delayed(const Duration(milliseconds: 450));
       if (mounted) _showSuccessSheet(preset);
     } catch (e) {
-      _showSnack('필터 생성 중 오류가 발생했어요. $e');
+      _showSnack('${S.get('create.error')} $e');
     } finally {
       if (mounted) setState(() => _generating = false);
     }
@@ -643,7 +664,7 @@ class _SuccessSheet extends StatelessWidget {
                 color: AppColors.oceanFoam, size: 54),
             const SizedBox(height: 16),
             Text(
-              '\'${preset.name}\' 필터 생성 완료',
+              '\'${preset.name}\' ${S.get('create.success')}',
               textAlign: TextAlign.center,
               style: const TextStyle(
                 fontFamily: 'Domine',
@@ -663,3 +684,6 @@ class _SuccessSheet extends StatelessWidget {
     );
   }
 }
+
+Future<Map<String, dynamic>> _generateLutIsolate(Map<String, String> args) =>
+    generateLutFromStyle(args['styleImagePath']!, basePath: args['basePath']!);
