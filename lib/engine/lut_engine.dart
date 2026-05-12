@@ -8,7 +8,7 @@ import '../ai/ai_manager.dart';
 import '../ai/models/lut_predictor.dart';
 import '../domain/models/adjust_params.dart';
 import 'color_utils.dart';
-import 'style_analyzer.dart';
+import 'custom_lut_core.dart';
 
 // ─────────────────────────────────────────────────────────
 //  Image-level pipeline (full img.Image in → img.Image out)
@@ -146,53 +146,38 @@ img.Image _applyVignetteImage(img.Image image, double vignetteValue) {
   return result;
 }
 
-const int _dim = 65;
+const int _dim = customLutDim;
 
-/// Float16 helpers (simple half-float via int16 bit pattern)
-int _floatToHalf(double value) {
-  final f32 = Float32List(1)..[0] = value;
-  final bits = f32.buffer.asUint32List()[0];
-  final sign = (bits >> 31) & 0x1;
-  var exp = ((bits >> 23) & 0xFF) - 127 + 15;
-  var mantissa = (bits >> 13) & 0x3FF;
-  if (exp <= 0) { exp = 0; mantissa = 0; }
-  if (exp >= 31) { exp = 31; mantissa = 0; }
-  return (sign << 15) | (exp << 10) | mantissa;
-}
-
-double _halfToFloat(int half) {
-  final sign     = (half >> 15) & 0x1;
-  final exp      = (half >> 10) & 0x1F;
-  final mantissa = half & 0x3FF;
-  if (exp == 0) return 0.0;
-  if (exp == 31) return sign == 0 ? double.infinity : double.negativeInfinity;
-  final e = exp - 15;
-  final m = 1.0 + mantissa / 1024.0;
-  return (sign == 0 ? 1.0 : -1.0) * m * math.pow(2.0, e);
-}
+/// Isolate-safe progress stages returned alongside the result.
+/// The map always contains 'stage' (String) and 'progress' (double 0–1).
+/// On completion it also contains presetId / lutPath / thumbnailPath / defaultParams.
+typedef LutProgressCallback = void Function(String stage, double progress);
 
 /// Generate a 65³ 3D LUT from a style image.
 /// Neural path (TFLite) when model is ready; algorithmic fallback otherwise.
-/// Returns [presetId, lutPath, thumbnailPath, defaultParams]
+/// [onProgress] is called with (stage, 0–1) at each key step.
 Future<Map<String, dynamic>> generateLutFromStyle(
   String styleImagePath, {
   String? basePath,
+  LutProgressCallback? onProgress,
 }) async {
   if (AiManager.instance.colorTransferReady) {
     try {
-      return await _generateLutNeural(styleImagePath, basePath: basePath);
+      return await _generateLutNeural(styleImagePath, basePath: basePath, onProgress: onProgress);
     } catch (_) {
       // Neural inference failed → algorithmic fallback
     }
   }
-  return _generateLutAlgorithmic(styleImagePath, basePath: basePath);
+  return _generateLutAlgorithmic(styleImagePath, basePath: basePath, onProgress: onProgress);
 }
 
 /// Neural path: TFLite model predicts 5³ LUT → upsampled to 65³.
 Future<Map<String, dynamic>> _generateLutNeural(
   String styleImagePath, {
   String? basePath,
+  LutProgressCallback? onProgress,
 }) async {
+  onProgress?.call('style_loading', 0.10);
   final id   = const Uuid().v4();
   final base = basePath != null
       ? Directory(basePath)
@@ -200,24 +185,28 @@ Future<Map<String, dynamic>> _generateLutNeural(
   final dir  = Directory('${base.path}/filters/$id')
     ..createSync(recursive: true);
 
+  onProgress?.call('model_inference', 0.25);
   final predictor = await LutPredictor.instance;
   final lut65     = await predictor.predict(styleImagePath); // Float32List (65³×3)
 
+  onProgress?.call('lut_encode', 0.70);
   const total   = _dim * _dim * _dim;
   final lutData = Uint16List(total * 3);
   for (int i = 0; i < total * 3; i++) {
-    lutData[i] = _floatToHalf(lut65[i]);
+    lutData[i] = floatToHalf(lut65[i]);
   }
 
   final lutPath = '${dir.path}/lut.bin';
   File(lutPath).writeAsBytesSync(lutData.buffer.asUint8List());
 
+  onProgress?.call('thumbnail', 0.88);
   final bytes    = File(styleImagePath).readAsBytesSync();
   final image    = img.decodeImage(bytes)!;
   final thumb    = img.copyResizeCropSquare(image, size: 128);
   final thumbPath = '${dir.path}/thumbnail.jpg';
   File(thumbPath).writeAsBytesSync(img.encodeJpg(thumb, quality: 80));
 
+  onProgress?.call('saving', 0.96);
   return {
     'presetId':      id,
     'lutPath':       lutPath,
@@ -230,7 +219,9 @@ Future<Map<String, dynamic>> _generateLutNeural(
 Future<Map<String, dynamic>> _generateLutAlgorithmic(
   String styleImagePath, {
   String? basePath,
+  LutProgressCallback? onProgress,
 }) async {
+  onProgress?.call('style_loading', 0.10);
   final id    = const Uuid().v4();
   final base  = basePath != null
       ? Directory(basePath)
@@ -240,41 +231,17 @@ Future<Map<String, dynamic>> _generateLutAlgorithmic(
 
   final bytes   = File(styleImagePath).readAsBytesSync();
   final image   = img.decodeImage(bytes)!;
-  final profile = StyleAnalyzer.analyze(image);
-  final labProfile = _analyzeLabStyle(image);
+  final lutBytes = buildCustomLutFromStyleImage(image, onProgress: onProgress);
 
-  const total    = _dim * _dim * _dim;
-  final lutData  = Uint16List(total * 3);
-  final maxIdx   = (_dim - 1).toDouble();
-  int lutIdx = 0;
-
-  for (int r = 0; r < _dim; r++) {
-    for (int g = 0; g < _dim; g++) {
-      for (int b = 0; b < _dim; b++) {
-        final rgb = RgbColor(r / maxIdx, g / maxIdx, b / maxIdx);
-        final channelRgb = _applyChannelStyle(rgb, profile, labProfile.castStrength);
-        final labRgb = _applyLabStyle(rgb, labProfile);
-        final blend = _labBlendWeight(labProfile.castStrength);
-        final outRgb = RgbColor(
-          channelRgb.r * (1.0 - blend) + labRgb.r * blend,
-          channelRgb.g * (1.0 - blend) + labRgb.g * blend,
-          channelRgb.b * (1.0 - blend) + labRgb.b * blend,
-        ).clamp01();
-
-        lutData[lutIdx++] = _floatToHalf(outRgb.r);
-        lutData[lutIdx++] = _floatToHalf(outRgb.g);
-        lutData[lutIdx++] = _floatToHalf(outRgb.b);
-      }
-    }
-  }
-
+  onProgress?.call('thumbnail', 0.90);
   final lutPath = '${dir.path}/lut.bin';
-  File(lutPath).writeAsBytesSync(lutData.buffer.asUint8List());
+  File(lutPath).writeAsBytesSync(lutBytes);
 
   final thumb     = img.copyResizeCropSquare(image, size: 128);
   final thumbPath = '${dir.path}/thumbnail.jpg';
   File(thumbPath).writeAsBytesSync(img.encodeJpg(thumb, quality: 80));
 
+  onProgress?.call('saving', 0.96);
   return {
     'presetId':      id,
     'lutPath':       lutPath,
@@ -283,283 +250,9 @@ Future<Map<String, dynamic>> _generateLutAlgorithmic(
   };
 }
 
-class _LabStyleProfile {
-  final List<double> toneCurve;
-  final double meanL;
-  final double contrastRatio;
-  final double satBoost;
-  final double castStrength;
-  final LabColor shadow;
-  final LabColor midtone;
-  final LabColor highlight;
-
-  const _LabStyleProfile({
-    required this.toneCurve,
-    required this.meanL,
-    required this.contrastRatio,
-    required this.satBoost,
-    required this.castStrength,
-    required this.shadow,
-    required this.midtone,
-    required this.highlight,
-  });
-}
-
-final List<double> _neutralLCdf = () {
-  const mu = 50.0;
-  const sigma = 18.0;
-  final hist = List<double>.filled(256, 0.0);
-  for (int i = 0; i < 256; i++) {
-    final l = i * 100.0 / 255.0;
-    final z = (l - mu) / sigma;
-    hist[i] = math.exp(-0.5 * z * z);
-  }
-  final sum = hist.fold(0.0, (a, b) => a + b);
-  var cumul = 0.0;
-  final cdf = List<double>.filled(256, 0.0);
-  for (int i = 0; i < 256; i++) {
-    cumul += hist[i] / sum;
-    cdf[i] = cumul;
-  }
-  return cdf;
-}();
-
-_LabStyleProfile _analyzeLabStyle(img.Image styleImage) {
-  final maxDim = math.max(styleImage.width, styleImage.height);
-  var sc = styleImage;
-  if (maxDim > 512) {
-    final scale = 512.0 / maxDim;
-    sc = img.copyResize(
-      styleImage,
-      width: (styleImage.width * scale).round(),
-      height: (styleImage.height * scale).round(),
-      interpolation: img.Interpolation.linear,
-    );
-  }
-
-  final lHist = List<int>.filled(256, 0);
-  final lValues = <double>[];
-  final aValues = <double>[];
-  final bValues = <double>[];
-  var sL = 0.0, sA = 0.0, sB = 0.0;
-  var mL = 0.0, mA = 0.0, mB = 0.0;
-  var hL = 0.0, hA = 0.0, hB = 0.0;
-  var sCount = 0, mCount = 0, hCount = 0;
-
-  for (int y = 0; y < sc.height; y++) {
-    for (int x = 0; x < sc.width; x++) {
-      final px = sc.getPixel(x, y);
-      final lab = rgbToLab(RgbColor(
-        px.rNormalized.toDouble(),
-        px.gNormalized.toDouble(),
-        px.bNormalized.toDouble(),
-      ));
-      lValues.add(lab.l);
-      aValues.add(lab.a);
-      bValues.add(lab.b);
-      lHist[(lab.l * 255.0 / 100.0).round().clamp(0, 255)]++;
-
-      if (lab.l < 35.0) {
-        sL += lab.l; sA += lab.a; sB += lab.b; sCount++;
-      } else if (lab.l < 65.0) {
-        mL += lab.l; mA += lab.a; mB += lab.b; mCount++;
-      } else {
-        hL += lab.l; hA += lab.a; hB += lab.b; hCount++;
-      }
-    }
-  }
-
-  final n = lValues.length.toDouble();
-  final meanL = lValues.fold(0.0, (sum, value) => sum + value) / n;
-  final meanA = aValues.fold(0.0, (sum, value) => sum + value) / n;
-  final meanB = bValues.fold(0.0, (sum, value) => sum + value) / n;
-
-  double stdDev(List<double> values, double mean) {
-    final variance = values.fold(0.0, (sum, value) {
-      final d = value - mean;
-      return sum + d * d;
-    }) / values.length;
-    return math.sqrt(variance).clamp(0.001, double.infinity);
-  }
-
-  final sigL = stdDev(lValues, meanL);
-  final sigA = stdDev(aValues, meanA);
-  final sigB = stdDev(bValues, meanB);
-
-  final total = lHist.fold(0, (a, b) => a + b);
-  var cumul = 0.0;
-  final styleCdf = List<double>.filled(256, 0.0);
-  for (int i = 0; i < 256; i++) {
-    cumul += lHist[i] / total;
-    styleCdf[i] = cumul;
-  }
-
-  final toneCurve = List<double>.filled(256, 0.0);
-  for (int i = 0; i < 256; i++) {
-    final target = _neutralLCdf[i];
-    var j = 0;
-    while (j < 255 && styleCdf[j] < target) {
-      j++;
-    }
-    toneCurve[i] = j.toDouble();
-  }
-  for (int i = 1; i < toneCurve.length; i++) {
-    if (toneCurve[i] < toneCurve[i - 1]) {
-      toneCurve[i] = toneCurve[i - 1];
-    }
-  }
-
-  LabColor zone(double fallbackL, double fallbackA, double fallbackB,
-      double l, double a, double b, int count) {
-    if (count <= 10) return LabColor(fallbackL, fallbackA, fallbackB);
-    return LabColor(l / count, a / count, b / count);
-  }
-
-  return _LabStyleProfile(
-    toneCurve: toneCurve,
-    meanL: meanL,
-    contrastRatio: (sigL / 18.0).clamp(0.70, 1.40),
-    satBoost: ((sigA + sigB) / 16.0).clamp(0.85, 1.80),
-    castStrength: math.sqrt(meanA * meanA + meanB * meanB).clamp(0.0, 45.0) / 45.0,
-    shadow: zone(17.5, meanA, meanB, sL, sA, sB, sCount),
-    midtone: zone(50.0, meanA, meanB, mL, mA, mB, mCount),
-    highlight: zone(82.5, meanA, meanB, hL, hA, hB, hCount),
-  );
-}
-
-RgbColor _applyChannelStyle(
-  RgbColor rgb,
-  StyleProfile profile,
-  double castStrength,
-) {
-  final r8 = (rgb.r * 255).round().clamp(0, 255);
-  final g8 = (rgb.g * 255).round().clamp(0, 255);
-  final b8 = (rgb.b * 255).round().clamp(0, 255);
-  final lab = rgbToLab(RgbColor(
-    profile.rCurve[r8] / 255.0,
-    profile.gCurve[g8] / 255.0,
-    profile.bCurve[b8] / 255.0,
-  ));
-
-  final tintStrength = (0.16 + 0.18 * castStrength + 0.12 * profile.blueCastStrength)
-      .clamp(0.16, 0.42);
-  final zone = _weightedZoneCast(
-    lab.l,
-    profile.shadowCast,
-    profile.midtoneCast,
-    profile.highlightCast,
-  );
-  return labToRgb(LabColor(
-    lab.l,
-    (lab.a + tintStrength * zone.a).clamp(-110.0, 110.0),
-    (lab.b + tintStrength * zone.b).clamp(-110.0, 110.0),
-  ));
-}
-
-RgbColor _applyLabStyle(RgbColor rgb, _LabStyleProfile profile) {
-  final lab = rgbToLab(rgb);
-  final lBin = (lab.l * 255.0 / 100.0).round().clamp(0, 255);
-  final l1 = profile.toneCurve[lBin] * 100.0 / 255.0;
-  final lOut = (l1 - 50.0) * profile.contrastRatio + profile.meanL;
-  final zone = _weightedLabZone(lOut, profile);
-  return labToRgb(LabColor(
-    lOut.clamp(0.0, 100.0),
-    (lab.a * profile.satBoost + 0.45 * zone.a).clamp(-110.0, 110.0),
-    (lab.b * profile.satBoost + 0.45 * zone.b).clamp(-110.0, 110.0),
-  ));
-}
-
-ZoneCast _weightedZoneCast(
-  double l,
-  ZoneCast shadow,
-  ZoneCast midtone,
-  ZoneCast highlight,
-) {
-  final ws = _zoneWeight(l, 17.5, 25.0);
-  final wm = _zoneWeight(l, 50.0, 25.0);
-  final wh = _zoneWeight(l, 82.5, 25.0);
-  final total = ws + wm + wh + 1e-10;
-  return ZoneCast(
-    a: (ws * shadow.a + wm * midtone.a + wh * highlight.a) / total,
-    b: (ws * shadow.b + wm * midtone.b + wh * highlight.b) / total,
-    count: 0,
-  );
-}
-
-LabColor _weightedLabZone(double l, _LabStyleProfile profile) {
-  final ws = _zoneWeight(l, profile.shadow.l, 22.0);
-  final wm = _zoneWeight(l, profile.midtone.l, 22.0);
-  final wh = _zoneWeight(l, profile.highlight.l, 22.0);
-  final total = ws + wm + wh + 1e-10;
-  return LabColor(
-    (ws * profile.shadow.l + wm * profile.midtone.l + wh * profile.highlight.l) / total,
-    (ws * profile.shadow.a + wm * profile.midtone.a + wh * profile.highlight.a) / total,
-    (ws * profile.shadow.b + wm * profile.midtone.b + wh * profile.highlight.b) / total,
-  );
-}
-
-double _zoneWeight(double l, double center, double sigma) {
-  final d = l - center;
-  return math.exp(-0.5 * d * d / (sigma * sigma));
-}
-
-double _labBlendWeight(double castStrength) {
-  // Mild references benefit from Lab contrast/saturation transfer; strong color
-  // casts stay closer to channel curves to avoid over-pushing blues and greens.
-  return (0.78 - 0.70 * castStrength).clamp(0.18, 0.78);
-}
-
 /// Apply a 65³ 3D LUT (float16 binary) to an image pixel via trilinear interpolation.
 RgbColor applyLut(Uint8List lutBytes, RgbColor rgb) {
-  final lut    = lutBytes.buffer.asUint16List();
-  const dim    = _dim;
-  final maxIdx = (_dim - 1).toDouble();
-
-  final ri = rgb.r * maxIdx;
-  final gi = rgb.g * maxIdx;
-  final bi = rgb.b * maxIdx;
-
-  final r0 = ri.floor().clamp(0, dim - 2);
-  final r1 = (r0 + 1).clamp(0, dim - 1);
-  final g0 = gi.floor().clamp(0, dim - 2);
-  final g1 = (g0 + 1).clamp(0, dim - 1);
-  final b0 = bi.floor().clamp(0, dim - 2);
-  final b1 = (b0 + 1).clamp(0, dim - 1);
-
-  final rf = ri - r0;
-  final gf = gi - g0;
-  final bf = bi - b0;
-
-  RgbColor sample(int r, int g, int b) {
-    final i = (r + g * dim + b * dim * dim) * 3;
-    return RgbColor(
-      _halfToFloat(lut[i]),
-      _halfToFloat(lut[i + 1]),
-      _halfToFloat(lut[i + 2]),
-    );
-  }
-
-  RgbColor lerp(RgbColor a, RgbColor b, double t) =>
-      RgbColor(a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t);
-
-  final c000 = sample(r0, g0, b0);
-  final c100 = sample(r1, g0, b0);
-  final c010 = sample(r0, g1, b0);
-  final c110 = sample(r1, g1, b0);
-  final c001 = sample(r0, g0, b1);
-  final c101 = sample(r1, g0, b1);
-  final c011 = sample(r0, g1, b1);
-  final c111 = sample(r1, g1, b1);
-
-  final c00 = lerp(c000, c100, rf);
-  final c10 = lerp(c010, c110, rf);
-  final c01 = lerp(c001, c101, rf);
-  final c11 = lerp(c011, c111, rf);
-
-  final c0 = lerp(c00, c10, gf);
-  final c1 = lerp(c01, c11, gf);
-
-  return lerp(c0, c1, bf).clamp01();
+  return applyCustomLut(lutBytes, rgb);
 }
 
 /// Apply adjust params to an sRGB pixel (value in [0,1]).

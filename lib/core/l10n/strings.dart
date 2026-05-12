@@ -46,6 +46,10 @@ class S {
     'create.deferred': '필터 생성 중 오류가 발생했습니다.',
     'create.error': '필터 생성 중 오류가 발생했습니다.',
     'create.success': '필터 생성 완료',
+    'create.success_sub': '필터 목록에서 적용하거나 지금 바로 편집할 수 있어요.',
+    'create.btn_edit_now': '이 필터로 사진 편집하기',
+    'create.before': 'BEFORE',
+    'create.after': 'AFTER',
 
     'settings.title': '설정',
     'settings.language': '언어',
@@ -127,6 +131,10 @@ class S {
     'create.deferred': 'An error occurred while creating the filter.',
     'create.error': 'An error occurred while creating the filter.',
     'create.success': 'Filter created',
+    'create.success_sub': 'Apply it from your filter list, or edit a photo with it now.',
+    'create.btn_edit_now': 'Edit a photo with this filter',
+    'create.before': 'BEFORE',
+    'create.after': 'AFTER',
 
     'settings.title': 'Settings',
     'settings.language': 'Language',

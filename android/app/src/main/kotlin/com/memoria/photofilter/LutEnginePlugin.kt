@@ -100,9 +100,9 @@ class LutEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         val total = LUT_DIM * LUT_DIM * LUT_DIM
         val lutBuffer = ByteBuffer.allocate(total * 3 * 2).order(ByteOrder.LITTLE_ENDIAN)
 
-        for (r in 0 until LUT_DIM) {
+        for (b in 0 until LUT_DIM) {
             for (g in 0 until LUT_DIM) {
-                for (b in 0 until LUT_DIM) {
+                for (r in 0 until LUT_DIM) {
                     val rgb = floatArrayOf(r / 64f, g / 64f, b / 64f)
                     val lab = rgbToLab(rgb)
 

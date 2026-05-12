@@ -1,6 +1,6 @@
 import 'dart:async';
-import 'dart:io';
 
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import 'feature_flags_service.dart';
@@ -37,9 +37,11 @@ class FullScreenAdService {
 
   Future<bool> _hasNetwork() async {
     try {
-      final result = await InternetAddress.lookup('google.com')
-          .timeout(const Duration(milliseconds: 800));
-      return result.isNotEmpty && result.first.rawAddress.isNotEmpty;
+      final results = await Connectivity().checkConnectivity();
+      return results.any((r) =>
+          r == ConnectivityResult.mobile ||
+          r == ConnectivityResult.wifi ||
+          r == ConnectivityResult.ethernet);
     } catch (_) {
       return false;
     }

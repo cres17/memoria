@@ -1,5 +1,6 @@
+import 'dart:async';
 import 'dart:io';
-import 'package:flutter/foundation.dart';
+import 'dart:isolate';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/l10n/app_locale.dart';
@@ -20,6 +21,171 @@ import '../../monetization/fullscreen_ad_service.dart';
 
 const bool kPhotoFilterGenerationEnabled = true;
 
+// ── Isolate message types ─────────────────────────────────
+
+class _IsolateArgs {
+  final String styleImagePath;
+  final String basePath;
+  final SendPort sendPort;
+  const _IsolateArgs(this.styleImagePath, this.basePath, this.sendPort);
+}
+
+class _ProgressMsg {
+  final String stage;
+  final double progress;
+  const _ProgressMsg(this.stage, this.progress);
+}
+
+void _generateLutEntry(_IsolateArgs args) async {
+  final result = await generateLutFromStyle(
+    args.styleImagePath,
+    basePath: args.basePath,
+    onProgress: (stage, progress) =>
+        args.sendPort.send(_ProgressMsg(stage, progress)),
+  );
+  args.sendPort.send(result);
+}
+
+// ── Stage label helper ────────────────────────────────────
+
+String _stageLabel(String stage, String lang) {
+  const cleanKo = {
+    'style_loading': '이미지를 불러오는 중...',
+    'style_analyze': '스타일을 분석하는 중...',
+    'lab_analyze': '색 공간을 분석하는 중...',
+    'lut_build': 'LUT를 생성하는 중...',
+    'model_inference': 'AI 모델을 실행하는 중...',
+    'lut_encode': 'LUT를 인코딩하는 중...',
+    'thumbnail': '썸네일을 생성하는 중...',
+    'saving': '저장하는 중...',
+  };
+  const cleanEn = {
+    'style_loading': 'Loading image...',
+    'style_analyze': 'Analyzing style...',
+    'lab_analyze': 'Analyzing colors...',
+    'lut_build': 'Building LUT...',
+    'model_inference': 'Running AI model...',
+    'lut_encode': 'Encoding LUT...',
+    'thumbnail': 'Generating thumbnail...',
+    'saving': 'Saving...',
+  };
+  final clean = lang == 'en' ? cleanEn[stage] : cleanKo[stage];
+  if (clean != null) return clean;
+
+  const ko = {
+    'style_loading': '이미지 불러오는 중...',
+    'style_analyze': '스타일 분석 중...',
+    'lab_analyze': '색공간 분석 중...',
+    'lut_build': 'LUT 생성 중...',
+    'model_inference': 'AI 추론 중...',
+    'lut_encode': 'LUT 인코딩 중...',
+    'thumbnail': '썸네일 생성 중...',
+    'saving': '저장 중...',
+  };
+  const en = {
+    'style_loading': 'Loading image...',
+    'style_analyze': 'Analyzing style...',
+    'lab_analyze': 'Analyzing colors...',
+    'lut_build': 'Building LUT...',
+    'model_inference': 'Running AI model...',
+    'lut_encode': 'Encoding LUT...',
+    'thumbnail': 'Generating thumbnail...',
+    'saving': 'Saving...',
+  };
+  return (lang == 'en' ? en[stage] : ko[stage]) ?? stage;
+}
+
+// ── Style-tag → suggested name ────────────────────────────
+
+String _suggestName(List<String> tags, String lang) {
+  if (tags.isEmpty) return '';
+  final key = tags.take(2).join(' ');
+  const cleanKo = {
+    'Dark': '딥 무드',
+    'Bright': '라이트 톤',
+    'Natural': '내추럴 톤',
+    'Warm': '웜 필름',
+    'Cool': '쿨 브리즈',
+    'Ocean': '오션 블루',
+    'Blue': '블루 톤',
+    'Green': '그린 무드',
+    'Vintage': '빈티지 필름',
+    'Moody': '무디 톤',
+    'Dark Moody': '다크 무드',
+    'Dark Cool': '딥 블루',
+    'Dark Warm': '앤틱 브라운',
+    'Dark Ocean': '딥 오션',
+    'Bright Warm': '선셋 골드',
+    'Bright Cool': '클리어 스카이',
+    'Bright Ocean': '서머 시안',
+    'Warm Vintage': '필름 빈티지',
+    'Warm Moody': '트와일라잇',
+    'Cool Ocean': '아쿠아 드림',
+    'Ocean Green': '포레스트 톤',
+    'Vintage Warm': '레트로 앰버',
+  };
+  const cleanEn = {
+    'Dark': 'Deep Mood',
+    'Bright': 'Light Tone',
+    'Natural': 'Natural Tone',
+    'Warm': 'Warm Film',
+    'Cool': 'Cool Breeze',
+    'Ocean': 'Ocean Blue',
+    'Blue': 'Blue Tone',
+    'Green': 'Green Mood',
+    'Vintage': 'Vintage Film',
+    'Moody': 'Moody Tone',
+    'Dark Moody': 'Dark Mood',
+    'Dark Cool': 'Deep Blue',
+    'Dark Warm': 'Antique Brown',
+    'Dark Ocean': 'Deep Ocean',
+    'Bright Warm': 'Sunset Gold',
+    'Bright Cool': 'Clear Sky',
+    'Bright Ocean': 'Summer Cyan',
+    'Warm Vintage': 'Film Vignette',
+    'Warm Moody': 'Twilight',
+    'Cool Ocean': 'Aqua Dream',
+    'Ocean Green': 'Forest Tone',
+    'Vintage Warm': 'Retro Amber',
+  };
+  final cleanMap = lang == 'en' ? cleanEn : cleanKo;
+  final cleanName = cleanMap[key] ?? cleanMap[tags.first];
+  if (cleanName != null) return cleanName;
+
+  const ko = {
+    'Dark Moody': '다크 무드',
+    'Dark Cool': '딥 블루',
+    'Dark Warm': '앤틱 브라운',
+    'Dark Ocean': '딥 오션',
+    'Bright Warm': '선셋 골드',
+    'Bright Cool': '클리어 스카이',
+    'Bright Ocean': '서머 시안',
+    'Warm Vintage': '필름 비네트',
+    'Warm Moody': '황혼의 빛',
+    'Cool Ocean': '아쿠아 드림',
+    'Ocean Green': '포레스트 토닝',
+    'Vintage Warm': '레트로 앰버',
+  };
+  const en = {
+    'Dark Moody': 'Dark Mood',
+    'Dark Cool': 'Deep Blue',
+    'Dark Warm': 'Antique Brown',
+    'Dark Ocean': 'Deep Ocean',
+    'Bright Warm': 'Sunset Gold',
+    'Bright Cool': 'Clear Sky',
+    'Bright Ocean': 'Summer Cyan',
+    'Warm Vintage': 'Film Vignette',
+    'Warm Moody': 'Twilight',
+    'Cool Ocean': 'Aqua Dream',
+    'Ocean Green': 'Forest Tone',
+    'Vintage Warm': 'Retro Amber',
+  };
+  final map = lang == 'en' ? en : ko;
+  return map[key] ?? map[tags.first] ?? '';
+}
+
+// ─────────────────────────────────────────────────────────
+
 class CreateFilterPage extends StatefulWidget {
   const CreateFilterPage({super.key});
 
@@ -31,11 +197,16 @@ class _CreateFilterPageState extends State<CreateFilterPage> {
   String? _styleImagePath;
   bool _generating = false;
   double _progress = 0.0;
+  String _stageMsg = '';
   List<Color> _palette = [];
   List<String> _tags = [];
 
   final _nameCtrl = TextEditingController();
   FullScreenAdService? _adService;
+
+  // Isolate teardown
+  Isolate? _isolate;
+  ReceivePort? _receivePort;
 
   @override
   void initState() {
@@ -51,7 +222,15 @@ class _CreateFilterPageState extends State<CreateFilterPage> {
   @override
   void dispose() {
     _nameCtrl.dispose();
+    _cancelIsolate();
     super.dispose();
+  }
+
+  void _cancelIsolate() {
+    _isolate?.kill(priority: Isolate.immediate);
+    _receivePort?.close();
+    _isolate = null;
+    _receivePort = null;
   }
 
   Future<void> _pickStyleImage() async {
@@ -79,10 +258,21 @@ class _CreateFilterPageState extends State<CreateFilterPage> {
       final profile = StyleAnalyzer.analyze(image);
       final palette = extractPalette(image);
       final tags = deriveStyleTags(profile);
-      if (mounted) setState(() { _palette = palette; _tags = tags; });
-    } catch (_) {
-      // 분석 실패는 non-critical — UI는 빈 상태 유지
-    }
+      if (mounted) {
+        setState(() {
+          _palette = palette;
+          _tags = tags;
+        });
+        // Auto-suggest name if field is empty
+        if (_nameCtrl.text.isEmpty) {
+          final lang = localeNotifier.value.languageCode;
+          final suggestion = _suggestName(tags, lang);
+          if (suggestion.isNotEmpty) {
+            _nameCtrl.text = suggestion;
+          }
+        }
+      }
+    } catch (_) {}
   }
 
   Future<void> _generate() async {
@@ -95,7 +285,6 @@ class _CreateFilterPageState extends State<CreateFilterPage> {
       _showSnack(S.get('create.need_name'));
       return;
     }
-
     if (!kPhotoFilterGenerationEnabled) {
       _showSnack(S.get('create.deferred'));
       return;
@@ -107,20 +296,46 @@ class _CreateFilterPageState extends State<CreateFilterPage> {
 
     setState(() {
       _generating = true;
-      _progress = 0.1;
+      _progress = 0.05;
+      _stageMsg = _stageLabel(
+          'style_loading', localeNotifier.value.languageCode);
     });
     hapticHeavy();
 
     try {
-      setState(() => _progress = 0.15);
-      // 헤비 작업: 별도 isolate에서 실행해 UI 블로킹 방지
       final styleImagePath = _styleImagePath!;
       final base = await getApplicationDocumentsDirectory();
-      final result = await compute(
-        _generateLutIsolate,
-        {'styleImagePath': styleImagePath, 'basePath': base.path},
+
+      final receivePort = ReceivePort();
+      _receivePort = receivePort;
+
+      final completer = Completer<Map<String, dynamic>>();
+
+      receivePort.listen((msg) {
+        if (msg is _ProgressMsg) {
+          if (mounted) {
+            setState(() {
+              _progress = msg.progress;
+              _stageMsg = _stageLabel(
+                  msg.stage, localeNotifier.value.languageCode);
+            });
+          }
+        } else if (msg is Map<String, dynamic>) {
+          completer.complete(msg);
+        }
+      });
+
+      final isolate = await Isolate.spawn(
+        _generateLutEntry,
+        _IsolateArgs(styleImagePath, base.path, receivePort.sendPort),
+        errorsAreFatal: true,
       );
-      setState(() => _progress = 0.82);
+      _isolate = isolate;
+
+      final result = await completer.future;
+      _cancelIsolate();
+
+      setState(() => _progress = 1.0);
 
       final now = DateTime.now();
       final preset = FilterPreset(
@@ -136,13 +351,13 @@ class _CreateFilterPageState extends State<CreateFilterPage> {
       );
 
       await FilterRepositoryImpl().savePreset(preset);
-      setState(() => _progress = 1.0);
       hapticMedium();
 
-      await Future.delayed(const Duration(milliseconds: 450));
-      if (mounted) _showSuccessSheet(preset);
+      await Future.delayed(const Duration(milliseconds: 350));
+      if (mounted) _showSuccessSheet(preset, styleImagePath);
     } catch (e) {
-      _showSnack('${S.get('create.error')} $e');
+      _cancelIsolate();
+      _showSnack(S.get('create.error'));
     } finally {
       if (mounted) setState(() => _generating = false);
     }
@@ -158,13 +373,22 @@ class _CreateFilterPageState extends State<CreateFilterPage> {
     );
   }
 
-  void _showSuccessSheet(FilterPreset preset) {
+  void _showSuccessSheet(FilterPreset preset, String styleImagePath) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => _SuccessSheet(preset: preset),
+      builder: (_) => _SuccessSheet(
+        preset: preset,
+        styleImagePath: styleImagePath,
+        onEditNow: () {
+          Navigator.of(context).pop(); // close sheet
+          if (mounted) context.pop(); // back to filters
+          // Then navigate to editor with this preset pre-loaded
+          context.pushNamed('editor', extra: styleImagePath);
+        },
+      ),
     ).then((_) {
       if (mounted) context.pop();
     });
@@ -188,11 +412,10 @@ class _CreateFilterPageState extends State<CreateFilterPage> {
               _Header(onClose: () => context.pop()),
               Expanded(
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(24, 8, 24, 260),
+                  padding: const EdgeInsets.fromLTRB(24, 8, 24, 280),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // "Uncovering Details" heading block — matches _2 mockup
                       const SizedBox(height: 12),
                       Text(
                         S.get('create.heading'),
@@ -206,7 +429,7 @@ class _CreateFilterPageState extends State<CreateFilterPage> {
                       const SizedBox(height: 6),
                       Text(
                         S.get('create.subheading'),
-                        style: TextStyle(
+                        style: const TextStyle(
                           fontSize: 15,
                           height: 1.5,
                           color: AppColors.textSecondary,
@@ -230,6 +453,7 @@ class _CreateFilterPageState extends State<CreateFilterPage> {
               nameCtrl: _nameCtrl,
               generating: _generating,
               progress: _progress,
+              stageMsg: _stageMsg,
               palette: _palette,
               tags: _tags,
               onPick: _pickStyleImage,
@@ -241,6 +465,10 @@ class _CreateFilterPageState extends State<CreateFilterPage> {
     );
   }
 }
+
+// ─────────────────────────────────────────────────────────
+//  Sub-widgets
+// ─────────────────────────────────────────────────────────
 
 class _Header extends StatelessWidget {
   final VoidCallback onClose;
@@ -254,7 +482,6 @@ class _Header extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(20, 14, 20, 8),
         child: Row(
           children: [
-            // Memoria wordmark
             const Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -278,7 +505,7 @@ class _Header extends StatelessWidget {
                 backgroundColor: AppColors.cloudVeil,
                 foregroundColor: AppColors.textPrimary,
               ),
-              icon: const Icon(Icons.person_outline_rounded),
+              icon: const Icon(Icons.close_rounded),
               onPressed: onClose,
             ),
           ],
@@ -344,7 +571,6 @@ class _ImageStage extends StatelessWidget {
                     ),
                   ),
                 ),
-                // Bottom pill — "Analyzing" when generating, else "SELECT IMAGE"
                 Positioned(
                   left: 0,
                   right: 0,
@@ -352,9 +578,7 @@ class _ImageStage extends StatelessWidget {
                   child: Center(
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 22,
-                        vertical: 12,
-                      ),
+                          horizontal: 22, vertical: 12),
                       decoration: BoxDecoration(
                         color: generating
                             ? AppColors.cloudWhite.withValues(alpha: 0.96)
@@ -366,7 +590,7 @@ class _ImageStage extends StatelessWidget {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           if (generating) ...[
-                            SizedBox(
+                            const SizedBox(
                               width: 16,
                               height: 16,
                               child: CircularProgressIndicator(
@@ -377,7 +601,7 @@ class _ImageStage extends StatelessWidget {
                             const SizedBox(width: 10),
                             Text(
                               S.get('create.analyzing'),
-                              style: TextStyle(
+                              style: const TextStyle(
                                 fontWeight: FontWeight.w700,
                                 letterSpacing: 0.6,
                                 color: AppColors.textPrimary,
@@ -393,7 +617,9 @@ class _ImageStage extends StatelessWidget {
                             ),
                             const SizedBox(width: 10),
                             Text(
-                              imagePath == null ? S.get('create.select') : S.get('create.ready'),
+                              imagePath == null
+                                  ? S.get('create.select')
+                                  : S.get('create.ready'),
                               style: const TextStyle(
                                 fontWeight: FontWeight.w800,
                                 letterSpacing: 2.0,
@@ -419,6 +645,7 @@ class _ControlPanel extends StatelessWidget {
   final TextEditingController nameCtrl;
   final bool generating;
   final double progress;
+  final String stageMsg;
   final List<Color> palette;
   final List<String> tags;
   final VoidCallback onPick;
@@ -428,6 +655,7 @@ class _ControlPanel extends StatelessWidget {
     required this.nameCtrl,
     required this.generating,
     required this.progress,
+    required this.stageMsg,
     required this.palette,
     required this.tags,
     required this.onPick,
@@ -455,7 +683,6 @@ class _ControlPanel extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Drag handle
             Center(
               child: Container(
                 width: 52,
@@ -467,7 +694,8 @@ class _ControlPanel extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 20),
-            // Palette + Detected row (visible when image selected and analyzed)
+
+            // Palette + Tags row
             if (!generating && palette.isNotEmpty)
               Row(
                 children: [
@@ -476,7 +704,8 @@ class _ControlPanel extends StatelessWidget {
                     label: S.get('create.palette'),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
-                      children: palette.map((c) => _ColorDot(color: c)).toList(),
+                      children:
+                          palette.map((c) => _ColorDot(color: c)).toList(),
                     ),
                   ),
                   if (tags.isNotEmpty) ...[
@@ -493,6 +722,13 @@ class _ControlPanel extends StatelessWidget {
                 ],
               ),
             if (!generating) const SizedBox(height: 18),
+
+            // Progress block (stage label + animated bar)
+            if (generating) ...[
+              _StageProgressBar(progress: progress, stageMsg: stageMsg),
+              const SizedBox(height: 18),
+            ],
+
             // Name field
             TextField(
               controller: nameCtrl,
@@ -503,6 +739,7 @@ class _ControlPanel extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 14),
+
             // Action buttons
             Row(
               children: [
@@ -534,29 +771,63 @@ class _ControlPanel extends StatelessWidget {
                 ),
               ],
             ),
-            if (generating) ...[
-              const SizedBox(height: 14),
-              // Cancel upload button — matches _2 mockup
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: () => Navigator.of(context).pop(),
-                  icon: const Icon(Icons.close_rounded, size: 18),
-                  label: Text(S.get('create.btn_cancel')),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.textSecondary,
-                    side: const BorderSide(color: AppColors.cloudMist),
-                    minimumSize: const Size.fromHeight(48),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(26),
-                    ),
-                  ),
-                ),
-              ),
-            ],
           ],
         ),
       ),
+    );
+  }
+}
+
+class _StageProgressBar extends StatelessWidget {
+  final double progress;
+  final String stageMsg;
+
+  const _StageProgressBar({required this.progress, required this.stageMsg});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                stageMsg,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ),
+            Text(
+              '${(progress * 100).round()}%',
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: AppColors.oceanFoam,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(99),
+          child: TweenAnimationBuilder<double>(
+            duration: const Duration(milliseconds: 400),
+            curve: Curves.easeOut,
+            tween: Tween(begin: 0.0, end: progress),
+            builder: (_, v, __) => LinearProgressIndicator(
+              value: v,
+              minHeight: 6,
+              backgroundColor: AppColors.cloudVeil,
+              valueColor:
+                  const AlwaysStoppedAnimation<Color>(AppColors.oceanFoam),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -643,15 +914,25 @@ class _TagChip extends StatelessWidget {
   }
 }
 
+// ─────────────────────────────────────────────────────────
+//  Success Sheet — A1 + A3
+// ─────────────────────────────────────────────────────────
 
 class _SuccessSheet extends StatelessWidget {
   final FilterPreset preset;
-  const _SuccessSheet({required this.preset});
+  final String styleImagePath;
+  final VoidCallback onEditNow;
+
+  const _SuccessSheet({
+    required this.preset,
+    required this.styleImagePath,
+    required this.onEditNow,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(28),
+      padding: const EdgeInsets.fromLTRB(24, 20, 24, 28),
       decoration: const BoxDecoration(
         color: AppColors.cloudWhite,
         borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
@@ -660,23 +941,73 @@ class _SuccessSheet extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // Drag handle
+            Container(
+              width: 52,
+              height: 5,
+              decoration: BoxDecoration(
+                color: AppColors.cloudVeil,
+                borderRadius: BorderRadius.circular(99),
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            // Before / After preview
+            _BeforeAfterPreview(
+              styleImagePath: styleImagePath,
+              thumbnailPath: preset.thumbnailPath,
+            ),
+            const SizedBox(height: 20),
+
+            // Success label
             const Icon(Icons.check_circle_outline_rounded,
-                color: AppColors.oceanFoam, size: 54),
-            const SizedBox(height: 16),
+                color: AppColors.oceanFoam, size: 40),
+            const SizedBox(height: 10),
             Text(
               '\'${preset.name}\' ${S.get('create.success')}',
               textAlign: TextAlign.center,
               style: const TextStyle(
                 fontFamily: 'Domine',
-                fontSize: 22,
+                fontSize: 20,
                 fontWeight: FontWeight.w700,
                 color: AppColors.textPrimary,
               ),
             ),
+            const SizedBox(height: 6),
+            Text(
+              S.get('create.success_sub'),
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 14,
+                color: AppColors.textSecondary,
+              ),
+            ),
             const SizedBox(height: 24),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: Text(S.get('create.done')),
+
+            // CTA: edit now
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: onEditNow,
+                icon: const Icon(Icons.edit_outlined, size: 18),
+                label: Text(S.get('create.btn_edit_now')),
+              ),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: () => Navigator.of(context).pop(),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.textSecondary,
+                  side: const BorderSide(color: AppColors.cloudMist),
+                  minimumSize: const Size.fromHeight(50),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(26),
+                  ),
+                ),
+                child: Text(S.get('create.done')),
+              ),
             ),
           ],
         ),
@@ -685,5 +1016,77 @@ class _SuccessSheet extends StatelessWidget {
   }
 }
 
-Future<Map<String, dynamic>> _generateLutIsolate(Map<String, String> args) =>
-    generateLutFromStyle(args['styleImagePath']!, basePath: args['basePath']!);
+class _BeforeAfterPreview extends StatelessWidget {
+  final String styleImagePath;
+  final String? thumbnailPath;
+
+  const _BeforeAfterPreview({
+    required this.styleImagePath,
+    required this.thumbnailPath,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: _PreviewCard(
+            imagePath: styleImagePath,
+            label: S.get('create.before'),
+          ),
+        ),
+        const SizedBox(width: 12),
+        const Icon(Icons.arrow_forward_rounded,
+            color: AppColors.oceanFoam, size: 22),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _PreviewCard(
+            imagePath: thumbnailPath,
+            label: S.get('create.after'),
+            isAfter: true,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PreviewCard extends StatelessWidget {
+  final String? imagePath;
+  final String label;
+  final bool isAfter;
+
+  const _PreviewCard({
+    required this.imagePath,
+    required this.label,
+    this.isAfter = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 1.0,
+            color: isAfter ? AppColors.oceanFoam : AppColors.textTertiary,
+          ),
+        ),
+        const SizedBox(height: 6),
+        AspectRatio(
+          aspectRatio: 1,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: imagePath != null
+                ? Image.file(File(imagePath!), fit: BoxFit.cover)
+                : Container(color: AppColors.cloudVeil),
+          ),
+        ),
+      ],
+    );
+  }
+}
