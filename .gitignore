@@ -7,6 +7,12 @@ build/
 *.g.dart
 *.freezed.dart
 
+# Environment / secrets
+.env
+.env.*
+!.env.example
+!.env.sample
+
 # Android
 android/local.properties
 android/.gradle/
