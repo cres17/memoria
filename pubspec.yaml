@@ -40,6 +40,9 @@ dependencies:
   # Gallery save
   gal: ^2.3.0
 
+  # Network status
+  connectivity_plus: ^6.0.5
+
   # Utilities
   uuid: ^4.4.0
 
