@@ -21,6 +21,15 @@ jobs:
           lfs: true
           persist-credentials: true
 
+      - name: Ensure Git LFS and full history
+        run: |
+          git lfs install --skip-repo || true
+          if [ -f .git/shallow ]; then
+            git fetch --prune --unshallow || true
+          fi
+          git lfs pull || true
+        shell: bash
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
