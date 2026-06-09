@@ -1,7 +1,9 @@
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Feature flags stored locally via SharedPreferences.
 /// All fullscreen-ad flags default to OFF per spec.
+/// Banner ad is always disabled on web (kIsWeb) regardless of the stored flag.
 class FeatureFlagsService {
   static const _keyBanner         = 'flag_banner_ad';
   static const _keyFullCreateFilter = 'flag_fullscreen_create';
@@ -17,7 +19,7 @@ class FeatureFlagsService {
 
   // ── Getters ──────────────────────────────────────────────────
   bool get enableBannerAd =>
-      _prefs.getBool(_keyBanner) ?? true;           // default ON
+      !kIsWeb && (_prefs.getBool(_keyBanner) ?? true); // web always OFF
 
   bool get enableFullScreenAdsForCreateFilter =>
       _prefs.getBool(_keyFullCreateFilter) ?? false; // default OFF

@@ -6,8 +6,14 @@ import '../../../domain/models/curve_data.dart';
 class CurveEditor extends StatefulWidget {
   final CurveData curve;
   final ValueChanged<CurveData> onChanged;
+  final ValueChanged<CurveData>? onChangeEnd;
 
-  const CurveEditor({super.key, required this.curve, required this.onChanged});
+  const CurveEditor({
+    super.key,
+    required this.curve,
+    required this.onChanged,
+    this.onChangeEnd,
+  });
 
   @override
   State<CurveEditor> createState() => _CurveEditorState();
@@ -15,7 +21,7 @@ class CurveEditor extends StatefulWidget {
 
 class _CurveEditorState extends State<CurveEditor> {
   static const double _canvasSize = 240.0;
-  static const double _hitRadius  = 18.0;
+  static const double _hitRadius  = 32.0;
 
   int? _draggingIndex;
   late List<CurvePoint> _points;
@@ -95,6 +101,9 @@ class _CurveEditorState extends State<CurveEditor> {
 
   void _onPanEnd(DragEndDetails _) {
     setState(() => _draggingIndex = null);
+    if (widget.onChangeEnd != null) {
+      widget.onChangeEnd!(widget.curve.copyWith(points: [..._points]));
+    }
   }
 
   void _onDoubleTap(TapDownDetails d) {
@@ -104,6 +113,9 @@ class _CurveEditorState extends State<CurveEditor> {
       hapticMedium();
       setState(() => _points.removeAt(hit));
       _notify();
+      if (widget.onChangeEnd != null) {
+        widget.onChangeEnd!(widget.curve.copyWith(points: [..._points]));
+      }
     }
   }
 
@@ -150,12 +162,24 @@ class _CurveEditorState extends State<CurveEditor> {
             separatorBuilder: (_, __) => const SizedBox(width: 6),
             itemBuilder: (ctx, i) {
               final name = CurvePresets.presetNames[i];
+              String displayName = name;
+              switch (name) {
+                case 'Neutral': displayName = '기본'; break;
+                case 'Brighten': displayName = '밝게'; break;
+                case 'Darken': displayName = '어둡게'; break;
+                case 'Faded': displayName = '바랜 느낌'; break;
+                case 'Soft Contrast': displayName = '부드러운 대비'; break;
+                case 'Hard Contrast': displayName = '강한 대비'; break;
+              }
               return GestureDetector(
                 onTap: () {
                   hapticLight();
                   final newCurve = CurvePresets.fromPresetName(name, widget.curve.channel);
                   setState(() => _points = [...newCurve.points]);
                   widget.onChanged(newCurve);
+                  if (widget.onChangeEnd != null) {
+                    widget.onChangeEnd!(newCurve);
+                  }
                 },
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -166,11 +190,12 @@ class _CurveEditorState extends State<CurveEditor> {
                   ),
                   alignment: Alignment.center,
                   child: Text(
-                    name,
+                    displayName,
                     style: const TextStyle(
                       fontFamily: 'NotoSerif',
-                      fontSize: 11,
-                      color: AppColors.textOnDarkSub,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
                     ),
                   ),
                 ),
@@ -280,11 +305,13 @@ class _CurvePainter extends CustomPainter {
 class CurveEditorPanel extends StatefulWidget {
   final Map<CurveChannel, CurveData> curves;
   final void Function(CurveChannel channel, CurveData data) onChanged;
+  final void Function(CurveChannel channel, CurveData data)? onChangeEnd;
 
   const CurveEditorPanel({
     super.key,
     required this.curves,
     required this.onChanged,
+    this.onChangeEnd,
   });
 
   @override
@@ -302,38 +329,56 @@ class _CurveEditorPanelState extends State<CurveEditorPanel> {
         // 채널 탭
         SizedBox(
           height: 36,
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            children: CurveChannel.values.map((ch) {
-              final selected = ch == _activeChannel;
-              final label = _channelLabel(ch);
-              return GestureDetector(
-                onTap: () {
-                  hapticLight();
-                  setState(() => _activeChannel = ch);
-                },
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 180),
-                  margin: const EdgeInsets.only(right: 6),
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                  decoration: BoxDecoration(
-                    color: selected ? _channelColor(ch) : AppColors.oceanNavy,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  alignment: Alignment.center,
-                  child: Text(
-                    label,
-                    style: TextStyle(
-                      fontFamily: 'NotoSerif',
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: selected ? Colors.white : AppColors.textOnDarkTert,
-                    ),
-                  ),
+          child: Row(
+            children: [
+              Expanded(
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  children: CurveChannel.values.map((ch) {
+                    final selected = ch == _activeChannel;
+                    final label = _channelLabel(ch);
+                    return GestureDetector(
+                      onTap: () {
+                        hapticLight();
+                        setState(() => _activeChannel = ch);
+                      },
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 180),
+                        margin: const EdgeInsets.only(right: 6),
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                        decoration: BoxDecoration(
+                          color: selected ? _channelColor(ch) : AppColors.oceanNavy,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        alignment: Alignment.center,
+                        child: Text(
+                          label,
+                          style: TextStyle(
+                            fontFamily: 'NotoSerif',
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: selected ? Colors.white : Colors.white60,
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
                 ),
-              );
-            }).toList(),
+              ),
+              IconButton(
+                icon: const Icon(Icons.replay_rounded, color: AppColors.textOnDarkSub),
+                onPressed: () {
+                  hapticLight();
+                  final cleanCurve = CurveData.linear(_activeChannel);
+                  widget.onChanged(_activeChannel, cleanCurve);
+                  if (widget.onChangeEnd != null) {
+                    widget.onChangeEnd!(_activeChannel, cleanCurve);
+                  }
+                },
+              ),
+              const SizedBox(width: 8),
+            ],
           ),
         ),
         const SizedBox(height: 12),
@@ -342,6 +387,9 @@ class _CurveEditorPanelState extends State<CurveEditorPanel> {
           curve: widget.curves[_activeChannel] ??
               CurveData.linear(_activeChannel),
           onChanged: (data) => widget.onChanged(_activeChannel, data),
+          onChangeEnd: widget.onChangeEnd != null
+              ? (data) => widget.onChangeEnd!(_activeChannel, data)
+              : null,
         ),
       ],
     );
@@ -349,11 +397,16 @@ class _CurveEditorPanelState extends State<CurveEditorPanel> {
 
   String _channelLabel(CurveChannel ch) {
     switch (ch) {
-      case CurveChannel.luminance: return 'L';
-      case CurveChannel.rgb:       return 'RGB';
-      case CurveChannel.red:       return 'R';
-      case CurveChannel.green:     return 'G';
-      case CurveChannel.blue:      return 'B';
+      case CurveChannel.luminance:
+        return 'L';
+      case CurveChannel.rgb:
+        return 'RGB';
+      case CurveChannel.red:
+        return 'R';
+      case CurveChannel.green:
+        return 'G';
+      case CurveChannel.blue:
+        return 'B';
     }
   }
 
