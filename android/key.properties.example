@@ -1,0 +1,4 @@
+storeFile=C:/secure/path/memoria-upload.jks
+storePassword=replace-with-keystore-password
+keyAlias=memoria
+keyPassword=replace-with-key-password
