@@ -1,44 +1,53 @@
 # Memoria
 
-Memoria is a Flutter-based photo editing application focused on high-quality LUT-driven color transforms, real-time GPU previews, and an extensible editing pipeline for filters, crops, retouching and ML-powered features.
+`Memoria`는 전문가 수준의 사진 편집을 목표로 개발된 Flutter 기반 애플리케이션입니다. 고해상도 LUT(Look-Up Table)를 이용한 컬러 변환과 GPU 기반 실시간 프리뷰, 모듈화된 편집 파이프라인을 제공하여 모바일 및 데스크톱 환경에서 일관되고 고품질의 색 보정·편집 경험을 제공합니다.
 
-Key points:
-- Cross-platform Flutter app (Android, iOS, Windows, Web)
-- Real-time GPU preview for spatial transforms and editing tools
-- LUT-based creative filters and a trainable ML pipeline (optional)
+주요 기능
+- LUT 기반 필터 시스템: 다양한 창작용 LUT와 사용자 정의 LUT를 적용하여 일관된 색감 보정이 가능합니다.
+- 실시간 GPU 프리뷰: 회전·원근·왜곡 등 공간 변형을 GPU 레이어에서 즉시 렌더링하여 드래그 중에도 부드러운 피드백을 제공합니다.
+- 비파괴 편집 파이프라인: 필터, 노출, 곡선, HSL, 디테일 등 편집 스택을 기록하고 재실행할 수 있습니다.
+- ML 보조 기능(옵션): LUT 생성·전달 및 세분화(Segmentation) 같은 ML 도구를 포함합니다(모델 파일은 별도 관리).
+- 포커스/틸트-시프트 오버레이, 브러시·힐링 도구, 프레임·텍스트 오버레이 등 고급 편집 도구 포함.
 
-Quick start
-1. Install Flutter (see https://flutter.dev) and required platform SDKs.
-2. Get the repo:
+아키텍처 요약
+- Flutter UI 레이어: `lib/features/*` 내부의 편집 화면, 패널, 위젯으로 구성됩니다.
+- 엔진 레이어: `lib/engine/*`에 이미지 처리 파이프라인과 LUT 적용, 로컬 필터 엔진이 위치합니다.
+- AI/ML: `lib/ai/*` 및 `ml_pipeline/`은 모델 학습·추론 및 관련 파이프라인 스크립트를 포함합니다(선택적).
+
+빠른 시작(개발자)
+1. Flutter 설치 및 플랫폼 종속성 설정: https://flutter.dev 참조
+2. 저장소 클론:
 
 ```bash
 git clone https://github.com/cres17/memoria.git
 cd memoria
 ```
 
-3. Restore any required assets or models (if you rely on ML tests).
-4. Run the app (example for Android):
+3. 의존성 설치 및 앱 실행 예시(안드로이드 에뮬레이터):
 
 ```bash
 flutter pub get
-flutter run -d emulator-5554
+flutter run -d <device-id>
 ```
 
-Running tests
+테스트 실행
 
 ```bash
 flutter test
 ```
 
-Notes
-- Large optional assets (models, LUTs) may be archived outside the repo. See `removed_assets/` for recent archives.
-- Some ML tests require native TFLite binaries on Windows and are skipped by default when missing.
+대용량 자산 및 모델
+- 저장소 용량 관리를 위해 일부 대용량 자산(예: TFLite 모델, 다수의 LUT 바이너리)은 레포에서 분리·아카이브 될 수 있습니다. 최근 아카이브는 `removed_assets/` 디렉터리에 저장되어 있습니다. 필요 시 로컬 또는 CI에서 복원하여 사용하세요.
+- Windows에서 일부 ML 테스트는 `libtensorflowlite_c-win.dll` 같은 네이티브 바이너리가 필요합니다.
 
-Contributing
-- Create a branch for your change, open a PR against `main`, and include tests for behavioral changes.
+CI 및 배포 제안
+- GitHub Actions 또는 Azure Pipelines에서 플러터 빌드와 테스트(리눅스/맥/윈도우)를 실행하는 워크플로를 구성하세요. Windows 작업에는 TFLite 바이너리를 설치하거나 아티팩트로 제공해야 전체 테스트를 통과합니다.
 
-License
-- Check the project root for licensing information.
+기여 안내
+- 기능 추가나 수정은 분기(branch) 생성 → PR → 코드 리뷰 플로우로 진행하세요. 변경사항에는 가능한 경우 테스트를 추가해 주세요.
 
-Contact
-- Maintainer: https://github.com/cres17
+라이선스
+- 저장소 루트의 라이선스 파일을 확인하세요.
+
+문의
+- 유지보수자: https://github.com/cres17
