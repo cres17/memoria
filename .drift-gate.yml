@@ -1,0 +1,134 @@
+version: 1
+
+gate:
+  fail_on_blocker: true
+  fail_on_major_count: 2
+
+ignore_paths:
+  - "assets/**"
+  - "test/**.jpg"
+  - "test/**.png"
+  - "tool/test_output/**"
+  - "android/app/src/main/res/**"
+  - "ios/Runner/Assets.xcassets/**"
+  - "web/icons/**"
+  - "android/gradle/wrapper/**"
+
+rules:
+  # 1. pubspec.yaml(의존성/버전) 변경 시 CHANGELOG 업데이트 필요
+  - id: pubspec-changelog-sync
+    severity: major
+    message: "pubspec.yaml changed without CHANGELOG or PUBLISH_CHECKLIST update"
+    when:
+      any_changed:
+        - "pubspec.yaml"
+    require:
+      groups:
+        - name: "릴리즈 기록"
+          any_changed:
+            - "CHANGELOG.md"
+            - "PUBLISH_CHECKLIST.md"
+
+  # 2. Android 네이티브 플러그인(Kotlin) 변경 시 iOS 대응 파일도 함께 변경해야 함
+  - id: native-plugin-cross-platform-sync
+    severity: major
+    message: "Android native plugin changed without corresponding iOS plugin update"
+    when:
+      any_changed:
+        - "android/app/src/main/kotlin/**"
+    require:
+      groups:
+        - name: "iOS 대응 플러그인"
+          any_changed:
+            - "ios/Runner/LutEnginePlugin.swift"
+
+  # 3. 도메인 모델(domain/models) 변경 시 관련 repository 또는 테스트 업데이트 필요
+  - id: domain-model-repo-sync
+    severity: major
+    message: "Domain model changed without repository or widget test update"
+    when:
+      any_changed:
+        - "lib/domain/models/**"
+        - "lib/domain/repositories/**"
+    require:
+      groups:
+        - name: "데이터 레이어 반영"
+          any_changed:
+            - "lib/data/repositories/**"
+        - name: "테스트"
+          any_changed:
+            - "test/**"
+
+  # 4. monetization(광고/과금) 변경 시 feature_flags 및 PUBLISH_CHECKLIST 동기화 필요
+  - id: monetization-policy-sync
+    severity: blocker
+    message: "Monetization code changed without feature flags or publish checklist update"
+    when:
+      any_changed:
+        - "lib/monetization/**"
+    require:
+      groups:
+        - name: "기능 플래그 동기화"
+          any_changed:
+            - "lib/monetization/feature_flags_service.dart"
+        - name: "출시 체크리스트"
+          any_changed:
+            - "PUBLISH_CHECKLIST.md"
+
+  # 5. 앱 권한(AndroidManifest/Info.plist) 변경 시 privacy policy 문서 업데이트 필요
+  - id: permission-privacy-sync
+    severity: blocker
+    message: "App permissions changed without privacy policy or publish checklist update"
+    when:
+      any_changed:
+        - "android/app/src/main/AndroidManifest.xml"
+        - "ios/Runner/Info.plist"
+    require:
+      groups:
+        - name: "개인정보 처리방침"
+          any_changed:
+            - "docs/privacy-policy.md"
+        - name: "출시 체크리스트"
+          any_changed:
+            - "PUBLISH_CHECKLIST.md"
+
+  # 6. ML 파이프라인 변경 시 README 업데이트 필요
+  - id: ml-pipeline-doc-sync
+    severity: minor
+    message: "ML pipeline scripts changed without README update"
+    when:
+      any_changed:
+        - "ml_pipeline/**.py"
+        - "ml/**.py"
+        - "ml/**.sh"
+    require:
+      groups:
+        - name: "ML 문서"
+          any_changed:
+            - "ml_pipeline/README.md"
+
+  # 7. 라우터(app_router) 변경 시 main_shell과 함께 변경되어야 함
+  - id: router-shell-sync
+    severity: minor
+    message: "App router changed without main shell update (navigation contract may be broken)"
+    when:
+      any_changed:
+        - "lib/core/router/app_router.dart"
+    require:
+      groups:
+        - name: "쉘 네비게이션"
+          any_changed:
+            - "lib/core/shell/main_shell.dart"
+
+  # 8. l10n 문자열(strings.dart) 변경 시 app_locale과 동기화
+  - id: l10n-sync
+    severity: minor
+    message: "Localization strings changed without app_locale update"
+    when:
+      any_changed:
+        - "lib/core/l10n/strings.dart"
+    require:
+      groups:
+        - name: "로케일 설정"
+          any_changed:
+            - "lib/core/l10n/app_locale.dart"

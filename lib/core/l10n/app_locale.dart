@@ -3,6 +3,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 const _kLocaleKey = 'app_locale';
 
+/// Supported locales — must stay in sync with the key sets in strings.dart.
+const supportedLocales = [Locale('ko'), Locale('en')];
+
 /// Global locale notifier — listen in MemoriaApp to rebuild on change.
 final localeNotifier = ValueNotifier<Locale>(const Locale('ko'));
 

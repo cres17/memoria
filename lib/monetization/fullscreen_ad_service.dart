@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:flutter/foundation.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import 'feature_flags_service.dart';
@@ -14,7 +15,8 @@ class FullScreenAdService {
 
   // TODO(release): replace with real AdMob unit IDs from AdMob console.
   static const _interstitialId = 'ca-app-pub-3940256099942544/1033173712';
-  static const _rewardedId = 'ca-app-pub-3940256099942544/5224354917';
+  static const _rewardedId     = 'ca-app-pub-3940256099942544/5224354917';
+  static const _isTestAdId = true; // flip to false after replacing both IDs
 
   final FeatureFlagsService _flags;
   FullScreenAdService(this._flags);
@@ -25,6 +27,7 @@ class FullScreenAdService {
         ? _flags.enableFullScreenAdsForCreateFilter
         : _flags.enableFullScreenAdsForApplyOrExport;
 
+    if (kIsWeb) return;
     if (!enabled) return;
     if (!await _hasNetwork()) return;
 
@@ -48,6 +51,8 @@ class FullScreenAdService {
   }
 
   Future<void> _showRewarded() async {
+    assert(!kReleaseMode || !_isTestAdId,
+        'Replace AdMob IDs with real unit IDs before release.');
     final completer = Completer<void>();
 
     final timer = Timer(

@@ -1,6 +1,5 @@
-import 'dart:async';
-import 'dart:io';
-
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import '../core/theme/app_colors.dart';
@@ -20,17 +19,21 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
   BannerAd? _ad;
   bool _loaded = false;
 
-  // TODO(release): replace with real AdMob banner unit ID from AdMob console
-  // Current value is Google's official test ID — using this in production violates AdMob policy
+  // TODO(release): replace with real AdMob banner unit ID from AdMob console.
+  // Current value is Google's official test ID — using this in production violates AdMob policy.
   static const _adUnitId = 'ca-app-pub-3940256099942544/6300978111';
+  static const _isTestAdId = true; // flip to false after replacing _adUnitId
 
   @override
   void initState() {
     super.initState();
-    if (widget.flags.enableBannerAd) _loadAd();
+    if (!kIsWeb && widget.flags.enableBannerAd) _loadAd();
   }
 
   Future<void> _loadAd() async {
+    if (kIsWeb) return;
+    assert(!kReleaseMode || !_isTestAdId,
+        'Replace _adUnitId with a real AdMob ID before release.');
     if (!await _hasNetwork()) return;
 
     _ad = BannerAd(
@@ -52,9 +55,11 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
 
   Future<bool> _hasNetwork() async {
     try {
-      final result = await InternetAddress.lookup('google.com')
-          .timeout(const Duration(milliseconds: 800));
-      return result.isNotEmpty && result.first.rawAddress.isNotEmpty;
+      final results = await Connectivity().checkConnectivity();
+      return results.any((r) =>
+          r == ConnectivityResult.mobile ||
+          r == ConnectivityResult.wifi ||
+          r == ConnectivityResult.ethernet);
     } catch (_) {
       return false;
     }
@@ -68,7 +73,7 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
 
   @override
   Widget build(BuildContext context) {
-    if (!widget.flags.enableBannerAd || !_loaded || _ad == null) {
+    if (kIsWeb || !widget.flags.enableBannerAd || !_loaded || _ad == null) {
       return const SizedBox.shrink();
     }
 
