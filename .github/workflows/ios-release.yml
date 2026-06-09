@@ -1,0 +1,57 @@
+name: iOS Release Build (signed IPA)
+
+on:
+  workflow_dispatch:
+  push:
+    tags: [ 'v*', 'release-*' ]
+
+jobs:
+  release-ipa:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 'stable'
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Import signing identities and provisioning profiles
+        uses: apple-actions/import-codesign@v1
+        with:
+          p12: ${{ secrets.IOS_CERT_P12 }}
+          p12-password: ${{ secrets.IOS_CERT_PASSWORD }}
+          mobileprovision: ${{ secrets.IOS_PROVISIONING_PROFILE }}
+
+      - name: Create exportOptions.plist
+        run: |
+          cat > exportOptions.plist <<'PL'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store</string>
+            <key>uploadSymbols</key>
+            <true/>
+            <key>compileBitcode</key>
+            <true/>
+          </dict>
+          </plist>
+          PL
+
+      - name: Build signed IPA
+        env:
+          FLUTTER_BUILD_MODE: release
+        run: |
+          flutter build ipa --export-options-plist=exportOptions.plist --release
+
+      - name: Collect IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: memoria-ios-ipa
+          path: build/ios/ipa
