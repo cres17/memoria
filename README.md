@@ -1,6 +1,14 @@
 
 # Memoria
 
+![Flutter](https://img.shields.io/badge/Flutter-%E2%89%A53.0-blue?logo=flutter)
+![Dart](https://img.shields.io/badge/Dart-%3E%3D3.0-blue?logo=dart)
+![Riverpod](https://img.shields.io/badge/Riverpod-2.x-blueviolet)
+![go_router](https://img.shields.io/badge/go_router-13.x-lightgrey)
+![tflite_flutter](https://img.shields.io/badge/tflite__flutter-0.12.1-9cf)
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+![GitHub stars](https://img.shields.io/github/stars/cres17/memoria?style=social)
+
 **Memoria**는 전문가 수준의 사진 편집을 목표로 한 크로스플랫폼 Flutter 애플리케이션입니다. LUT 기반 색 보정, GPU 실시간 프리뷰, 모듈화된 편집 파이프라인과 선택적 ML 도구를 결합하여 모바일 및 데스크톱에서 일관된 고품질 결과물을 제공합니다.
 
 테크 스택
