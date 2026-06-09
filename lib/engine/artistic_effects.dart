@@ -31,22 +31,22 @@ extension ArtisticEffectX on ArtisticEffect {
   String get label {
     switch (this) {
       case ArtisticEffect.none:        return '없음';
-      case ArtisticEffect.grain:       return 'Grain';
-      case ArtisticEffect.grainyFilm:  return 'Grainy Film';
-      case ArtisticEffect.vintage:     return 'Vintage';
-      case ArtisticEffect.retrolux:    return 'Retrolux';
-      case ArtisticEffect.drama1:      return 'Drama 1';
-      case ArtisticEffect.drama2:      return 'Drama 2';
-      case ArtisticEffect.dramaBright1:return 'Bright 1';
-      case ArtisticEffect.dramaBright2:return 'Bright 2';
-      case ArtisticEffect.dramaDark1:  return 'Dark 1';
-      case ArtisticEffect.dramaDark2:  return 'Dark 2';
-      case ArtisticEffect.hdrFine:     return 'HDR Fine';
-      case ArtisticEffect.hdrNature:   return 'HDR Nature';
-      case ArtisticEffect.hdrPeople:   return 'HDR People';
-      case ArtisticEffect.hdrStrong:   return 'HDR Strong';
-      case ArtisticEffect.glamourGlow: return 'Glamour Glow';
-      case ArtisticEffect.grunge:      return 'Grunge';
+      case ArtisticEffect.grain:       return '그레인';
+      case ArtisticEffect.grainyFilm:  return '거친 필름';
+      case ArtisticEffect.vintage:     return '빈티지';
+      case ArtisticEffect.retrolux:    return '레트로룩스';
+      case ArtisticEffect.drama1:      return '드라마 1';
+      case ArtisticEffect.drama2:      return '드라마 2';
+      case ArtisticEffect.dramaBright1:return '밝은 드라마 1';
+      case ArtisticEffect.dramaBright2:return '밝은 드라마 2';
+      case ArtisticEffect.dramaDark1:  return '어두운 드라마 1';
+      case ArtisticEffect.dramaDark2:  return '어두운 드라마 2';
+      case ArtisticEffect.hdrFine:     return '미세 HDR';
+      case ArtisticEffect.hdrNature:   return '풍경 HDR';
+      case ArtisticEffect.hdrPeople:   return '인물 HDR';
+      case ArtisticEffect.hdrStrong:   return '강한 HDR';
+      case ArtisticEffect.glamourGlow: return '글래머 글로우';
+      case ArtisticEffect.grunge:      return '그란지';
     }
   }
 }

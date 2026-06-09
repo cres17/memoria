@@ -176,3 +176,87 @@ img.Image applySkinToning(
 
   return ((r + m).clamp(0.0, 1.0), (g + m).clamp(0.0, 1.0), (b + m).clamp(0.0, 1.0));
 }
+
+img.Image applyDepthBokeh(
+  img.Image image,
+  Float32List depthMap,
+  double strength,
+) {
+  if (strength <= 0) return image;
+  if (depthMap.length != image.width * image.height) return image;
+
+  final sigma = (strength / 100.0 * 4.0).clamp(0.0, 10.0);
+  final blurred = img.gaussianBlur(img.Image.from(image), radius: (sigma * 3).round().clamp(1, 12));
+  final result = img.Image(width: image.width, height: image.height);
+
+  for (int y = 0; y < image.height; y++) {
+    for (int x = 0; x < image.width; x++) {
+      final idx = y * image.width + x;
+      final d = depthMap[idx].clamp(0.0, 1.0);
+      final w = d * strength / 100.0;
+      
+      final o = image.getPixel(x, y);
+      final bl = blurred.getPixel(x, y);
+      
+      final r = o.rNormalized + (bl.rNormalized - o.rNormalized) * w;
+      final g = o.gNormalized + (bl.gNormalized - o.gNormalized) * w;
+      final b = o.bNormalized + (bl.bNormalized - o.bNormalized) * w;
+      
+      result.setPixelRgb(x, y,
+        (r.clamp(0.0, 1.0) * 255).round(),
+        (g.clamp(0.0, 1.0) * 255).round(),
+        (b.clamp(0.0, 1.0) * 255).round(),
+      );
+    }
+  }
+  return result;
+}
+
+img.Image applyHeadPoseWarp(
+  img.Image image,
+  Float32List faceMask, {
+  double yaw = 0.0,
+  double pitch = 0.0,
+}) {
+  if (yaw == 0.0 && pitch == 0.0) return image;
+  if (faceMask.length != image.width * image.height) return image;
+
+  final result = img.Image(width: image.width, height: image.height);
+  final W = image.width;
+  final H = image.height;
+
+  final maxShiftX = W * 0.08;
+  final maxShiftY = H * 0.08;
+
+  final dx = (yaw / 100.0) * maxShiftX;
+  final dy = (pitch / 100.0) * maxShiftY;
+
+  for (int y = 0; y < H; y++) {
+    for (int x = 0; x < W; x++) {
+      final idx = y * W + x;
+      final m = faceMask[idx].clamp(0.0, 1.0);
+      
+      if (m <= 0.0) {
+        final px = image.getPixel(x, y);
+        result.setPixelRgb(x, y,
+          (px.rNormalized * 255).round(),
+          (px.gNormalized * 255).round(),
+          (px.bNormalized * 255).round(),
+        );
+        continue;
+      }
+
+      final sx = (x - dx * m).round().clamp(0, W - 1);
+      final sy = (y - dy * m).round().clamp(0, H - 1);
+      
+      final px = image.getPixel(sx, sy);
+      result.setPixelRgb(x, y,
+        (px.rNormalized * 255).round(),
+        (px.gNormalized * 255).round(),
+        (px.bNormalized * 255).round(),
+      );
+    }
+  }
+  return result;
+}
+

@@ -9,6 +9,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
 
   # State management
   flutter_riverpod: ^2.5.1
@@ -42,6 +44,7 @@ dependencies:
 
   # Network status
   connectivity_plus: ^6.0.5
+  share_plus: ^9.0.0
 
   # Utilities
   uuid: ^4.4.0

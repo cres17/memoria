@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:image/image.dart' as img;
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/platform_utils.dart';
 import '../../../domain/models/filter_preset.dart';
@@ -9,6 +10,8 @@ class FilterStrip extends StatelessWidget {
   final String? selectedId;
   final ValueChanged<FilterPreset?> onSelect;
   final String? previewImagePath;
+  final Set<String>? favoriteIds;
+  final ValueChanged<String>? onFavoriteToggle;
 
   const FilterStrip({
     super.key,
@@ -16,6 +19,8 @@ class FilterStrip extends StatelessWidget {
     required this.selectedId,
     required this.onSelect,
     this.previewImagePath,
+    this.favoriteIds,
+    this.onFavoriteToggle,
   });
 
   @override
@@ -29,11 +34,18 @@ class FilterStrip extends StatelessWidget {
         itemBuilder: (ctx, i) {
           final preset = presets[i];
           final selected = preset.id == selectedId;
+          final isFavorite = favoriteIds?.contains(preset.id) ?? false;
 
           return GestureDetector(
             onTap: () {
               hapticLight();
               onSelect(selected ? null : preset);
+            },
+            onLongPress: () {
+              if (onFavoriteToggle != null) {
+                hapticLight();
+                onFavoriteToggle!(preset.id);
+              }
             },
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
@@ -56,6 +68,7 @@ class FilterStrip extends StatelessWidget {
                       child: _FilterThumbnail(
                         preset: preset,
                         selected: selected,
+                        isFavorite: isFavorite,
                       ),
                     ),
                   ),
@@ -89,8 +102,13 @@ class FilterStrip extends StatelessWidget {
 class _FilterThumbnail extends StatelessWidget {
   final FilterPreset preset;
   final bool selected;
+  final bool isFavorite;
 
-  const _FilterThumbnail({required this.preset, required this.selected});
+  const _FilterThumbnail({
+    required this.preset,
+    required this.selected,
+    required this.isFavorite,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -121,6 +139,23 @@ class _FilterThumbnail extends StatelessWidget {
           Container(
             color: AppColors.oceanFoam.withValues(alpha:0.15),
           ),
+        if (isFavorite)
+          Positioned(
+            top: 4,
+            right: 4,
+            child: Container(
+              padding: const EdgeInsets.all(2),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.5),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.star_rounded,
+                color: Colors.amber,
+                size: 12,
+              ),
+            ),
+          ),
       ],
     );
   }
@@ -140,11 +175,13 @@ class _FilterThumbnail extends StatelessWidget {
 class IntensitySlider extends StatelessWidget {
   final double value; // 0.0 ~ 1.0
   final ValueChanged<double> onChanged;
+  final ValueChanged<double>? onChangeEnd;
 
   const IntensitySlider({
     super.key,
     required this.value,
     required this.onChanged,
+    this.onChangeEnd,
   });
 
   @override
@@ -180,6 +217,7 @@ class IntensitySlider extends StatelessWidget {
                   hapticLight();
                   onChanged(v);
                 },
+                onChangeEnd: onChangeEnd,
               ),
             ),
           ),
@@ -197,4 +235,16 @@ class IntensitySlider extends StatelessWidget {
       ),
     );
   }
+}
+
+img.Image fixedFilterSampleForTest() {
+  final image = img.Image(width: 72, height: 72);
+  for (int y = 0; y < 72; y++) {
+    for (int x = 0; x < 72; x++) {
+      // simple non-solid gradient
+      final v = (x + y) * 255 ~/ 142;
+      image.setPixelRgb(x, y, v, v, v);
+    }
+  }
+  return image;
 }

@@ -33,6 +33,8 @@ class LutPredictor {
     return _instance!;
   }
 
+  static Future<LutPredictor> fromPath(String modelPath) => _load(modelPath);
+
   static Future<LutPredictor> _load(String modelPath) async {
     final options = InterpreterOptions()..threads = 2;
 

@@ -92,6 +92,70 @@ class S {
 
     'permission.photos_denied': '사진 접근 권한이 필요합니다.',
     'permission.camera_denied': '카메라 접근 권한이 필요합니다.',
+
+    'perspective.temporary_note': '수평 및 수직 원근 왜곡을 조절합니다.',
+    'perspective.horizontal': '수평',
+    'perspective.vertical': '수직',
+    'perspective.decrease': '감소',
+    'perspective.increase': '증가',
+    'perspective.reset': '전체 초기화',
+
+    // Details
+    'details.structure': '구조',
+    'details.clarity': '선명도',
+    'details.sharpen': '샤프닝',
+
+    // HSL
+    'hsl.hue': '색조',
+    'hsl.saturation': '채도',
+    'hsl.luminance': '밝기',
+    'hsl.red': '빨강',
+    'hsl.orange': '주황',
+    'hsl.yellow': '노랑',
+    'hsl.green': '초록',
+    'hsl.cyan': '청록',
+    'hsl.blue': '파랑',
+    'hsl.purple': '보라',
+    'hsl.magenta': '자홍',
+
+    // Glow
+    'glow.strength': '글로우 강도',
+    'glow.saturation': '채도',
+    'glow.warmth': '따뜻함',
+
+    // Vignette
+    'vignette.strength': '비네팅 강도',
+
+    // Grain
+    'grain.strength': '그레인 강도',
+    'grain.size': '입자 크기',
+    'grain.seed': '패턴 시드',
+    'grain.randomize': '임의 생성',
+
+    // Split
+    'split.shadows': '어두운 영역',
+    'split.highlights': '밝은 영역',
+    'split.balance': '균형',
+    'split.saturation': '채도',
+
+    // Noise
+    'noise.luminance': '밝기 노이즈 감소',
+    'noise.colour': '색상 노이즈 감소',
+    'noise.detail': '세부 정보 유지',
+
+    // HDR
+    'hdr.strength': 'HDR 강도',
+    'hdr.saturation': '채도',
+
+    // Light Leak
+    'light_leak.strength': '광학유출 강도',
+    'light_leak.angle': '각도',
+    'light_leak.warmth': '따뜻함',
+
+    // Halation
+    'halation.strength': '할레이션 강도',
+    'halation.threshold': '임계값',
+    'halation.warmth': '따뜻함',
   };
 
   static const _en = {
@@ -105,7 +169,7 @@ class S {
     'home.card_tones_body': 'Manage built-in filters, custom filters, and detailed adjustments in one place.',
     'home.card_ai': 'Filter Studio',
     'home.card_ai_body': 'Auto-generate a custom LUT filter from a single photo. Analyze and save your color signature in one tap.',
-
+ 
     'filters.title': 'My Collection',
     'filters.subtitle': 'Your saved custom filters and built-in tone library.',
     'filters.loading': 'Loading filters...',
@@ -177,5 +241,69 @@ class S {
 
     'permission.photos_denied': 'Photo access permission is required.',
     'permission.camera_denied': 'Camera access permission is required.',
+
+    'perspective.temporary_note': 'Adjust horizontal and vertical perspective.',
+    'perspective.horizontal': 'Horizontal',
+    'perspective.vertical': 'Vertical',
+    'perspective.decrease': 'Decrease',
+    'perspective.increase': 'Increase',
+    'perspective.reset': 'Reset',
+
+    // Details
+    'details.structure': 'Structure',
+    'details.clarity': 'Clarity',
+    'details.sharpen': 'Sharpening',
+
+    // HSL
+    'hsl.hue': 'Hue',
+    'hsl.saturation': 'Saturation',
+    'hsl.luminance': 'Luminance',
+    'hsl.red': 'Red',
+    'hsl.orange': 'Orange',
+    'hsl.yellow': 'Yellow',
+    'hsl.green': 'Green',
+    'hsl.cyan': 'Cyan',
+    'hsl.blue': 'Blue',
+    'hsl.purple': 'Purple',
+    'hsl.magenta': 'Magenta',
+
+    // Glow
+    'glow.strength': 'Glow Strength',
+    'glow.saturation': 'Saturation',
+    'glow.warmth': 'Warmth',
+
+    // Vignette
+    'vignette.strength': 'Vignette Strength',
+
+    // Grain
+    'grain.strength': 'Grain Strength',
+    'grain.size': 'Grain Size',
+    'grain.seed': 'Pattern Seed',
+    'grain.randomize': 'Randomize',
+
+    // Split
+    'split.shadows': 'Shadows',
+    'split.highlights': 'Highlights',
+    'split.balance': 'Balance',
+    'split.saturation': 'Saturation',
+
+    // Noise
+    'noise.luminance': 'Luminance Noise Reduction',
+    'noise.colour': 'Color Noise Reduction',
+    'noise.detail': 'Preserve Detail',
+
+    // HDR
+    'hdr.strength': 'HDR Strength',
+    'hdr.saturation': 'Saturation',
+
+    // Light Leak
+    'light_leak.strength': 'Light Leak Strength',
+    'light_leak.angle': 'Angle',
+    'light_leak.warmth': 'Warmth',
+
+    // Halation
+    'halation.strength': 'Halation Strength',
+    'halation.threshold': 'Threshold',
+    'halation.warmth': 'Warmth',
   };
 }
