@@ -1,0 +1,68 @@
+name: memoria
+description: AI-powered custom photo filter app with on-device LUT generation.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State management
+  flutter_riverpod: ^2.5.1
+
+  # Navigation
+  go_router: ^13.2.0
+
+  # Storage & Files
+  shared_preferences: ^2.2.3
+  path_provider: ^2.1.3
+
+  # Image handling
+  image_picker: ^1.1.2
+  image: ^4.1.7
+
+  # Ads
+  google_mobile_ads: ^5.1.0
+
+  # AI / TFLite
+  tflite_flutter: ^0.12.1
+
+  # Network (model download)
+  http: ^1.2.1
+  crypto: ^3.0.3
+
+  # Permissions
+  permission_handler: ^11.3.1
+
+  # Gallery save
+  gal: ^2.3.0
+
+  # Network status
+  connectivity_plus: ^6.0.5
+
+  # Utilities
+  uuid: ^4.4.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/
+    - assets/luts/
+    - assets/icons/
+    - assets/models/
+    - assets/overlays/
+    - assets/overlays/grain/
+    - assets/overlays/luts/
+    - assets/overlays/curves/
+    - assets/overlays/grunge/
+    - assets/frames/
+
