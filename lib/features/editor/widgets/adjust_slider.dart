@@ -4,11 +4,13 @@ import '../../../core/utils/platform_utils.dart';
 
 class AdjustSliderItem {
   final String label;
-  final String icon;
+  final dynamic icon;
   final double value;
   final double min;
   final double max;
   final ValueChanged<double> onChanged;
+  final ValueChanged<double>? onChangeEnd;
+  final Color? accent;
 
   const AdjustSliderItem({
     required this.label,
@@ -17,6 +19,8 @@ class AdjustSliderItem {
     required this.min,
     required this.max,
     required this.onChanged,
+    this.onChangeEnd,
+    this.accent,
   });
 }
 
@@ -28,6 +32,21 @@ class AdjustSlider extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isNeutral = item.value.abs() < 0.5;
+    final trackColor = item.accent ?? AppColors.oceanFoam;
+
+    Widget iconWidget;
+    if (item.icon is IconData) {
+      iconWidget = Icon(
+        item.icon as IconData,
+        size: 18,
+        color: item.accent ?? AppColors.textOnDarkSub,
+      );
+    } else {
+      iconWidget = Text(
+        item.icon.toString(),
+        style: const TextStyle(fontSize: 16),
+      );
+    }
 
     return Column(
       children: [
@@ -38,10 +57,7 @@ class AdjustSlider extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  Text(
-                    item.icon,
-                    style: const TextStyle(fontSize: 16),
-                  ),
+                  iconWidget,
                   const SizedBox(width: 8),
                   Text(
                     item.label,
@@ -60,12 +76,12 @@ class AdjustSlider extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: isNeutral
                       ? AppColors.oceanNavy
-                      : AppColors.oceanTeal.withValues(alpha:0.2),
+                      : trackColor.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(
                     color: isNeutral
                         ? Colors.transparent
-                        : AppColors.oceanFoam.withValues(alpha:0.4),
+                        : trackColor.withValues(alpha: 0.4),
                     width: 0.8,
                   ),
                 ),
@@ -77,7 +93,7 @@ class AdjustSlider extends StatelessWidget {
                     fontWeight: FontWeight.w600,
                     color: isNeutral
                         ? AppColors.textOnDarkTert
-                        : AppColors.oceanFoam,
+                        : trackColor,
                   ),
                 ),
               ),
@@ -87,10 +103,10 @@ class AdjustSlider extends StatelessWidget {
         const SizedBox(height: 6),
         SliderTheme(
           data: SliderThemeData(
-            activeTrackColor: AppColors.oceanFoam,
+            activeTrackColor: trackColor,
             inactiveTrackColor: AppColors.oceanNavy,
-            thumbColor: AppColors.cloudWhite,
-            overlayColor: AppColors.oceanFoam.withValues(alpha:0.15),
+            thumbColor: trackColor,
+            overlayColor: trackColor.withValues(alpha: 0.15),
             trackHeight: 3,
             thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 10),
           ),
@@ -102,6 +118,9 @@ class AdjustSlider extends StatelessWidget {
               hapticLight();
               item.onChanged(v);
             },
+            onChangeEnd: item.onChangeEnd != null ? (v) {
+              item.onChangeEnd!(v);
+            } : null,
           ),
         ),
       ],

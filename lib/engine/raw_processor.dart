@@ -14,7 +14,7 @@ img.Image applyNoiseReduction(img.Image image, double noiseReduction) {
   // v1: Bilateral filter 근사 (가우시안 블러 + 엣지 보존)
   final strength = noiseReduction / 100.0;
   final radius   = (strength * 3).round().clamp(1, 6);
-  final blurred  = img.gaussianBlur(image, radius: radius);
+  final blurred  = img.gaussianBlur(img.Image.from(image), radius: radius);
   final result   = img.Image(width: image.width, height: image.height);
 
   for (int y = 0; y < image.height; y++) {

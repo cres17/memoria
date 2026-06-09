@@ -680,3 +680,98 @@ img.Image _downscale(img.Image image, int maxDim) {
     interpolation: img.Interpolation.linear,
   );
 }
+
+class DecodedLut {
+  final Float32List values;
+  final int dim;
+
+  DecodedLut(this.values, this.dim);
+}
+
+final Expando<DecodedLut> _lutCache = Expando<DecodedLut>();
+
+DecodedLut decodeCustomLut(Uint8List bytes) {
+  final cached = _lutCache[bytes];
+  if (cached != null) return cached;
+
+  const dim = customLutDim; // 65
+  const numElements = dim * dim * dim * 3;
+  
+  final halfList = bytes.buffer.asUint16List(bytes.offsetInBytes, bytes.lengthInBytes ~/ 2);
+  final values = Float32List(numElements);
+  
+  for (int i = 0; i < numElements; i++) {
+    values[i] = halfToFloat(halfList[i]);
+  }
+  
+  final decoded = DecodedLut(values, dim);
+  _lutCache[bytes] = decoded;
+  return decoded;
+}
+
+DecodedLut? tryDecodeCustomLut(Uint8List? bytes) {
+  if (bytes == null || bytes.length < customLutDim * customLutDim * customLutDim * 3 * 2) {
+    return null;
+  }
+  try {
+    return decodeCustomLut(bytes);
+  } catch (_) {
+    return null;
+  }
+}
+
+RgbColor applyDecodedCustomLut(DecodedLut decoded, RgbColor rgb) {
+  final values = decoded.values;
+  final dim = decoded.dim;
+  final maxIdx = (dim - 1).toDouble();
+
+  final ri = rgb.r * maxIdx;
+  final gi = rgb.g * maxIdx;
+  final bi = rgb.b * maxIdx;
+
+  final r0 = ri.floor().clamp(0, dim - 2);
+  final r1 = (r0 + 1).clamp(0, dim - 1);
+  final g0 = gi.floor().clamp(0, dim - 2);
+  final g1 = (g0 + 1).clamp(0, dim - 1);
+  final b0 = bi.floor().clamp(0, dim - 2);
+  final b1 = (b0 + 1).clamp(0, dim - 1);
+
+  final rf = ri - r0;
+  final gf = gi - g0;
+  final bf = bi - b0;
+
+  RgbColor sample(int r, int g, int b) {
+    final i = (r + g * dim + b * dim * dim) * 3;
+    return RgbColor(
+      values[i],
+      values[i + 1],
+      values[i + 2],
+    );
+  }
+
+  RgbColor lerp(RgbColor a, RgbColor b, double t) => RgbColor(
+        a.r + (b.r - a.r) * t,
+        a.g + (b.g - a.g) * t,
+        a.b + (b.b - a.b) * t,
+      );
+
+  final c000 = sample(r0, g0, b0);
+  final c100 = sample(r1, g0, b0);
+  final c010 = sample(r0, g1, b0);
+  final c110 = sample(r1, g1, b0);
+  final c001 = sample(r0, g0, b1);
+  final c101 = sample(r1, g0, b1);
+  final c011 = sample(r0, g1, b1);
+  final c111 = sample(r1, g1, b1);
+
+  final c00 = lerp(c000, c100, rf);
+  final c10 = lerp(c010, c110, rf);
+  final c01 = lerp(c001, c101, rf);
+  final c11 = lerp(c011, c111, rf);
+
+  final c0 = lerp(c00, c10, gf);
+  final c1 = lerp(c01, c11, gf);
+
+  return lerp(c0, c1, bf).clamp01();
+}
+

@@ -11,6 +11,11 @@ import 'package:image/image.dart' as img;
 img.Image applyHealing(img.Image image, List<List<bool>> mask) {
   final W = image.width;
   final H = image.height;
+  
+  if (mask.length != H || mask.any((row) => row.length != W)) {
+    return image;
+  }
+
   final result = img.Image.from(image);
 
   // v1: 마스크 경계 픽셀들의 평균색으로 채우고 블러
@@ -47,8 +52,8 @@ img.Image applyHealing(img.Image image, List<List<bool>> mask) {
     }
   }
 
-  // 마스크 영역 부드럽게 블렌딩
-  final blurred = img.gaussianBlur(result, radius: 3);
+  // 마스크 영역 부드럽게 블렌딩 (인스턴스 복사본을 블러 처리하여 원본 비마스크 픽셀 보존)
+  final blurred = img.gaussianBlur(img.Image.from(result), radius: 3);
   for (int y = 0; y < H; y++) {
     for (int x = 0; x < W; x++) {
       if (!mask[y][x]) continue;
@@ -73,8 +78,8 @@ List<List<bool>> createBrushMask({
   final mask = List.generate(height, (_) => List.filled(width, false));
 
   for (final stroke in strokes) {
-    final cx = stroke.x * width;
-    final cy = stroke.y * height;
+    final cx = (stroke.x * width).clamp(0.0, width.toDouble());
+    final cy = (stroke.y * height).clamp(0.0, height.toDouble());
     final r  = stroke.radius * math.min(width, height);
 
     for (int y = 0; y < height; y++) {

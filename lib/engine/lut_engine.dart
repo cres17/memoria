@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
+import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
@@ -9,6 +10,129 @@ import '../ai/models/lut_predictor.dart';
 import '../domain/models/adjust_params.dart';
 import 'color_utils.dart';
 import 'custom_lut_core.dart';
+
+// ── HSL helpers ───────────────────────────────────────────
+
+/// Returns hue in [0, 360), saturation in [0, 1], lightness in [0, 1].
+({double h, double s, double l}) _rgbToHsl(double r, double g, double b) {
+  final max = math.max(r, math.max(g, b));
+  final min = math.min(r, math.min(g, b));
+  final l = (max + min) * 0.5;
+  if (max == min) return (h: 0.0, s: 0.0, l: l);
+  final d = max - min;
+  final s = l > 0.5 ? d / (2.0 - max - min) : d / (max + min);
+  double h;
+  if (max == r) {
+    h = (g - b) / d + (g < b ? 6.0 : 0.0);
+  } else if (max == g) {
+    h = (b - r) / d + 2.0;
+  } else {
+    h = (r - g) / d + 4.0;
+  }
+  return (h: h * 60.0, s: s, l: l);
+}
+
+double _hue2rgb(double p, double q, double t) {
+  if (t < 0.0) t += 1.0;
+  if (t > 1.0) t -= 1.0;
+  if (t < 1.0 / 6.0) return p + (q - p) * 6.0 * t;
+  if (t < 0.5) return q;
+  if (t < 2.0 / 3.0) return p + (q - p) * (2.0 / 3.0 - t) * 6.0;
+  return p;
+}
+
+RgbColor _hslToRgb(double h, double s, double l) {
+  final hNorm = h / 360.0;
+  if (s == 0.0) return RgbColor(l, l, l);
+  final q = l < 0.5 ? l * (1.0 + s) : l + s - l * s;
+  final p = 2.0 * l - q;
+  return RgbColor(
+    _hue2rgb(p, q, hNorm + 1.0 / 3.0),
+    _hue2rgb(p, q, hNorm),
+    _hue2rgb(p, q, hNorm - 1.0 / 3.0),
+  );
+}
+
+RgbColor _applyHslBands(RgbColor rgb, AdjustParams p) {
+  final hsl = _rgbToHsl(rgb.r, rgb.g, rgb.b);
+  final h = hsl.h;
+
+  const centers = [0.0, 30.0, 60.0, 120.0, 180.0, 240.0, 280.0, 320.0];
+  const bands = [
+    HslBand.red,
+    HslBand.orange,
+    HslBand.yellow,
+    HslBand.green,
+    HslBand.cyan,
+    HslBand.blue,
+    HslBand.purple,
+    HslBand.magenta
+  ];
+
+  double totalW = 0.0;
+  final weights = List<double>.filled(8, 0.0);
+  for (int i = 0; i < 8; i++) {
+    const double sigma = 35.0;
+    double d = (h - centers[i]).abs();
+    if (d > 180.0) d = 360.0 - d;
+    weights[i] = math.exp(-0.5 * d * d / (sigma * sigma));
+    totalW += weights[i];
+  }
+
+  if (totalW < 1e-6) return rgb;
+
+  double dh = 0.0;
+  double ds = 0.0;
+  double dl = 0.0;
+  for (int i = 0; i < 8; i++) {
+    final bp = p.hsl[bands[i]] ?? HslBandParams.zero;
+    dh += weights[i] * bp.hue;
+    ds += weights[i] * bp.saturation;
+    dl += weights[i] * bp.luminance;
+  }
+  dh /= totalW;
+  ds = (ds / totalW) / 100.0;
+  dl = (dl / totalW) / 100.0;
+
+  final newH = (h + dh + 360.0) % 360.0;
+  final newS = (hsl.s + ds).clamp(0.0, 1.0);
+  final newL = (hsl.l + dl).clamp(0.0, 1.0);
+
+  return _hslToRgb(newH, newS, newL);
+}
+
+// ── Split Toning ─────────────────────────────────────────────
+
+RgbColor _applySplitToning(RgbColor rgb, AdjustParams p) {
+  final lum = 0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b;
+  final splitPoint = 0.5 + p.splitBalance / 200.0;
+
+  final double denomShadow = splitPoint > 1e-4 ? splitPoint : 1e-4;
+  final shadowW = 1.0 - (lum / denomShadow).clamp(0.0, 1.0);
+  
+  final double denomHigh = (1.0 - splitPoint) > 1e-4 ? (1.0 - splitPoint) : 1e-4;
+  final highW = ((lum - splitPoint) / denomHigh).clamp(0.0, 1.0);
+
+  var r = rgb.r;
+  var g = rgb.g;
+  var b = rgb.b;
+
+  if (p.splitShadowSat > 0.0 && shadowW > 1e-4) {
+    final hRad = p.splitShadowHue * math.pi / 180.0;
+    final str = p.splitShadowSat / 100.0 * shadowW;
+    r = (r + str * math.cos(hRad) * 0.5).clamp(0.0, 1.0);
+    g = (g + str * math.cos(hRad - 2.094) * 0.5).clamp(0.0, 1.0);
+    b = (b + str * math.cos(hRad + 2.094) * 0.5).clamp(0.0, 1.0);
+  }
+  if (p.splitHighSat > 0.0 && highW > 1e-4) {
+    final hRad = p.splitHighHue * math.pi / 180.0;
+    final str = p.splitHighSat / 100.0 * highW;
+    r = (r + str * math.cos(hRad) * 0.5).clamp(0.0, 1.0);
+    g = (g + str * math.cos(hRad - 2.094) * 0.5).clamp(0.0, 1.0);
+    b = (b + str * math.cos(hRad + 2.094) * 0.5).clamp(0.0, 1.0);
+  }
+  return RgbColor(r, g, b);
+}
 
 // ─────────────────────────────────────────────────────────
 //  Image-level pipeline (full img.Image in → img.Image out)
@@ -21,10 +145,16 @@ img.Image applyImagePipeline({
   required AdjustParams params,
   Uint8List? lutBytes,
   double intensity = 1.0,
+  Float32List? decodedLutValues,
+  int decodedLutDim = 65,
+  BakedCurveLuts? bakedLuts,
 }) {
-  // Step 1: per-pixel adjust + LUT + intensity mix
   var output = img.Image(width: image.width, height: image.height);
-  final effectiveLut = (lutBytes != null && lutBytes.isNotEmpty) ? lutBytes : null;
+  final effectiveLut = (decodedLutValues != null && decodedLutValues.isNotEmpty)
+      ? DecodedLut(decodedLutValues, decodedLutDim)
+      : null;
+
+  final decodedLutToUse = effectiveLut ?? tryDecodeCustomLut(lutBytes);
 
   for (int y = 0; y < image.height; y++) {
     for (int x = 0; x < image.width; x++) {
@@ -34,16 +164,18 @@ img.Image applyImagePipeline({
         px.gNormalized.toDouble(),
         px.bNormalized.toDouble(),
       );
-      var result = applyAdjustParams(orig, params);
+      
+      var result = applyAdjustParams(orig, params, bakedLuts: bakedLuts);
 
-      if (effectiveLut != null) {
-        final lutResult = applyLut(effectiveLut, result);
-        result = RgbColor(
-          orig.r * (1 - intensity) + lutResult.r * intensity,
-          orig.g * (1 - intensity) + lutResult.g * intensity,
-          orig.b * (1 - intensity) + lutResult.b * intensity,
-        ).clamp01();
+      if (decodedLutToUse != null) {
+        result = applyDecodedCustomLut(decodedLutToUse, result);
       }
+
+      result = RgbColor(
+        orig.r * (1 - intensity) + result.r * intensity,
+        orig.g * (1 - intensity) + result.g * intensity,
+        orig.b * (1 - intensity) + result.b * intensity,
+      ).clamp01();
 
       output.setPixelRgb(x, y,
         (result.r * 255).round(),
@@ -54,10 +186,40 @@ img.Image applyImagePipeline({
   }
 
   // Step 2: image-level effects
-  if (params.sharpen > 0)    output = _applySharpenImage(output, params.sharpen);
-  if (params.structure != 0) output = _applyStructureImage(output, params.structure);
-  if (params.clarity != 0)   output = _applyClarityImage(output, params.clarity);
-  if (params.vignette > 0)   output = _applyVignetteImage(output, params.vignette);
+  final effLuminanceNR = params.luminanceNR * intensity;
+  final effColourNR = params.colourNR * intensity;
+  if (effLuminanceNR > 0 || effColourNR > 0) {
+    output = _applyNoiseReduction(output, effLuminanceNR, effColourNR, params.nrDetail);
+  }
+  final effHdrStrength = params.hdrStrength * intensity;
+  if (effHdrStrength > 0) {
+    output = _applyHdrImage(output, effHdrStrength, params.hdrSaturation);
+  }
+  final effGlowStrength = params.glowStrength * intensity;
+  if (effGlowStrength > 0) {
+    output = _applyGlowImage(output, effGlowStrength, params.glowSaturation, params.glowWarmth);
+  }
+  final effLightLeakStrength = params.lightLeakStrength * intensity;
+  if (effLightLeakStrength > 0) {
+    output = _applyLightLeakImage(output, effLightLeakStrength, params.lightLeakAngle, params.lightLeakWarmth);
+  }
+  final effHalationStrength = params.halationStrength * intensity;
+  if (effHalationStrength > 0) {
+    output = _applyHalationImage(output, effHalationStrength, params.halationThreshold, params.halationWarmth);
+  }
+  final effGrainStrength = params.grainStrength * intensity;
+  if (effGrainStrength > 0) {
+    output = _applyGrainImage(output, effGrainStrength, params.grainSize, params.grainSeed);
+  }
+
+  final effSharpen = params.sharpen * intensity;
+  if (effSharpen > 0)    output = _applySharpenImage(output, effSharpen);
+  final effStructure = params.structure * intensity;
+  if (effStructure != 0) output = _applyStructureImage(output, effStructure);
+  final effClarity = params.clarity * intensity;
+  if (effClarity != 0)   output = _applyClarityImage(output, effClarity);
+  final effVignette = params.vignette * intensity;
+  if (effVignette > 0)   output = _applyVignetteImage(output, effVignette);
 
   return output;
 }
@@ -65,7 +227,7 @@ img.Image applyImagePipeline({
 // ── Sharpen: Unsharp Mask ─────────────────────────────────
 img.Image _applySharpenImage(img.Image image, double sharpenValue) {
   final strength = sharpenValue / 100.0 * 1.5;
-  final blurred  = img.gaussianBlur(image, radius: 2);
+  final blurred  = img.gaussianBlur(img.Image.from(image), radius: 2);
   final result   = img.Image(width: image.width, height: image.height);
 
   for (int y = 0; y < image.height; y++) {
@@ -84,7 +246,7 @@ img.Image _applySharpenImage(img.Image image, double sharpenValue) {
 // ── Structure: High-Pass Local Contrast ──────────────────
 img.Image _applyStructureImage(img.Image image, double structureValue) {
   final strength = structureValue / 100.0 * 0.5;
-  final blurred  = img.gaussianBlur(image, radius: 1);
+  final blurred  = img.gaussianBlur(img.Image.from(image), radius: 1);
   final result   = img.Image(width: image.width, height: image.height);
 
   for (int y = 0; y < image.height; y++) {
@@ -103,7 +265,7 @@ img.Image _applyStructureImage(img.Image image, double structureValue) {
 // ── Clarity: Mid-Frequency Contrast (Retinex-lite) ───────
 img.Image _applyClarityImage(img.Image image, double clarityValue) {
   final strength = clarityValue / 100.0 * 0.7;
-  final blurred  = img.gaussianBlur(image, radius: 7);
+  final blurred  = img.gaussianBlur(img.Image.from(image), radius: 7);
   final result   = img.Image(width: image.width, height: image.height);
 
   for (int y = 0; y < image.height; y++) {
@@ -111,7 +273,6 @@ img.Image _applyClarityImage(img.Image image, double clarityValue) {
       final o   = image.getPixel(x, y);
       final low = blurred.getPixel(x, y);
       final lum = 0.2126 * o.rNormalized + 0.7152 * o.gNormalized + 0.0722 * o.bNormalized;
-      // 미드톤 마스크: 0.5 근처에서 최대 효과
       final midMask = (1.0 - (lum - 0.5).abs() * 2.0).clamp(0.0, 1.0);
       final r = (o.rNormalized + strength * midMask * (o.rNormalized - low.rNormalized)).clamp(0.0, 1.0);
       final g = (o.gNormalized + strength * midMask * (o.gNormalized - low.gNormalized)).clamp(0.0, 1.0);
@@ -146,16 +307,382 @@ img.Image _applyVignetteImage(img.Image image, double vignetteValue) {
   return result;
 }
 
+// ── Noise Reduction ──────────────────────────────────────
+img.Image _applyNoiseReduction(img.Image image, double lumNR, double colNR, double nrDetail) {
+  if (lumNR <= 0 && colNR <= 0) return image;
+
+  final W = image.width;
+  final H = image.height;
+  final numPixels = W * H;
+
+  final labL = Float32List(numPixels);
+  final labA = Float32List(numPixels);
+  final labB = Float32List(numPixels);
+
+  for (int y = 0; y < H; y++) {
+    for (int x = 0; x < W; x++) {
+      final px = image.getPixel(x, y);
+      final lab = rgbToLab(RgbColor(
+        px.rNormalized.toDouble(),
+        px.gNormalized.toDouble(),
+        px.bNormalized.toDouble(),
+      ));
+      final idx = y * W + x;
+      labL[idx] = lab.l;
+      labA[idx] = lab.a;
+      labB[idx] = lab.b;
+    }
+  }
+
+  final outL = Float32List(numPixels);
+  final outA = Float32List(numPixels);
+  final outB = Float32List(numPixels);
+
+  final lumRadius = lumNR > 0 ? (lumNR / 50.0 * 2.0 + 1.0).round().clamp(1, 3) : 0;
+  final colRadius = colNR > 0 ? (colNR / 50.0 * 2.0 + 1.0).round().clamp(1, 3) : 0;
+
+  final sigmaRangeL = 3.0 + lumNR * 0.22;
+  final sigmaRangeC = 8.0 + colNR * 0.40;
+
+  final sigRangeL2 = 2.0 * sigmaRangeL * sigmaRangeL;
+  final sigRangeC2 = 2.0 * sigmaRangeC * sigmaRangeC;
+
+  double spatialWeight(int dx, int dy, int r) {
+    if (r == 0) return 1.0;
+    final ss = r * 0.5;
+    return math.exp(-(dx * dx + dy * dy).toDouble() / (2.0 * ss * ss));
+  }
+
+  for (int y = 0; y < H; y++) {
+    for (int x = 0; x < W; x++) {
+      final cIdx = y * W + x;
+      final cL = labL[cIdx];
+      final cA = labA[cIdx];
+      final cB = labB[cIdx];
+
+      if (lumRadius > 0) {
+        double sumL = 0.0, wSum = 0.0;
+        for (int dy = -lumRadius; dy <= lumRadius; dy++) {
+          final ny = (y + dy).clamp(0, H - 1);
+          for (int dx = -lumRadius; dx <= lumRadius; dx++) {
+            final nx = (x + dx).clamp(0, W - 1);
+            final nIdx = ny * W + nx;
+            final nL = labL[nIdx];
+            final dL = nL - cL;
+            final rangW = math.exp(-(dL * dL) / sigRangeL2);
+            final spatW = spatialWeight(dx, dy, lumRadius);
+            final w = rangW * spatW;
+            sumL += w * nL;
+            wSum += w;
+          }
+        }
+        final filteredL = wSum > 1e-8 ? sumL / wSum : cL;
+        final detailBlend = (nrDetail / 100.0).clamp(0.0, 1.0);
+        outL[cIdx] = cL * detailBlend + filteredL * (1.0 - detailBlend);
+      } else {
+        outL[cIdx] = cL;
+      }
+
+      if (colRadius > 0) {
+        double sumA = 0.0, sumBVal = 0.0, wSumC = 0.0;
+        for (int dy = -colRadius; dy <= colRadius; dy++) {
+          final ny = (y + dy).clamp(0, H - 1);
+          for (int dx = -colRadius; dx <= colRadius; dx++) {
+            final nx = (x + dx).clamp(0, W - 1);
+            final nIdx = ny * W + nx;
+            final nA = labA[nIdx];
+            final nB = labB[nIdx];
+            final dA = nA - cA;
+            final dB = nB - cB;
+            final rangW = math.exp(-(dA * dA + dB * dB) / sigRangeC2);
+            final spatW = spatialWeight(dx, dy, colRadius);
+            final w = rangW * spatW;
+            sumA += w * nA;
+            sumBVal += w * nB;
+            wSumC += w;
+          }
+        }
+        final filteredA = wSumC > 1e-8 ? sumA / wSumC : cA;
+        final filteredB = wSumC > 1e-8 ? sumBVal / wSumC : cB;
+        final detailBlend = (nrDetail / 100.0).clamp(0.0, 1.0);
+        outA[cIdx] = cA * detailBlend + filteredA * (1.0 - detailBlend);
+        outB[cIdx] = cB * detailBlend + filteredB * (1.0 - detailBlend);
+      } else {
+        outA[cIdx] = cA;
+        outB[cIdx] = cB;
+      }
+    }
+  }
+
+  final result = img.Image(width: W, height: H);
+  for (int y = 0; y < H; y++) {
+    for (int x = 0; x < W; x++) {
+      final idx = y * W + x;
+      final rgb = labToRgb(LabColor(outL[idx], outA[idx], outB[idx]));
+      result.setPixelRgb(x, y,
+        (rgb.r * 255.0).round().clamp(0, 255),
+        (rgb.g * 255.0).round().clamp(0, 255),
+        (rgb.b * 255.0).round().clamp(0, 255),
+      );
+    }
+  }
+  return result;
+}
+
+// ── Glamour Glow ─────────────────────────────────────────
+img.Image _applyGlowImage(img.Image image, double strength, double saturation, double warmth) {
+  if (strength <= 0) return image;
+
+  final W = image.width;
+  final H = image.height;
+  
+  final glowLayer = img.Image(width: W, height: H);
+  for (int y = 0; y < H; y++) {
+    for (int x = 0; x < W; x++) {
+      final px = image.getPixel(x, y);
+      final r = px.rNormalized.toDouble();
+      final g = px.gNormalized.toDouble();
+      final b = px.bNormalized.toDouble();
+      final lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      
+      final mask = lum * lum;
+      
+      var gr = r;
+      var gg = g;
+      var gb = b;
+      
+      if (saturation != 0) {
+        final s = 1.0 + saturation / 100.0;
+        gr = lum + (gr - lum) * s;
+        gg = lum + (gg - lum) * s;
+        gb = lum + (gb - lum) * s;
+      }
+      
+      if (warmth != 0) {
+        gr += warmth / 1000.0;
+        gb -= warmth / 1000.0;
+      }
+      
+      glowLayer.setPixelRgb(x, y,
+        (gr.clamp(0.0, 1.0) * mask * 255).round(),
+        (gg.clamp(0.0, 1.0) * mask * 255).round(),
+        (gb.clamp(0.0, 1.0) * mask * 255).round(),
+      );
+    }
+  }
+  
+  final blurredGlow = img.gaussianBlur(glowLayer, radius: 8);
+  final result = img.Image(width: W, height: H);
+  final str = strength / 100.0;
+  
+  for (int y = 0; y < H; y++) {
+    for (int x = 0; x < W; x++) {
+      final opx = image.getPixel(x, y);
+      final gpx = blurredGlow.getPixel(x, y);
+      
+      final or = opx.rNormalized.toDouble();
+      final og = opx.gNormalized.toDouble();
+      final ob = opx.bNormalized.toDouble();
+      
+      final gr = gpx.rNormalized.toDouble() * str;
+      final gg = gpx.gNormalized.toDouble() * str;
+      final gb = gpx.bNormalized.toDouble() * str;
+      
+      final r = 1.0 - (1.0 - or) * (1.0 - gr);
+      final g = 1.0 - (1.0 - og) * (1.0 - gg);
+      final b = 1.0 - (1.0 - ob) * (1.0 - gb);
+      
+      result.setPixelRgb(x, y,
+        (r.clamp(0.0, 1.0) * 255).round(),
+        (g.clamp(0.0, 1.0) * 255).round(),
+        (b.clamp(0.0, 1.0) * 255).round(),
+      );
+    }
+  }
+  return result;
+}
+
+// ── HDR Scape ────────────────────────────────────────────
+img.Image _applyHdrImage(img.Image image, double strength, double saturation) {
+  if (strength <= 0) return image;
+
+  final W = image.width;
+  final H = image.height;
+  
+  final blurred = img.gaussianBlur(img.Image.from(image), radius: 10);
+  final result = img.Image(width: W, height: H);
+  final str = strength / 100.0 * 0.8;
+  
+  for (int y = 0; y < H; y++) {
+    for (int x = 0; x < W; x++) {
+      final px = image.getPixel(x, y);
+      final bpx = blurred.getPixel(x, y);
+      
+      var r = px.rNormalized.toDouble();
+      var g = px.gNormalized.toDouble();
+      var b = px.bNormalized.toDouble();
+      
+      final br = bpx.rNormalized.toDouble();
+      final bg = bpx.gNormalized.toDouble();
+      final bb = bpx.bNormalized.toDouble();
+      
+      const epsilon = 0.01;
+      r = r * math.pow((r + epsilon) / (br + epsilon), str);
+      g = g * math.pow((g + epsilon) / (bg + epsilon), str);
+      b = b * math.pow((b + epsilon) / (bb + epsilon), str);
+      
+      final lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      final s = 1.0 + saturation / 100.0 * 0.5;
+      r = lum + (r - lum) * s;
+      g = lum + (g - lum) * s;
+      b = lum + (b - lum) * s;
+      
+      result.setPixelRgb(x, y,
+        (r.clamp(0.0, 1.0) * 255).round(),
+        (g.clamp(0.0, 1.0) * 255).round(),
+        (b.clamp(0.0, 1.0) * 255).round(),
+      );
+    }
+  }
+  return result;
+}
+
+// ── Light Leak ───────────────────────────────────────────
+img.Image _applyLightLeakImage(img.Image image, double strength, double angle, double warmth) {
+  if (strength <= 0) return image;
+
+  final W = image.width;
+  final H = image.height;
+  final result = img.Image(width: W, height: H);
+  
+  final rad = angle * math.pi / 180.0;
+  final dx = math.cos(rad);
+  final dy = math.sin(rad);
+  final str = strength / 100.0 * 0.4;
+  
+  for (int y = 0; y < H; y++) {
+    for (int x = 0; x < W; x++) {
+      final px = image.getPixel(x, y);
+      final nx = x / W - 0.5;
+      final ny = y / H - 0.5;
+      
+      final projection = nx * dx + ny * dy;
+      final dist = (projection + 0.7) / 1.4;
+      final leak = dist * dist * str;
+      
+      final r = px.rNormalized.toDouble() + leak;
+      final g = px.gNormalized.toDouble() + leak * 0.7;
+      final b = px.bNormalized.toDouble() + leak * (0.3 + warmth / 200.0);
+      
+      result.setPixelRgb(x, y,
+        (r.clamp(0.0, 1.0) * 255).round(),
+        (g.clamp(0.0, 1.0) * 255).round(),
+        (b.clamp(0.0, 1.0) * 255).round(),
+      );
+    }
+  }
+  return result;
+}
+
+// ── Halation ─────────────────────────────────────────────
+img.Image _applyHalationImage(img.Image image, double strength, double threshold, double warmth) {
+  if (strength <= 0) return image;
+
+  final W = image.width;
+  final H = image.height;
+  
+  final hlLayer = img.Image(width: W, height: H);
+  final th = threshold / 100.0;
+  
+  for (int y = 0; y < H; y++) {
+    for (int x = 0; x < W; x++) {
+      final px = image.getPixel(x, y);
+      final r = px.rNormalized.toDouble();
+      final g = px.gNormalized.toDouble();
+      final b = px.bNormalized.toDouble();
+      final lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      
+      if (lum > th) {
+        final w = (lum - th) / (1.0 - th);
+        hlLayer.setPixelRgb(x, y, (r * w * 255).round(), (g * w * 255).round(), (b * w * 255).round());
+      }
+    }
+  }
+  
+  final blurredHl = img.gaussianBlur(hlLayer, radius: 5);
+  final result = img.Image(width: W, height: H);
+  final str = strength / 100.0 * 0.6;
+  
+  for (int y = 0; y < H; y++) {
+    for (int x = 0; x < W; x++) {
+      final px = image.getPixel(x, y);
+      final hpx = blurredHl.getPixel(x, y);
+      
+      final rNorm = px.rNormalized.toDouble();
+      final gNorm = px.gNormalized.toDouble();
+      final bNorm = px.bNormalized.toDouble();
+      
+      final hr = hpx.rNormalized.toDouble() * str;
+      final hg = hpx.gNormalized.toDouble() * str * 0.4;
+      final hb = hpx.bNormalized.toDouble() * str * (0.1 - warmth / 1000.0);
+      
+      final r = (rNorm + hr).clamp(0.0, 1.0);
+      final g = (gNorm + hg).clamp(0.0, 1.0);
+      final b = (bNorm + hb).clamp(0.0, 1.0);
+      
+      result.setPixelRgb(x, y, (r * 255).round(), (g * 255).round(), (b * 255).round());
+    }
+  }
+  return result;
+}
+
+// ── Film Grain ───────────────────────────────────────────
+img.Image _applyGrainImage(img.Image image, double strength, double size, int seed) {
+  if (strength <= 0) return image;
+
+  final rand = math.Random(seed);
+  final W = image.width;
+  final H = image.height;
+  final result = img.Image(width: W, height: H);
+  
+  final double s = size.clamp(0.5, 3.0);
+  final int gridW = (W / s).ceil();
+  final int gridH = (H / s).ceil();
+  
+  final grid = Float32List(gridW * gridH);
+  for (int i = 0; i < grid.length; i++) {
+    grid[i] = rand.nextDouble() * 2.0 - 1.0;
+  }
+  
+  for (int y = 0; y < H; y++) {
+    final int gy = (y / s).floor().clamp(0, gridH - 1);
+    for (int x = 0; x < W; x++) {
+      final int gx = (x / s).floor().clamp(0, gridW - 1);
+      final double noise = grid[gy * gridW + gx];
+      
+      final px = image.getPixel(x, y);
+      final double rNorm = px.rNormalized.toDouble();
+      final double gNorm = px.gNormalized.toDouble();
+      final double bNorm = px.bNormalized.toDouble();
+      final double lum = 0.2126 * rNorm + 0.7152 * gNorm + 0.0722 * bNorm;
+      
+      final double weight = 1.0 - (lum - 0.5) * (lum - 0.5) * 4.0;
+      final double delta = noise * (strength / 100.0) * weight * (25.0 / 255.0);
+      
+      final r = (rNorm + delta).clamp(0.0, 1.0);
+      final g = (gNorm + delta).clamp(0.0, 1.0);
+      final b = (bNorm + delta).clamp(0.0, 1.0);
+      
+      result.setPixelRgb(x, y, (r * 255).round(), (g * 255).round(), (b * 255).round());
+    }
+  }
+  return result;
+}
+
 const int _dim = customLutDim;
 
-/// Isolate-safe progress stages returned alongside the result.
-/// The map always contains 'stage' (String) and 'progress' (double 0–1).
-/// On completion it also contains presetId / lutPath / thumbnailPath / defaultParams.
 typedef LutProgressCallback = void Function(String stage, double progress);
 
-/// Generate a 65³ 3D LUT from a style image.
-/// Neural path (TFLite) when model is ready; algorithmic fallback otherwise.
-/// [onProgress] is called with (stage, 0–1) at each key step.
 Future<Map<String, dynamic>> generateLutFromStyle(
   String styleImagePath, {
   String? basePath,
@@ -164,14 +691,11 @@ Future<Map<String, dynamic>> generateLutFromStyle(
   if (AiManager.instance.colorTransferReady) {
     try {
       return await _generateLutNeural(styleImagePath, basePath: basePath, onProgress: onProgress);
-    } catch (_) {
-      // Neural inference failed → algorithmic fallback
-    }
+    } catch (_) {}
   }
   return _generateLutAlgorithmic(styleImagePath, basePath: basePath, onProgress: onProgress);
 }
 
-/// Neural path: TFLite model predicts 5³ LUT → upsampled to 65³.
 Future<Map<String, dynamic>> _generateLutNeural(
   String styleImagePath, {
   String? basePath,
@@ -187,7 +711,7 @@ Future<Map<String, dynamic>> _generateLutNeural(
 
   onProgress?.call('model_inference', 0.25);
   final predictor = await LutPredictor.instance;
-  final lut65     = await predictor.predict(styleImagePath); // Float32List (65³×3)
+  final lut65     = await predictor.predict(styleImagePath);
 
   onProgress?.call('lut_encode', 0.70);
   const total   = _dim * _dim * _dim;
@@ -215,7 +739,6 @@ Future<Map<String, dynamic>> _generateLutNeural(
   };
 }
 
-/// Algorithmic fallback (used before Neural model is downloaded).
 Future<Map<String, dynamic>> _generateLutAlgorithmic(
   String styleImagePath, {
   String? basePath,
@@ -250,19 +773,19 @@ Future<Map<String, dynamic>> _generateLutAlgorithmic(
   };
 }
 
-/// Apply a 65³ 3D LUT (float16 binary) to an image pixel via trilinear interpolation.
 RgbColor applyLut(Uint8List lutBytes, RgbColor rgb) {
   return applyCustomLut(lutBytes, rgb);
 }
 
-/// Apply adjust params to an sRGB pixel (value in [0,1]).
-RgbColor applyAdjustParams(RgbColor rgb, AdjustParams p) {
-  // Exposure
+RgbColor applyAdjustParams(
+  RgbColor rgb,
+  AdjustParams p, {
+  BakedCurveLuts? bakedLuts,
+}) {
   var r = rgb.r * math.pow(2.0, p.exposure);
   var g = rgb.g * math.pow(2.0, p.exposure);
   var b = rgb.b * math.pow(2.0, p.exposure);
 
-  // Contrast (S-curve approximation)
   if (p.contrast != 0) {
     final factor = (259.0 * (p.contrast + 255)) / (255.0 * (259 - p.contrast));
     r = factor * (r - 0.5) + 0.5;
@@ -270,7 +793,6 @@ RgbColor applyAdjustParams(RgbColor rgb, AdjustParams p) {
     b = factor * (b - 0.5) + 0.5;
   }
 
-  // Saturation
   if (p.saturation != 0) {
     final lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
     final s   = 1.0 + p.saturation / 100.0;
@@ -279,7 +801,20 @@ RgbColor applyAdjustParams(RgbColor rgb, AdjustParams p) {
     b = lum + (b - lum) * s;
   }
 
-  // Temperature/Tint (simple RGB shift)
+  if (p.hasHsl) {
+    final hslAdjusted = _applyHslBands(RgbColor(r.clamp(0.0, 1.0), g.clamp(0.0, 1.0), b.clamp(0.0, 1.0)), p);
+    r = hslAdjusted.r;
+    g = hslAdjusted.g;
+    b = hslAdjusted.b;
+  }
+
+  if (p.hasSplitToning) {
+    final splitAdjusted = _applySplitToning(RgbColor(r.clamp(0.0, 1.0), g.clamp(0.0, 1.0), b.clamp(0.0, 1.0)), p);
+    r = splitAdjusted.r;
+    g = splitAdjusted.g;
+    b = splitAdjusted.b;
+  }
+
   if (p.temperature != 0) {
     r += p.temperature / 1000.0;
     b -= p.temperature / 1000.0;
@@ -289,7 +824,6 @@ RgbColor applyAdjustParams(RgbColor rgb, AdjustParams p) {
     r -= p.tint / 2000.0;
   }
 
-  // Highlights / Shadows
   if (p.highlights != 0) {
     final lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
     final mask = (lum - 0.5).clamp(0.0, 0.5) * 2.0;
@@ -303,45 +837,48 @@ RgbColor applyAdjustParams(RgbColor rgb, AdjustParams p) {
     r += adj; g += adj; b += adj;
   }
 
-  // Curves (Phase 2)
+  if (p.ambiance != 0) {
+    final lum = (0.2126 * r + 0.7152 * g + 0.0722 * b).clamp(0.0, 1.0);
+    final a = p.ambiance / 100.0;
+    final shadowMask = (1.0 - lum) * (1.0 - lum);
+    final highlightMask = lum * lum;
+    final brightAdj = a * (0.22 * shadowMask - 0.15 * highlightMask);
+    r += brightAdj;
+    g += brightAdj;
+    b += brightAdj;
+    final satMask = 4.0 * lum * (1.0 - lum);
+    final satFactor = 1.0 + a * 0.35 * satMask;
+    final newLum = (0.2126 * r + 0.7152 * g + 0.0722 * b).clamp(0.0, 1.0);
+    r = newLum + (r - newLum) * satFactor;
+    g = newLum + (g - newLum) * satFactor;
+    b = newLum + (b - newLum) * satFactor;
+  }
+
   if (p.hasCurves) {
-    // RGB curve: 모든 채널 동시 적용
-    if (p.rgbCurve != null && !p.rgbCurve!.isLinear) {
-      final lut = p.rgbCurve!.toLut();
-      r = lut[(r.clamp(0.0, 1.0) * 255).round()] / 255.0;
-      g = lut[(g.clamp(0.0, 1.0) * 255).round()] / 255.0;
-      b = lut[(b.clamp(0.0, 1.0) * 255).round()] / 255.0;
-    }
-    // 개별 채널 커브
-    if (p.redCurve   != null && !p.redCurve!.isLinear) {
-      final lut = p.redCurve!.toLut();
-      r = lut[(r.clamp(0.0, 1.0) * 255).round()] / 255.0;
-    }
-    if (p.greenCurve != null && !p.greenCurve!.isLinear) {
-      final lut = p.greenCurve!.toLut();
-      g = lut[(g.clamp(0.0, 1.0) * 255).round()] / 255.0;
-    }
-    if (p.blueCurve  != null && !p.blueCurve!.isLinear) {
-      final lut = p.blueCurve!.toLut();
-      b = lut[(b.clamp(0.0, 1.0) * 255).round()] / 255.0;
-    }
-    // Luminance curve: Lab L채널에 적용
+    final luts = bakedLuts ?? bakeCurveLuts(p);
+
+    r = luts.rgbMaster[(r.clamp(0.0, 1.0) * 255.0).round()] / 255.0;
+    g = luts.rgbMaster[(g.clamp(0.0, 1.0) * 255.0).round()] / 255.0;
+    b = luts.rgbMaster[(b.clamp(0.0, 1.0) * 255.0).round()] / 255.0;
+
+    r = luts.red[(r.clamp(0.0, 1.0) * 255.0).round()] / 255.0;
+    g = luts.green[(g.clamp(0.0, 1.0) * 255.0).round()] / 255.0;
+    b = luts.blue[(b.clamp(0.0, 1.0) * 255.0).round()] / 255.0;
+
     if (p.luminanceCurve != null && !p.luminanceCurve!.isLinear) {
-      final lut  = p.luminanceCurve!.toLut();
       final lab  = rgbToLab(RgbColor(r.clamp(0.0,1.0), g.clamp(0.0,1.0), b.clamp(0.0,1.0)));
-      final lNew = lut[(lab.l / 100.0 * 255).round().clamp(0, 255)] / 255.0 * 100.0;
+      final lNew = luts.luminance[(lab.l / 100.0 * 255.0).round().clamp(0, 255)] / 255.0 * 100.0;
       final rgb2 = labToRgb(LabColor(lNew, lab.a, lab.b));
       r = rgb2.r; g = rgb2.g; b = rgb2.b;
     }
   }
 
-  // Tonal Contrast (Phase 3): 존별 독립 S-curve
   if (p.tonalShadows != 0 || p.tonalMidtones != 0 || p.tonalHighlights != 0) {
     final lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
 
     double sCurve(double v, double strength) {
       final f = strength / 100.0;
-      return v + f * v * (1 - v) * (v - 0.5) * 4.0;
+      return v + f * v * (1 - v) * 2.0;
     }
 
     double gw(double l, double center) {
@@ -362,7 +899,6 @@ RgbColor applyAdjustParams(RgbColor rgb, AdjustParams p) {
     b = (b + adj).clamp(0.0, 1.0);
   }
 
-  // B&W (Phase 3): 채널 가중치 기반 흑백 변환
   if (p.bnwEnabled) {
     final wr = 0.299 + p.bnwRed    / 100.0 * 0.3;
     final wg = 0.587 + p.bnwGreen  / 100.0 * 0.3;
@@ -376,31 +912,84 @@ RgbColor applyAdjustParams(RgbColor rgb, AdjustParams p) {
   return RgbColor(r.toDouble(), g.toDouble(), b.toDouble()).clamp01();
 }
 
-/// Full pipeline: Adjust → LUT → Intensity mix
 RgbColor applyPipeline({
   required RgbColor original,
   required AdjustParams params,
   required Uint8List? lutBytes,
+  DecodedLut? decodedLut,
+  BakedCurveLuts? bakedLuts,
   required double intensity,
 }) {
-  var processed = applyAdjustParams(original, params);
-
-  if (lutBytes != null && lutBytes.isNotEmpty) {
-    processed = applyLut(lutBytes, processed);
-  }
-
-  // Intensity mix
+  final effectiveLut = decodedLut ?? tryDecodeCustomLut(lutBytes);
+  final base = effectiveLut != null
+      ? applyDecodedCustomLut(effectiveLut, original)
+      : original;
+  final result = applyAdjustParams(base, params, bakedLuts: bakedLuts);
+  final mix = intensity.clamp(0.0, 1.0);
   return RgbColor(
-    original.r * (1 - intensity) + processed.r * intensity,
-    original.g * (1 - intensity) + processed.g * intensity,
-    original.b * (1 - intensity) + processed.b * intensity,
+    original.r * (1 - mix) + result.r * mix,
+    original.g * (1 - mix) + result.g * mix,
+    original.b * (1 - mix) + result.b * mix,
   ).clamp01();
 }
 
-/// Load lut bytes from path (null if not found / empty)
 Future<Uint8List?> loadLutBytes(String? lutPath) async {
   if (lutPath == null || lutPath.isEmpty) return null;
+  if (lutPath.startsWith('assets/')) {
+    try {
+      final data = await rootBundle.load(lutPath);
+      return data.buffer.asUint8List();
+    } catch (_) {
+      return null;
+    }
+  }
   final f = File(lutPath);
   if (!await f.exists()) return null;
   return f.readAsBytes();
+}
+
+class BakedCurveLuts {
+  final Uint8List rgbMaster;
+  final Uint8List red;
+  final Uint8List green;
+  final Uint8List blue;
+  final Uint8List luminance;
+
+  BakedCurveLuts({
+    required this.rgbMaster,
+    required this.red,
+    required this.green,
+    required this.blue,
+    required this.luminance,
+  });
+}
+
+BakedCurveLuts bakeCurveLuts(AdjustParams p) {
+  final rgbMaster = p.rgbCurve != null && !p.rgbCurve!.isLinear
+      ? Uint8List.fromList(p.rgbCurve!.toLut())
+      : Uint8List.fromList(List.generate(256, (i) => i));
+
+  final red = p.redCurve != null && !p.redCurve!.isLinear
+      ? Uint8List.fromList(p.redCurve!.toLut())
+      : Uint8List.fromList(List.generate(256, (i) => i));
+
+  final green = p.greenCurve != null && !p.greenCurve!.isLinear
+      ? Uint8List.fromList(p.greenCurve!.toLut())
+      : Uint8List.fromList(List.generate(256, (i) => i));
+
+  final blue = p.blueCurve != null && !p.blueCurve!.isLinear
+      ? Uint8List.fromList(p.blueCurve!.toLut())
+      : Uint8List.fromList(List.generate(256, (i) => i));
+
+  final luminance = p.luminanceCurve != null && !p.luminanceCurve!.isLinear
+      ? Uint8List.fromList(p.luminanceCurve!.toLut())
+      : Uint8List.fromList(List.generate(256, (i) => i));
+
+  return BakedCurveLuts(
+    rgbMaster: rgbMaster,
+    red: red,
+    green: green,
+    blue: blue,
+    luminance: luminance,
+  );
 }
