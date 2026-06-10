@@ -1,4 +1,6 @@
 name: Build IPA (macOS runner)
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 on:
   push:
@@ -44,11 +46,22 @@ jobs:
           pod install --repo-update
           popd
 
+      - name: Check Flutter environment
+        run: flutter doctor -v || true
+
       - name: Build unsigned IPA
-        run: flutter build ipa --no-codesign --release
+        run: |
+          set -o pipefail
+          flutter build ipa --no-codesign --release --verbose 2>&1 | tee build_ipa_verbose.log
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
           name: memoria-unsigned-ipa
           path: build/ios/ipa
+
+      - name: Upload build logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: memoria-ipa-logs
+          path: build_ipa_verbose.log

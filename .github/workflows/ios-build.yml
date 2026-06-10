@@ -1,4 +1,6 @@
 name: iOS Build (CI)
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 on:
   push:
@@ -43,11 +45,22 @@ jobs:
           pod install --repo-update
           popd
 
+      - name: Check Flutter environment
+        run: flutter doctor -v || true
+
       - name: Build iOS (no codesign)
-        run: flutter build ios --no-codesign --release
+        run: |
+          set -o pipefail
+          flutter build ios --no-codesign --release --verbose 2>&1 | tee build_ios_verbose.log
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ios-build
           path: build/ios
+
+      - name: Upload build logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-build-logs
+          path: build_ios_verbose.log
