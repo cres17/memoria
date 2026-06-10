@@ -5,20 +5,15 @@ on:
   push:
     tags: [ 'v*', 'release-*' ]
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
-
 jobs:
   release-ipa:
     runs-on: macos-latest
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          lfs: true
+          lfs: false
           persist-credentials: true
 
       - name: Ensure Git LFS and full history
@@ -34,7 +29,6 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           flutter-version: 'stable'
-          architecture: 'x64'
 
       - name: Install dependencies
         run: flutter pub get
