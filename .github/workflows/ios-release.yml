@@ -31,8 +31,19 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.19.0'
+          flutter-version: '3.24.0'
+          channel: stable
           architecture: 'x64'
+
+      - name: Check installed Flutter/Dart
+        run: |
+          flutter --version
+          dart --version
+
+      - name: Clean and remove old lock
+        run: |
+          flutter clean || true
+          rm -f pubspec.lock || true
 
       - name: Install dependencies
         run: flutter pub get
