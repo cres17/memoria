@@ -36,6 +36,13 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Install iOS CocoaPods
+        if: runner.os == 'macOS'
+        run: |
+          pushd ios
+          pod install --repo-update
+          popd
+
       - name: Build iOS (no codesign)
         run: flutter build ios --no-codesign --release
 

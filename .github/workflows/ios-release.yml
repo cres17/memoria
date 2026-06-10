@@ -35,6 +35,13 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Install iOS CocoaPods
+        if: runner.os == 'macOS'
+        run: |
+          pushd ios
+          pod install --repo-update
+          popd
+
       - name: Import signing identities and provisioning profiles
         uses: apple-actions/import-codesign@v1
         with:
