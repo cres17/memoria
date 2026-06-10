@@ -197,7 +197,7 @@ class _CropPanelState extends State<CropPanel> {
               border: Border.all(
                 color: isSelected
                     ? AppColors.oceanFoam
-                    : AppColors.oceanFoam.withValues(alpha: 0.18),
+                    : AppColors.oceanFoam.withOpacity(0.18),
               ),
             ),
             child: Text(
@@ -237,7 +237,7 @@ class _CropPanelState extends State<CropPanel> {
               border: Border.all(
                 color: isSelected
                     ? AppColors.oceanFoam
-                    : AppColors.oceanFoam.withValues(alpha: 0.18),
+                    : AppColors.oceanFoam.withOpacity(0.18),
               ),
             ),
             child: Row(
@@ -272,8 +272,8 @@ class _CropPanelState extends State<CropPanel> {
                       Icons.cancel,
                       size: 14,
                       color: isSelected
-                          ? AppColors.cloudWhite.withValues(alpha: 0.7)
-                          : AppColors.textOnDarkSub.withValues(alpha: 0.5),
+                          ? AppColors.cloudWhite.withOpacity(0.7)
+                          : AppColors.textOnDarkSub.withOpacity(0.5),
                     ),
                   ),
                 ),

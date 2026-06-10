@@ -581,8 +581,8 @@ class _ImageStage extends StatelessWidget {
                           horizontal: 22, vertical: 12),
                       decoration: BoxDecoration(
                         color: generating
-                            ? AppColors.cloudWhite.withValues(alpha: 0.96)
-                            : AppColors.cloudWhite.withValues(alpha: 0.92),
+                            ? AppColors.cloudWhite.withOpacity(0.96)
+                            : AppColors.cloudWhite.withOpacity(0.92),
                         borderRadius: BorderRadius.circular(999),
                         border: Border.all(color: AppColors.cloudMist),
                       ),

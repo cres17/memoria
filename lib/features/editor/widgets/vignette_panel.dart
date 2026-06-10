@@ -37,7 +37,7 @@ class VignettePanel extends StatelessWidget {
                     width: 28,
                     height: 28,
                     decoration: BoxDecoration(
-                      color: _kAccent.withValues(alpha: 0.14),
+                      color: _kAccent.withOpacity(0.14),
                       borderRadius: BorderRadius.circular(7),
                     ),
                     child: const Icon(Icons.blur_circular_outlined, size: 15, color: _kAccent),
@@ -72,9 +72,9 @@ class VignettePanel extends StatelessWidget {
           SliderTheme(
             data: SliderTheme.of(context).copyWith(
               activeTrackColor: _kAccent,
-              inactiveTrackColor: AppColors.cloudMist.withValues(alpha: 0.55),
+              inactiveTrackColor: AppColors.cloudMist.withOpacity(0.55),
               thumbColor: _kAccent,
-              overlayColor: _kAccent.withValues(alpha: 0.15),
+              overlayColor: _kAccent.withOpacity(0.15),
               trackHeight: 2.5,
               thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
             ),

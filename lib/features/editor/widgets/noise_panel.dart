@@ -96,7 +96,7 @@ class _NoiseSlider extends StatelessWidget {
                     width: 28,
                     height: 28,
                     decoration: BoxDecoration(
-                      color: _kAccent.withValues(alpha: 0.14),
+                      color: _kAccent.withOpacity(0.14),
                       borderRadius: BorderRadius.circular(7),
                     ),
                     child: Icon(icon, size: 15, color: _kAccent),
@@ -131,9 +131,9 @@ class _NoiseSlider extends StatelessWidget {
           SliderTheme(
             data: SliderTheme.of(context).copyWith(
               activeTrackColor: _kAccent,
-              inactiveTrackColor: AppColors.textTertiary.withValues(alpha: 0.15),
+              inactiveTrackColor: AppColors.textTertiary.withOpacity(0.15),
               thumbColor: _kAccent,
-              overlayColor: _kAccent.withValues(alpha: 0.15),
+              overlayColor: _kAccent.withOpacity(0.15),
               trackHeight: 2.5,
               thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
             ),

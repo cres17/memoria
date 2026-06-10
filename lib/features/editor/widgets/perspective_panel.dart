@@ -83,7 +83,7 @@ class PerspectivePanel extends StatelessWidget {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                 decoration: BoxDecoration(
-                  color: AppColors.oceanNavy.withValues(alpha: 0.3),
+                  color: AppColors.oceanNavy.withOpacity(0.3),
                   borderRadius: BorderRadius.circular(15),
                   border: Border.all(color: AppColors.oceanNavy),
                 ),
@@ -153,7 +153,7 @@ class PerspectivePanel extends StatelessWidget {
               activeTrackColor: AppColors.oceanTeal,
               inactiveTrackColor: AppColors.oceanNavy,
               thumbColor: AppColors.oceanTeal,
-              overlayColor: AppColors.oceanTeal.withValues(alpha: 0.2),
+              overlayColor: AppColors.oceanTeal.withOpacity(0.2),
               trackHeight: 2.5,
               thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
             ),
