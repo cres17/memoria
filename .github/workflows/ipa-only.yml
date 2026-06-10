@@ -16,15 +16,14 @@ jobs:
           fetch-depth: 0
           lfs: true
           persist-credentials: true
+          submodules: false
 
-      - name: Ensure Git LFS, submodules and full history
+      - name: Ensure Git LFS and full history
         run: |
           git lfs install --skip-repo || true
           if [ -f .git/shallow ]; then
             git fetch --prune --unshallow || true
           fi
-          git submodule sync --recursive || true
-          git submodule update --init --recursive || true
           git lfs pull || true
         shell: bash
 
