@@ -59,19 +59,19 @@ jobs:
       - name: Check Flutter environment
         run: flutter doctor -v || true
 
-      - name: Build iOS (no codesign)
+      - name: Build unsigned IPA (no codesign)
         run: |
           set -o pipefail
-          flutter build ios --no-codesign --release --verbose 2>&1 | tee build_ios_verbose.log
+          flutter build ipa --no-codesign --release --verbose 2>&1 | tee build_ipa_verbose.log
 
-      - name: Upload build artifacts
+      - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ios-build
-          path: build/ios
+          name: memoria-unsigned-ipa
+          path: build/ios/ipa
 
       - name: Upload build logs
         uses: actions/upload-artifact@v4
         with:
           name: ios-build-logs
-          path: build_ios_verbose.log
+          path: build_ipa_verbose.log
