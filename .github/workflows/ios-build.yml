@@ -9,7 +9,12 @@ jobs:
   build-ios:
     name: Build iOS (no codesign)
     runs-on: macos-latest
+    env:
+      GIT_CLONE_PROTECTION_ACTIVE: 'false'
     steps:
+      - name: Set Git safe directory
+        run: git config --global --add safe.directory '*'
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
