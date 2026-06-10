@@ -271,7 +271,7 @@ class _FlagRow extends StatelessWidget {
           Switch(
             value: value,
             onChanged: onChanged,
-            activeThumbColor: AppColors.oceanFoam,
+            activeColor: AppColors.oceanFoam,
             activeTrackColor: AppColors.oceanTeal.withValues(alpha:0.4),
             inactiveThumbColor: AppColors.textOnDarkTert,
             inactiveTrackColor: AppColors.oceanNavy,
