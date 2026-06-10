@@ -1,4 +1,6 @@
 name: iOS Release Build (signed IPA)
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 on:
   workflow_dispatch:
@@ -66,14 +68,24 @@ jobs:
           </plist>
           PL
 
+      - name: Check Flutter environment
+        run: flutter doctor -v || true
+
       - name: Build signed IPA
         env:
           FLUTTER_BUILD_MODE: release
         run: |
-          flutter build ipa --export-options-plist=exportOptions.plist --release
+          set -o pipefail
+          flutter build ipa --export-options-plist=exportOptions.plist --release --verbose 2>&1 | tee build_ipa_verbose.log
 
       - name: Collect IPA artifact
         uses: actions/upload-artifact@v4
         with:
           name: memoria-ios-ipa
           path: build/ios/ipa
+
+      - name: Upload build logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: memoria-ipa-logs
+          path: build_ipa_verbose.log
