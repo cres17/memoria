@@ -98,7 +98,7 @@ class _HslPanelState extends State<HslPanel> {
                         const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
                       color: selected
-                          ? c.withValues(alpha: 0.12)
+                          ? c.withOpacity(0.12)
                           : Colors.transparent,
                       borderRadius: BorderRadius.circular(20),
                       border: Border.all(
@@ -108,7 +108,7 @@ class _HslPanelState extends State<HslPanel> {
                                 : (band == HslBand.cyan
                                     ? const Color(0xFF0097A7)
                                     : c))
-                            : AppColors.textSecondary.withValues(alpha: 0.18),
+                            : AppColors.textSecondary.withOpacity(0.18),
                         width: selected ? 1.5 : 1,
                       ),
                     ),
@@ -240,7 +240,7 @@ class _HslSlider extends StatelessWidget {
                     width: 28,
                     height: 28,
                     decoration: BoxDecoration(
-                      color: color.withValues(alpha: 0.12),
+                      color: color.withOpacity(0.12),
                       borderRadius: BorderRadius.circular(7),
                     ),
                     child: Icon(icon, size: 15, color: color),
@@ -271,9 +271,9 @@ class _HslSlider extends StatelessWidget {
           SliderTheme(
             data: SliderTheme.of(context).copyWith(
               activeTrackColor: color,
-              inactiveTrackColor: AppColors.textSecondary.withValues(alpha: 0.12),
+              inactiveTrackColor: AppColors.textSecondary.withOpacity(0.12),
               thumbColor: color,
-              overlayColor: color.withValues(alpha: 0.15),
+              overlayColor: color.withOpacity(0.15),
               trackHeight: 2.5,
               thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
             ),

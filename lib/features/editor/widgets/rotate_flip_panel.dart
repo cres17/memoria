@@ -63,7 +63,7 @@ class RotateFlipPanel extends StatelessWidget {
                     activeTrackColor: AppColors.oceanTeal,
                     inactiveTrackColor: AppColors.oceanNavy,
                     thumbColor: AppColors.oceanTeal,
-                    overlayColor: AppColors.oceanTeal.withValues(alpha: 0.2),
+                    overlayColor: AppColors.oceanTeal.withOpacity(0.2),
                     trackHeight: 3,
                     thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
                   ),
@@ -207,7 +207,7 @@ class _ActionButton extends StatelessWidget {
           width: 64,
           padding: const EdgeInsets.symmetric(vertical: 8),
           decoration: BoxDecoration(
-            color: active ? AppColors.oceanTeal : AppColors.oceanNavy.withValues(alpha: 0.4),
+            color: active ? AppColors.oceanTeal : AppColors.oceanNavy.withOpacity(0.4),
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
               color: active ? AppColors.oceanTeal : AppColors.oceanNavy,

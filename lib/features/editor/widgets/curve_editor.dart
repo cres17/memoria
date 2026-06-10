@@ -186,7 +186,7 @@ class _CurveEditorState extends State<CurveEditor> {
                   decoration: BoxDecoration(
                     color: AppColors.oceanMid,
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: AppColors.oceanFoam.withValues(alpha: 0.2)),
+                    border: Border.all(color: AppColors.oceanFoam.withOpacity(0.2)),
                   ),
                   alignment: Alignment.center,
                   child: Text(
@@ -239,7 +239,7 @@ class _CurvePainter extends CustomPainter {
 
     // 격자
     final gridPaint = Paint()
-      ..color = AppColors.oceanFoam.withValues(alpha: 0.08)
+      ..color = AppColors.oceanFoam.withOpacity(0.08)
       ..strokeWidth = 0.5;
     for (int i = 1; i < 4; i++) {
       canvas.drawLine(Offset(W * i / 4, 0), Offset(W * i / 4, H), gridPaint);
@@ -250,7 +250,7 @@ class _CurvePainter extends CustomPainter {
     canvas.drawLine(
       Offset(0, H),
       Offset(W, 0),
-      gridPaint..color = AppColors.oceanFoam.withValues(alpha: 0.18),
+      gridPaint..color = AppColors.oceanFoam.withOpacity(0.18),
     );
 
     if (points.isEmpty) return;

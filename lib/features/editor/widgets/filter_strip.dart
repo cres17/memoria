@@ -137,7 +137,7 @@ class _FilterThumbnail extends StatelessWidget {
         image,
         if (selected)
           Container(
-            color: AppColors.oceanFoam.withValues(alpha:0.15),
+            color: AppColors.oceanFoam.withOpacity(0.15),
           ),
         if (isFavorite)
           Positioned(
@@ -146,7 +146,7 @@ class _FilterThumbnail extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.all(2),
               decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.5),
+                color: Colors.black.withOpacity(0.5),
                 shape: BoxShape.circle,
               ),
               child: const Icon(
@@ -206,7 +206,7 @@ class IntensitySlider extends StatelessWidget {
                 activeTrackColor: AppColors.oceanFoam,
                 inactiveTrackColor: AppColors.oceanNavy,
                 thumbColor: AppColors.cloudWhite,
-                overlayColor: AppColors.oceanFoam.withValues(alpha:0.15),
+                overlayColor: AppColors.oceanFoam.withOpacity(0.15),
                 trackHeight: 3,
               ),
               child: Slider(

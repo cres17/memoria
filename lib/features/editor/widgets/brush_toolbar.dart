@@ -73,7 +73,7 @@ class BrushToolbar extends StatelessWidget {
                       border: Border.all(
                         color: selected
                             ? AppColors.cloudWhite
-                            : AppColors.oceanFoam.withValues(alpha: 0.18),
+                            : AppColors.oceanFoam.withOpacity(0.18),
                       ),
                     ),
                     child: Icon(
@@ -126,7 +126,7 @@ class BrushToolbar extends StatelessWidget {
                 onPressed: strokeCount == 0 ? null : onClear,
                 icon: const Icon(Icons.delete_outline_rounded, size: 19),
                 color: AppColors.textOnDarkSub,
-                disabledColor: AppColors.textOnDarkTert.withValues(alpha: 0.3),
+                disabledColor: AppColors.textOnDarkTert.withOpacity(0.3),
               ),
             ],
           ),
@@ -170,7 +170,7 @@ class _BrushSlider extends StatelessWidget {
                 activeTrackColor: AppColors.oceanFoam,
                 inactiveTrackColor: AppColors.oceanNavy,
                 thumbColor: AppColors.cloudWhite,
-                overlayColor: AppColors.oceanFoam.withValues(alpha: 0.16),
+                overlayColor: AppColors.oceanFoam.withOpacity(0.16),
                 trackHeight: 3,
                 thumbShape:
                     const RoundSliderThumbShape(enabledThumbRadius: 7),

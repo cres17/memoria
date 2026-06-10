@@ -66,10 +66,10 @@ class _HistogramWidgetState extends State<HistogramWidget> {
         margin: const EdgeInsets.only(right: 4),
         padding: const EdgeInsets.symmetric(horizontal: 6),
         decoration: BoxDecoration(
-          color: selected ? color.withValues(alpha: 0.25) : Colors.transparent,
+          color: selected ? color.withOpacity(0.25) : Colors.transparent,
           borderRadius: BorderRadius.circular(4),
           border: Border.all(
-            color: selected ? color : color.withValues(alpha: 0.3),
+            color: selected ? color : color.withOpacity(0.3),
             width: 1,
           ),
         ),
@@ -77,7 +77,7 @@ class _HistogramWidgetState extends State<HistogramWidget> {
           label,
           style: TextStyle(
             fontSize: 10,
-            color: selected ? color : color.withValues(alpha: 0.5),
+            color: selected ? color : color.withOpacity(0.5),
             fontWeight: selected ? FontWeight.bold : FontWeight.normal,
           ),
         ),
@@ -117,17 +117,17 @@ class _HistogramPainter extends CustomPainter {
 
     switch (channel) {
       case HistogramChannel.luminance:
-        drawBars(data.luminance, Colors.white.withValues(alpha: 0.7));
+        drawBars(data.luminance, Colors.white.withOpacity(0.7));
       case HistogramChannel.red:
-        drawBars(data.r, Colors.red.withValues(alpha: 0.7));
+        drawBars(data.r, Colors.red.withOpacity(0.7));
       case HistogramChannel.green:
-        drawBars(data.g, Colors.green.withValues(alpha: 0.7));
+        drawBars(data.g, Colors.green.withOpacity(0.7));
       case HistogramChannel.blue:
-        drawBars(data.b, Colors.blue.withValues(alpha: 0.7));
+        drawBars(data.b, Colors.blue.withOpacity(0.7));
       case HistogramChannel.rgb:
-        drawBars(data.r, Colors.red.withValues(alpha: 0.5));
-        drawBars(data.g, Colors.green.withValues(alpha: 0.5));
-        drawBars(data.b, Colors.blue.withValues(alpha: 0.5));
+        drawBars(data.r, Colors.red.withOpacity(0.5));
+        drawBars(data.g, Colors.green.withOpacity(0.5));
+        drawBars(data.b, Colors.blue.withOpacity(0.5));
     }
   }
 

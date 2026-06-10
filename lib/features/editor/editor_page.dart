@@ -33,6 +33,7 @@ import '../../engine/portrait_engine.dart';
 import '../../domain/models/adjust_params.dart';
 import '../../domain/models/curve_data.dart';
 import '../../domain/models/filter_preset.dart';
+import '../../domain/models/edit_session.dart';
 import '../../engine/artistic_effects.dart';
 import '../../engine/blur_engine.dart';
 import '../../engine/local_adjust.dart';
@@ -497,7 +498,7 @@ class _EditorPageState extends State<EditorPage> {
       _frameIndex = (json['frameIndex'] as num?)?.toInt() ?? -1;
       _overlayText = json['overlayText'] as String? ?? '';
       _textSize = _doubleFromJson(json['textSize'], 32.0);
-      _textColor = Color((json['textColor'] as num?)?.toInt() ?? Colors.white.toARGB32());
+      _textColor = Color((json['textColor'] as num?)?.toInt() ?? Colors.white.value);
     });
   }
 
@@ -865,7 +866,7 @@ class _EditorPageState extends State<EditorPage> {
         frameBytes: frameBytes,
         overlayText: _overlayText,
         textSize: _textSize,
-        textColorValue: _textColor.toARGB32(),
+        textColorValue: _textColor.value,
         brushStrokes: _brushStrokes,
       );
 
@@ -1048,7 +1049,7 @@ class _EditorPageState extends State<EditorPage> {
         _overlayText = json['overlayText'] as String? ?? '';
         _textSize = _doubleFromJson(json['textSize'], 32.0);
         _textColor = Color(
-            (json['textColor'] as num?)?.toInt() ?? Colors.white.toARGB32());
+          (json['textColor'] as num?)?.toInt() ?? Colors.white.value);
         _lutBytes = lutBytes;
       });
     } catch (_) {
@@ -1107,7 +1108,7 @@ class _EditorPageState extends State<EditorPage> {
         'frameIndex': _frameIndex,
         'overlayText': _overlayText,
         'textSize': _textSize,
-        'textColor': _textColor.toARGB32(),
+        'textColor': _textColor.value,
       };
 
   T _enumByName<T extends Enum>(List<T> values, String? name, T fallback) {
@@ -1177,7 +1178,7 @@ class _EditorPageState extends State<EditorPage> {
         _blendImagePath ?? '', _blendMode.name,
         _blendOpacity.toStringAsFixed(2),
         _frameIndex,
-        _overlayText, _textSize.toStringAsFixed(1), _textColor.toARGB32(),
+        _overlayText, _textSize.toStringAsFixed(1), _textColor.value,
         // Brush strokes
         _brushStrokes.map((s) => '${s.x.toStringAsFixed(3)},${s.y.toStringAsFixed(3)},${s.radius.toStringAsFixed(3)},${s.strength.toStringAsFixed(2)},${s.isDodge}').join(';'),
       ].join('|');
@@ -1406,7 +1407,7 @@ class _EditorPageState extends State<EditorPage> {
         frameBytes: frameBytes,
         overlayText: _overlayText,
         textSize: _textSize,
-        textColorValue: _textColor.toARGB32(),
+        textColorValue: _textColor.value,
         brushStrokes: _brushStrokes,
       );
       final bytes = await compute(_previewWorker, params);
@@ -1529,7 +1530,7 @@ class _EditorPageState extends State<EditorPage> {
         frameBytes: frameBytes,
         overlayText: _overlayText,
         textSize: _textSize,
-        textColorValue: _textColor.toARGB32(),
+        textColorValue: _textColor.value,
         sendPort: receivePort.sendPort,
         expandTop: _expandTop,
         expandBottom: _expandBottom,
@@ -2026,7 +2027,7 @@ class _EditorPageState extends State<EditorPage> {
                     fontFamily: 'NotoSerif',
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
-                    color: AppColors.oceanFoam.withValues(alpha: 0.85))),
+                    color: AppColors.oceanFoam.withOpacity(0.85))),
           ),
           _lSlider('Y 위치', _dodgeY, 0.0, 1.0, (v) => _dodgeY = v),
           _lSlider('반경', _dodgeRadius, 0.05, 0.5, (v) => _dodgeRadius = v),
@@ -4127,7 +4128,7 @@ class _WbPresetRow extends StatelessWidget {
                 color: AppColors.oceanNavy,
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(
-                  color: AppColors.oceanFoam.withValues(alpha: 0.2),
+                  color: AppColors.oceanFoam.withOpacity(0.2),
                 ),
               ),
               alignment: Alignment.center,
@@ -4361,7 +4362,7 @@ class _ToolsPanel extends StatelessWidget {
                 border: Border.all(
                   color: sel
                       ? AppColors.oceanFoam
-                      : AppColors.oceanFoam.withValues(alpha: 0.15),
+                      : AppColors.oceanFoam.withOpacity(0.15),
                 ),
               ),
               child: Text(
@@ -4396,7 +4397,7 @@ class _ToolsPanel extends StatelessWidget {
                     activeTrackColor: AppColors.oceanFoam,
                     inactiveTrackColor: AppColors.oceanNavy,
                     thumbColor: AppColors.cloudWhite,
-                    overlayColor: AppColors.oceanFoam.withValues(alpha: 0.2),
+                    overlayColor: AppColors.oceanFoam.withOpacity(0.2),
                     trackHeight: 3,
                     thumbShape:
                         const RoundSliderThumbShape(enabledThumbRadius: 7),
@@ -4605,7 +4606,7 @@ class _FlipBtn extends StatelessWidget {
           border: Border.all(
             color: active
                 ? AppColors.oceanFoam
-                : AppColors.oceanFoam.withValues(alpha: 0.15),
+                : AppColors.oceanFoam.withOpacity(0.15),
           ),
         ),
         child: Row(
@@ -4748,7 +4749,7 @@ class _EffectsPanel extends StatelessWidget {
                       activeTrackColor: AppColors.oceanFoam,
                       inactiveTrackColor: AppColors.oceanNavy,
                       thumbColor: AppColors.cloudWhite,
-                      overlayColor: AppColors.oceanFoam.withValues(alpha: 0.2),
+                      overlayColor: AppColors.oceanFoam.withOpacity(0.2),
                       trackHeight: 3,
                       thumbShape:
                           const RoundSliderThumbShape(enabledThumbRadius: 7),
@@ -4835,7 +4836,7 @@ class _EffectChip extends StatelessWidget {
           border: Border.all(
             color: selected
                 ? AppColors.oceanFoam
-                : AppColors.oceanFoam.withValues(alpha: 0.15),
+                : AppColors.oceanFoam.withOpacity(0.15),
             width: selected ? 1.5 : 1,
           ),
         ),
@@ -5144,7 +5145,7 @@ class _CreativePanelState extends State<_CreativePanel> {
                 color: AppColors.oceanNavy,
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                    color: AppColors.oceanFoam.withValues(alpha: 0.3)),
+                    color: AppColors.oceanFoam.withOpacity(0.3)),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -5274,7 +5275,7 @@ class _CreativePanelState extends State<_CreativePanel> {
                   border: Border.all(
                       color: sel
                           ? AppColors.oceanFoam
-                          : AppColors.oceanFoam.withValues(alpha: 0.15)),
+                          : AppColors.oceanFoam.withOpacity(0.15)),
                 ),
                 child: const Center(
                     child: Text('없음',

@@ -323,10 +323,10 @@ class _FilterCard extends StatelessWidget {
                     padding:
                         const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                     decoration: BoxDecoration(
-                      color: AppColors.cloudWhite.withValues(alpha: 0.22),
+                      color: AppColors.cloudWhite.withOpacity(0.22),
                       borderRadius: BorderRadius.circular(999),
                       border: Border.all(
-                        color: AppColors.cloudWhite.withValues(alpha: 0.18),
+                        color: AppColors.cloudWhite.withOpacity(0.18),
                       ),
                     ),
                     child: Text(
@@ -361,7 +361,7 @@ class _FilterCard extends StatelessWidget {
                 right: 8,
                 child: IconButton.filledTonal(
                   style: IconButton.styleFrom(
-                    backgroundColor: Colors.black.withValues(alpha: 0.28),
+                    backgroundColor: Colors.black.withOpacity(0.28),
                     foregroundColor: AppColors.cloudWhite,
                   ),
                   icon: const Icon(Icons.delete_outline_rounded, size: 18),

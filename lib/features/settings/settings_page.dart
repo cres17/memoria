@@ -466,7 +466,7 @@ class _AiModelRow extends StatelessWidget {
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
           decoration: BoxDecoration(
-            color: AppColors.oceanTeal.withValues(alpha: 0.3),
+            color: AppColors.oceanTeal.withOpacity(0.3),
             borderRadius: BorderRadius.circular(99),
           ),
           child: Text(

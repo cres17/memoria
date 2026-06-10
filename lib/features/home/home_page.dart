@@ -98,7 +98,7 @@ class _HomePageState extends State<HomePage> {
   Widget _buildAppBar() {
     return SliverAppBar(
       pinned: true,
-      backgroundColor: AppColors.cloudPure.withValues(alpha: 0.94),
+      backgroundColor: AppColors.cloudPure.withOpacity(0.94),
       surfaceTintColor: Colors.transparent,
       title: const Row(
         children: [
@@ -141,7 +141,7 @@ class _HomePageState extends State<HomePage> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             decoration: BoxDecoration(
-              color: AppColors.oceanBlue.withValues(alpha: 0.72),
+              color: AppColors.oceanBlue.withOpacity(0.72),
               borderRadius: BorderRadius.circular(999),
             ),
             child: Row(
@@ -355,7 +355,7 @@ class _InfoCard extends StatelessWidget {
               width: 58,
               height: 58,
               decoration: BoxDecoration(
-                color: AppColors.oceanFoam.withValues(alpha: 0.08),
+                  color: AppColors.oceanFoam.withOpacity(0.08),
                 shape: BoxShape.circle,
               ),
               child: Icon(icon, color: AppColors.oceanFoam, size: 26),
@@ -399,7 +399,7 @@ class _Pill extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
       decoration: BoxDecoration(
         color: light
-            ? AppColors.cloudWhite.withValues(alpha: 0.22)
+            ? AppColors.cloudWhite.withOpacity(0.22)
             : AppColors.oceanBlue,
         borderRadius: BorderRadius.circular(999),
       ),
@@ -444,7 +444,7 @@ class _CircleButton extends StatelessWidget {
         height: 52,
         decoration: BoxDecoration(
           color: light
-              ? AppColors.cloudWhite.withValues(alpha: 0.18)
+              ? AppColors.cloudWhite.withOpacity(0.18)
               : AppColors.cloudVeil,
           shape: BoxShape.circle,
         ),

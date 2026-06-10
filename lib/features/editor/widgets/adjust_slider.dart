@@ -76,12 +76,12 @@ class AdjustSlider extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: isNeutral
                       ? AppColors.oceanNavy
-                      : trackColor.withValues(alpha: 0.2),
+                      : trackColor.withOpacity(0.2),
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(
                     color: isNeutral
                         ? Colors.transparent
-                        : trackColor.withValues(alpha: 0.4),
+                        : trackColor.withOpacity(0.4),
                     width: 0.8,
                   ),
                 ),
@@ -106,7 +106,7 @@ class AdjustSlider extends StatelessWidget {
             activeTrackColor: trackColor,
             inactiveTrackColor: AppColors.oceanNavy,
             thumbColor: trackColor,
-            overlayColor: trackColor.withValues(alpha: 0.15),
+            overlayColor: trackColor.withOpacity(0.15),
             trackHeight: 3,
             thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 10),
           ),
