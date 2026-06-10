@@ -26,6 +26,7 @@ ios/Pods/
 ios/Flutter/Flutter.framework
 ios/Flutter/Flutter.podspec
 .ios/
+ios/Flutter/Generated.xcconfig
 
 # IDE
 .idea/

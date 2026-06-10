@@ -1,0 +1,7 @@
+submodule "external/DY112-neural-preset"
+	path = external/DY112-neural-preset
+	url = https://github.com/DY112/neural-preset
+
+submodule "external/NeuralPreset"
+	path = external/NeuralPreset
+	url = https://github.com/ZHKKKe/NeuralPreset.git
