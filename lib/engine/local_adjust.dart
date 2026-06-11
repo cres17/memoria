@@ -5,7 +5,7 @@ import 'package:image/image.dart' as img;
 //  Selective 포인트 기반 로컬 조정
 // ─────────────────────────────────────────────────────────
 
-class SelectivePoint {
+class LocalSelectivePoint {
   final double x;           // 0.0~1.0 (이미지 정규화 좌표)
   final double y;           // 0.0~1.0
   final double brightness;  // -100 ~ +100
@@ -13,7 +13,7 @@ class SelectivePoint {
   final double saturation;  // -100 ~ +100
   final double radius;      // 0.0~1.0 (반경)
 
-  const SelectivePoint({
+  const LocalSelectivePoint({
     required this.x,
     required this.y,
     this.brightness  = 0,
@@ -22,10 +22,10 @@ class SelectivePoint {
     this.radius      = 0.3,
   });
 
-  SelectivePoint copyWith({
+  LocalSelectivePoint copyWith({
     double? x, double? y,
     double? brightness, double? contrast, double? saturation, double? radius,
-  }) => SelectivePoint(
+  }) => LocalSelectivePoint(
     x:          x          ?? this.x,
     y:          y          ?? this.y,
     brightness: brightness ?? this.brightness,
@@ -35,8 +35,8 @@ class SelectivePoint {
   );
 }
 
-/// 여러 SelectivePoint를 이미지에 적용
-img.Image applySelectiveAdjust(img.Image image, List<SelectivePoint> points) {
+/// 여러 LocalSelectivePoint를 이미지에 적용
+img.Image applySelectiveAdjust(img.Image image, List<LocalSelectivePoint> points) {
   if (points.isEmpty) return image;
 
   final result = img.Image(width: image.width, height: image.height);
@@ -101,14 +101,14 @@ img.Image applySelectiveAdjust(img.Image image, List<SelectivePoint> points) {
 //  Dodge & Burn 마스크 관리
 // ─────────────────────────────────────────────────────────
 
-class BrushStroke {
+class DodgeBurnStroke {
   final double x;       // 0.0~1.0
   final double y;       // 0.0~1.0
   final double radius;  // 0.0~1.0
   final double strength;// 0.0~1.0
   final bool isDodge;   // true=밝게(dodge), false=어둡게(burn)
 
-  const BrushStroke({
+  const DodgeBurnStroke({
     required this.x,
     required this.y,
     required this.radius,
@@ -118,7 +118,7 @@ class BrushStroke {
 }
 
 /// Dodge & Burn 브러시 적용
-img.Image applyDodgeBurn(img.Image image, List<BrushStroke> strokes) {
+img.Image applyDodgeBurn(img.Image image, List<DodgeBurnStroke> strokes) {
   if (strokes.isEmpty) return image;
 
   final result = img.Image(width: image.width, height: image.height);

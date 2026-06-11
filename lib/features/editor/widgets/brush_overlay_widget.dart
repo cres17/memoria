@@ -6,11 +6,11 @@ import '../../../engine/local_adjust.dart';
 
 class BrushOverlayWidget extends StatefulWidget {
   final Size imageSize;
-  final List<BrushStroke> strokes;
+  final List<DodgeBurnStroke> strokes;
   final double brushSize;
   final double hardness;
   final TransformationController transformationController;
-  final ValueChanged<BrushStroke> onStroke;
+  final ValueChanged<DodgeBurnStroke> onStroke;
   final VoidCallback? onStrokeEnd;
 
   const BrushOverlayWidget({
@@ -39,7 +39,7 @@ class _BrushOverlayWidgetState extends State<BrushOverlayWidget> {
     final y = ((scene.dy - rect.top) / rect.height).clamp(0.0, 1.0);
     final radius = (widget.brushSize / 2.0 / math.min(rect.width, rect.height))
         .clamp(0.001, 0.5);
-    widget.onStroke(BrushStroke(x: x, y: y, radius: radius, strength: 1.0, isDodge: true));
+    widget.onStroke(DodgeBurnStroke(x: x, y: y, radius: radius, strength: 1.0, isDodge: true));
   }
 
   @override
@@ -97,7 +97,7 @@ class _BrushOverlayWidgetState extends State<BrushOverlayWidget> {
 
 class _BrushOverlayPainter extends CustomPainter {
   final Size imageSize;
-  final List<BrushStroke> strokes;
+  final List<DodgeBurnStroke> strokes;
   final double brushSize;
   final double hardness;
   final Matrix4 transform;
