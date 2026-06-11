@@ -17,30 +17,32 @@ import 'package:gal/gal.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../core/l10n/strings.dart';
-import '../../core/theme/app_colors.dart';
-import '../../core/theme/app_theme.dart';
-import '../../core/utils/platform_utils.dart';
-import '../../engine/gpu_image_view.dart';
-import '../../data/repositories/custom_adjustment_repository.dart';
-import '../../data/repositories/favorites_repository.dart';
-import '../../data/repositories/filter_repository_impl.dart';
-import '../../domain/models/custom_adjustment.dart';
-import '../../engine/blend_modes.dart' as bm;
-import '../../ai/ai_manager.dart';
-import '../../ai/models/segmenter.dart';
-import '../../engine/portrait_engine.dart';
-import '../../domain/models/adjust_params.dart';
-import '../../domain/models/curve_data.dart';
-import '../../domain/models/filter_preset.dart';
-import '../../domain/models/edit_session.dart';
-import '../../engine/artistic_effects.dart';
-import '../../engine/blur_engine.dart';
-import '../../engine/local_adjust.dart';
-import '../../engine/lut_engine.dart';
-import '../../engine/white_balance.dart';
-import '../../monetization/feature_flags_service.dart';
-import '../../monetization/fullscreen_ad_service.dart';
+import 'package:memoria/core/l10n/strings.dart';
+import 'package:memoria/core/theme/app_colors.dart';
+import 'package:memoria/core/theme/app_theme.dart';
+import 'package:memoria/core/utils/platform_utils.dart';
+import 'package:memoria/engine/gpu_image_view.dart';
+import 'package:memoria/data/repositories/custom_adjustment_repository.dart';
+import 'package:memoria/data/repositories/favorites_repository.dart';
+import 'package:memoria/data/repositories/filter_repository_impl.dart';
+import 'package:memoria/domain/models/custom_adjustment.dart';
+import 'package:memoria/engine/blend_modes.dart' as bm;
+import 'package:memoria/ai/ai_manager.dart';
+import 'package:memoria/ai/models/segmenter.dart';
+import 'package:memoria/engine/portrait_engine.dart';
+import 'package:memoria/domain/models/adjust_params.dart';
+import 'package:memoria/domain/models/curve_data.dart';
+import 'package:memoria/domain/models/filter_preset.dart';
+import 'package:memoria/domain/models/edit_session.dart';
+import 'package:memoria/domain/models/edit_operation.dart';
+import 'package:memoria/engine/artistic_effects.dart';
+import 'package:memoria/engine/blur_engine.dart';
+import 'package:memoria/engine/local_adjust.dart';
+import 'package:memoria/domain/models/crop_ratio_preset.dart';
+import 'package:memoria/engine/lut_engine.dart';
+import 'package:memoria/engine/white_balance.dart';
+import 'package:memoria/monetization/feature_flags_service.dart';
+import 'package:memoria/monetization/fullscreen_ad_service.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'widgets/adjust_slider.dart';
 import 'widgets/curve_editor.dart';
@@ -98,7 +100,7 @@ class _EditorPageState extends State<EditorPage> {
   double _cropTop = 0.0;
   double _cropRight = 1.0;
   double _cropBottom = 1.0;
-  final List<BrushStroke> _brushStrokes = [];
+  final List<DodgeBurnStroke> _brushStrokes = [];
   final TransformationController _transformationController = TransformationController();
   String _brushMode = 'dodge';
 
@@ -161,7 +163,7 @@ class _EditorPageState extends State<EditorPage> {
   late double _cropTopBeforeTool;
   late double _cropRightBeforeTool;
   late double _cropBottomBeforeTool;
-  late List<BrushStroke> _brushStrokesBeforeTool;
+  late List<DodgeBurnStroke> _brushStrokesBeforeTool;
 
   void _backupState() {
     _paramsBeforeTool = _params;
@@ -818,8 +820,6 @@ class _EditorPageState extends State<EditorPage> {
         shadows: 0,
         vignette: 0,
         grainStrength: 0,
-        hasHsl: false,
-        hasSplitToning: false,
         bnwEnabled: false,
       );
 
@@ -2492,7 +2492,7 @@ class _EditorPageState extends State<EditorPage> {
                 transformationController: _transformationController,
                 onStroke: (stroke) {
                   setState(() {
-                    final newStroke = BrushStroke(
+                    final newStroke = DodgeBurnStroke(
                       x: stroke.x,
                       y: stroke.y,
                       radius: stroke.radius,
@@ -4209,59 +4209,6 @@ class _BnwToggle extends StatelessWidget {
 
 enum _ToolsSubTab { crop, rotate, perspective, expand }
 
-enum CropRatioPreset {
-  free,
-  r1x1,
-  r4x3,
-  r3x4,
-  r16x9,
-  r9x16,
-  r3x2,
-  r2x3;
-
-  String get label {
-    switch (this) {
-      case CropRatioPreset.free:
-        return '자유';
-      case CropRatioPreset.r1x1:
-        return '1:1';
-      case CropRatioPreset.r4x3:
-        return '4:3';
-      case CropRatioPreset.r3x4:
-        return '3:4';
-      case CropRatioPreset.r16x9:
-        return '16:9';
-      case CropRatioPreset.r9x16:
-        return '9:16';
-      case CropRatioPreset.r3x2:
-        return '3:2';
-      case CropRatioPreset.r2x3:
-        return '2:3';
-    }
-  }
-
-  double? get ratio {
-    switch (this) {
-      case CropRatioPreset.free:
-        return null;
-      case CropRatioPreset.r1x1:
-        return 1.0;
-      case CropRatioPreset.r4x3:
-        return 4 / 3;
-      case CropRatioPreset.r3x4:
-        return 3 / 4;
-      case CropRatioPreset.r16x9:
-        return 16 / 9;
-      case CropRatioPreset.r9x16:
-        return 9 / 16;
-      case CropRatioPreset.r3x2:
-        return 3 / 2;
-      case CropRatioPreset.r2x3:
-        return 2 / 3;
-    }
-  }
-}
-
 class _ToolsPanel extends StatelessWidget {
   final _ToolsSubTab subTab;
   final CropRatioPreset cropRatio;
@@ -5633,7 +5580,7 @@ class _ExportParams {
   final double expandTop, expandBottom, expandLeft, expandRight;
   final String expandMode;
   final double cropLeft, cropTop, cropRight, cropBottom;
-  final List<BrushStroke>? brushStrokes;
+  final List<DodgeBurnStroke>? brushStrokes;
 
   const _ExportParams({
     required this.imagePath,
@@ -5769,7 +5716,7 @@ Future<void> _exportWorker(_ExportParams p) async {
 
     if (p.selActive) {
       out = applySelectiveAdjust(out, [
-        SelectivePoint(
+        LocalSelectivePoint(
             x: p.selX,
             y: p.selY,
             brightness: p.selBright,
@@ -5784,14 +5731,14 @@ Future<void> _exportWorker(_ExportParams p) async {
       } else {
         out = applyDodgeBurn(out, [
           if (p.dodgeStrength > 0)
-            BrushStroke(
+            DodgeBurnStroke(
                 x: 0.5,
                 y: p.dodgeY,
                 radius: p.dodgeRadius,
                 strength: p.dodgeStrength,
                 isDodge: true),
           if (p.burnStrength > 0)
-            BrushStroke(
+            DodgeBurnStroke(
                 x: 0.5,
                 y: p.burnY,
                 radius: p.burnRadius,
@@ -5906,7 +5853,7 @@ class _PreviewParams {
   final String overlayText;
   final double textSize;
   final int textColorValue;
-  final List<BrushStroke>? brushStrokes;
+  final List<DodgeBurnStroke>? brushStrokes;
 
   const _PreviewParams({
     required this.width,
@@ -5979,7 +5926,7 @@ Future<Uint8List> _previewWorker(_PreviewParams p) async {
   }
   if (p.selActive) {
     out = applySelectiveAdjust(out, [
-      SelectivePoint(
+      LocalSelectivePoint(
           x: p.selX,
           y: p.selY,
           brightness: p.selBright,
@@ -5994,14 +5941,14 @@ Future<Uint8List> _previewWorker(_PreviewParams p) async {
     } else {
       out = applyDodgeBurn(out, [
         if (p.dodgeStrength > 0)
-          BrushStroke(
+          DodgeBurnStroke(
               x: 0.5,
               y: p.dodgeY,
               radius: p.dodgeRadius,
               strength: p.dodgeStrength,
               isDodge: true),
         if (p.burnStrength > 0)
-          BrushStroke(
+          DodgeBurnStroke(
               x: 0.5,
               y: p.burnY,
               radius: p.burnRadius,
