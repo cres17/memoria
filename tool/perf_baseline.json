@@ -1,0 +1,7 @@
+{
+  "rawHealKernelMedianMs": 10.0,
+  "healMedianMs": 15.0,
+  "portraitKernelMedianMs": 20.0,
+  "integratedKernelMedianMs": 30.0,
+  "rssDeltaMb": 50.0
+}

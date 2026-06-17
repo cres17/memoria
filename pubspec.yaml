@@ -69,3 +69,32 @@ flutter:
     - assets/overlays/grunge/
     - assets/frames/
 
+  fonts:
+    - family: Montserrat
+      fonts:
+        - asset: assets/fonts/Montserrat-Regular.ttf
+    - family: PlayfairDisplay
+      fonts:
+        - asset: assets/fonts/PlayfairDisplay-Italic.ttf
+          style: italic
+    - family: AmaticSC
+      fonts:
+        - asset: assets/fonts/AmaticSC-Regular.ttf
+        - asset: assets/fonts/AmaticSC-Bold.ttf
+          weight: 700
+    - family: Pacifico
+      fonts:
+        - asset: assets/fonts/Pacifico.ttf
+    - family: Oswald
+      fonts:
+        - asset: assets/fonts/Oswald-Regular.ttf
+        - asset: assets/fonts/Oswald-Bold.ttf
+          weight: 700
+    - family: Raleway
+      fonts:
+        - asset: assets/fonts/Raleway-Light.ttf
+    - family: Dosis
+      fonts:
+        - asset: assets/fonts/Dosis-Light.ttf
+
+

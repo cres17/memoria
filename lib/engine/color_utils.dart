@@ -88,3 +88,57 @@ RgbColor labToRgb(LabColor lab) {
     _delinearize(bl.clamp(0.0, 1.0)),
   ).clamp01();
 }
+
+class OklabColor {
+  final double l, a, b;
+  const OklabColor(this.l, this.a, this.b);
+}
+
+OklabColor rgbToOklab(RgbColor rgb) {
+  // sRGB to linear
+  final r = _linearize(rgb.r);
+  final g = _linearize(rgb.g);
+  final b = _linearize(rgb.b);
+
+  // Linear RGB to LMS
+  final lmsL = 0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b;
+  final lmsM = 0.2119034982 * r + 0.6806995451 * g + 0.1073970077 * b;
+  final lmsS = 0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b;
+
+  // Non-linear LMS (cube root)
+  final lPrime = lmsL > 0.0 ? math.pow(lmsL, 1.0 / 3.0).toDouble() : (lmsL < 0.0 ? -math.pow(-lmsL, 1.0 / 3.0).toDouble() : 0.0);
+  final mPrime = lmsM > 0.0 ? math.pow(lmsM, 1.0 / 3.0).toDouble() : (lmsM < 0.0 ? -math.pow(-lmsM, 1.0 / 3.0).toDouble() : 0.0);
+  final sPrime = lmsS > 0.0 ? math.pow(lmsS, 1.0 / 3.0).toDouble() : (lmsS < 0.0 ? -math.pow(-lmsS, 1.0 / 3.0).toDouble() : 0.0);
+
+  // LMS to Oklab
+  final okL = 0.2104542553 * lPrime + 0.7936177850 * mPrime - 0.0040720468 * sPrime;
+  final okA = 1.9779984951 * lPrime - 2.4285922050 * mPrime + 0.4505937099 * sPrime;
+  final okB = 0.0259040371 * lPrime + 0.7827717662 * mPrime - 0.8086757660 * sPrime;
+
+  return OklabColor(okL, okA, okB);
+}
+
+RgbColor oklabToRgb(OklabColor oklab) {
+  // Oklab to non-linear LMS
+  final lPrime = oklab.l + 0.3963377774 * oklab.a + 0.2158037573 * oklab.b;
+  final mPrime = oklab.l - 0.1055613458 * oklab.a - 0.0638541728 * oklab.b;
+  final sPrime = oklab.l - 0.0894841775 * oklab.a - 1.2914855480 * oklab.b;
+
+  // Non-linear LMS to linear LMS (cube)
+  final lmsL = lPrime * lPrime * lPrime;
+  final lmsM = mPrime * mPrime * mPrime;
+  final lmsS = sPrime * sPrime * sPrime;
+
+  // LMS to Linear RGB
+  final rl =  4.0767416621 * lmsL - 3.3077115913 * lmsM + 0.2309699292 * lmsS;
+  final gl = -1.2684380046 * lmsL + 2.6097574011 * lmsM - 0.3413193965 * lmsS;
+  final bl = -0.0041960863 * lmsL - 0.7034186147 * lmsM + 1.7076147010 * lmsS;
+
+  // Linear to sRGB
+  return RgbColor(
+    _delinearize(rl.clamp(0.0, 1.0)),
+    _delinearize(gl.clamp(0.0, 1.0)),
+    _delinearize(bl.clamp(0.0, 1.0)),
+  ).clamp01();
+}
+

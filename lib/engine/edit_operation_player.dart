@@ -33,6 +33,7 @@ class EditOperationPlayerArgs {
   final Float32List? depthMap; // bokeh 효과용 depth map
   final Uint8List? blendImageBytes; // creative blend 이미지
   final Uint8List? frameBytes; // creative 프레임
+  final Uint8List? textOverlayBytes; // 다국어 텍스트 오버레이 투명 레이어
 
   const EditOperationPlayerArgs({
     required this.original,
@@ -43,6 +44,7 @@ class EditOperationPlayerArgs {
     this.depthMap,
     this.blendImageBytes,
     this.frameBytes,
+    this.textOverlayBytes,
   });
 }
 
@@ -75,6 +77,7 @@ class EditOperationPlayer {
         depthMap: args.depthMap,
         blendImageBytes: args.blendImageBytes,
         frameBytes: args.frameBytes,
+        textOverlayBytes: args.textOverlayBytes,
       );
     }
 
@@ -91,6 +94,7 @@ class EditOperationPlayer {
     Float32List? depthMap,
     Uint8List? blendImageBytes,
     Uint8List? frameBytes,
+    Uint8List? textOverlayBytes,
   }) {
     switch (op.tool) {
       case EditToolType.globalAdjust:
@@ -137,6 +141,7 @@ class EditOperationPlayer {
           op.creative!,
           blendImageBytes: blendImageBytes,
           frameBytes: frameBytes,
+          textOverlayBytes: textOverlayBytes,
         );
 
       // Phase 2 이후 미구현 — 원본 반환
@@ -486,6 +491,7 @@ class EditOperationPlayer {
     CreativeParams creative, {
     Uint8List? blendImageBytes,
     Uint8List? frameBytes,
+    Uint8List? textOverlayBytes,
   }) {
     if (creative.isZero) return image;
     var out = image;
@@ -518,50 +524,63 @@ class EditOperationPlayer {
       }
     }
 
-    final text = creative.overlayText.trim();
-    if (text.isNotEmpty) {
-      final c = creative.textColorValue;
-      final color = img.ColorRgba8(
-        (c >> 16) & 0xff,
-        (c >> 8) & 0xff,
-        c & 0xff,
-        (c >> 24) & 0xff,
-      );
-      final textLayer = img.Image(
-        width: out.width,
-        height: out.height,
-        numChannels: 4,
-      );
-      final scale = (creative.textSize / 48.0).clamp(0.25, 4.0);
-      final baseX = (out.width * creative.textX).round();
-      final baseY = (out.height * creative.textY).round();
-      img.drawString(
-        textLayer,
-        text,
-        font: img.arial48,
-        x: 0,
-        y: 0,
-        color: color,
-        wrap: true,
-      );
-      final scaled = scale == 1.0
-          ? textLayer
-          : img.copyResize(
-              textLayer,
-              width: (textLayer.width * scale).round().clamp(1, out.width * 4),
-              height:
-                  (textLayer.height * scale).round().clamp(1, out.height * 4),
-              interpolation: img.Interpolation.linear,
-            );
-      final dstX = (baseX - scaled.width / 2).round();
-      final dstY = (baseY - scaled.height / 2).round();
-      out = img.compositeImage(
-        out,
-        scaled,
-        dstX: dstX,
-        dstY: dstY,
-        blend: img.BlendMode.alpha,
-      );
+    if (textOverlayBytes != null) {
+      final textImg = img.decodeImage(textOverlayBytes);
+      if (textImg != null) {
+        out = img.compositeImage(
+          out,
+          textImg,
+          blend: img.BlendMode.alpha,
+          dstW: out.width,
+          dstH: out.height,
+        );
+      }
+    } else {
+      final text = creative.overlayText.trim();
+      if (text.isNotEmpty) {
+        final c = creative.textColorValue;
+        final color = img.ColorRgba8(
+          (c >> 16) & 0xff,
+          (c >> 8) & 0xff,
+          c & 0xff,
+          (c >> 24) & 0xff,
+        );
+        final textLayer = img.Image(
+          width: out.width,
+          height: out.height,
+          numChannels: 4,
+        );
+        final scale = (creative.textSize / 48.0).clamp(0.25, 4.0);
+        final baseX = (out.width * creative.textX).round();
+        final baseY = (out.height * creative.textY).round();
+        img.drawString(
+          textLayer,
+          text,
+          font: img.arial48,
+          x: 0,
+          y: 0,
+          color: color,
+          wrap: true,
+        );
+        final scaled = scale == 1.0
+            ? textLayer
+            : img.copyResize(
+                textLayer,
+                width: (textLayer.width * scale).round().clamp(1, out.width * 4),
+                height:
+                    (textLayer.height * scale).round().clamp(1, out.height * 4),
+                interpolation: img.Interpolation.linear,
+              );
+        final dstX = (baseX - scaled.width / 2).round();
+        final dstY = (baseY - scaled.height / 2).round();
+        out = img.compositeImage(
+          out,
+          scaled,
+          dstX: dstX,
+          dstY: dstY,
+          blend: img.BlendMode.alpha,
+        );
+      }
     }
 
     return out;

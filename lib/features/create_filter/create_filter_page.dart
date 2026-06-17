@@ -24,10 +24,10 @@ const bool kPhotoFilterGenerationEnabled = true;
 // ── Isolate message types ─────────────────────────────────
 
 class _IsolateArgs {
-  final String styleImagePath;
+  final List<String> styleImagePaths;
   final String basePath;
   final SendPort sendPort;
-  const _IsolateArgs(this.styleImagePath, this.basePath, this.sendPort);
+  const _IsolateArgs(this.styleImagePaths, this.basePath, this.sendPort);
 }
 
 class _ProgressMsg {
@@ -38,7 +38,7 @@ class _ProgressMsg {
 
 void _generateLutEntry(_IsolateArgs args) async {
   final result = await generateLutFromStyle(
-    args.styleImagePath,
+    args.styleImagePaths,
     basePath: args.basePath,
     onProgress: (stage, progress) =>
         args.sendPort.send(_ProgressMsg(stage, progress)),
@@ -194,7 +194,7 @@ class CreateFilterPage extends StatefulWidget {
 }
 
 class _CreateFilterPageState extends State<CreateFilterPage> {
-  String? _styleImagePath;
+  List<String> _styleImagePaths = [];
   bool _generating = false;
   double _progress = 0.0;
   String _stageMsg = '';
@@ -240,30 +240,43 @@ class _CreateFilterPageState extends State<CreateFilterPage> {
       _showSnack(S.get('permission.photos_denied'));
       return;
     }
-    final xFile = await ImagePicker().pickImage(source: ImageSource.gallery);
-    if (xFile == null || !mounted) return;
+    final xFiles = await ImagePicker().pickMultiImage();
+    if (xFiles.isEmpty || !mounted) return;
+    
+    final selectedPaths = xFiles.take(5).map((x) => x.path).toList();
+
     setState(() {
-      _styleImagePath = xFile.path;
+      _styleImagePaths = selectedPaths;
       _palette = [];
       _tags = [];
     });
-    _analyzeStyle(xFile.path);
+    _analyzeStyles(selectedPaths);
   }
 
-  Future<void> _analyzeStyle(String path) async {
+  Future<void> _analyzeStyles(List<String> paths) async {
+    if (paths.isEmpty) return;
     try {
-      final bytes = await File(path).readAsBytes();
-      final image = img.decodeImage(bytes);
-      if (image == null || !mounted) return;
-      final profile = StyleAnalyzer.analyze(image);
-      final palette = extractPalette(image);
-      final tags = deriveStyleTags(profile);
+      final images = <img.Image>[];
+      for (final path in paths) {
+        final bytes = await File(path).readAsBytes();
+        final image = img.decodeImage(bytes);
+        if (image != null) {
+          images.add(image);
+        }
+      }
+      if (images.isEmpty || !mounted) return;
+
+      final palette = extractPalette(images.first);
+      
+      final profiles = images.map((image) => StyleAnalyzer.analyze(image)).toList();
+      final fusedProfile = StyleAnalyzer.fuseProfiles(profiles);
+      final tags = deriveStyleTags(fusedProfile);
+
       if (mounted) {
         setState(() {
           _palette = palette;
           _tags = tags;
         });
-        // Auto-suggest name if field is empty
         if (_nameCtrl.text.isEmpty) {
           final lang = localeNotifier.value.languageCode;
           final suggestion = _suggestName(tags, lang);
@@ -276,7 +289,7 @@ class _CreateFilterPageState extends State<CreateFilterPage> {
   }
 
   Future<void> _generate() async {
-    if (_styleImagePath == null) {
+    if (_styleImagePaths.isEmpty) {
       _showSnack(S.get('create.need_image'));
       return;
     }
@@ -303,7 +316,7 @@ class _CreateFilterPageState extends State<CreateFilterPage> {
     hapticHeavy();
 
     try {
-      final styleImagePath = _styleImagePath!;
+      final styleImagePaths = _styleImagePaths;
       final base = await getApplicationDocumentsDirectory();
 
       final receivePort = ReceivePort();
@@ -327,7 +340,7 @@ class _CreateFilterPageState extends State<CreateFilterPage> {
 
       final isolate = await Isolate.spawn(
         _generateLutEntry,
-        _IsolateArgs(styleImagePath, base.path, receivePort.sendPort),
+        _IsolateArgs(styleImagePaths, base.path, receivePort.sendPort),
         errorsAreFatal: true,
       );
       _isolate = isolate;
@@ -338,12 +351,13 @@ class _CreateFilterPageState extends State<CreateFilterPage> {
       setState(() => _progress = 1.0);
 
       final now = DateTime.now();
+      final defaultParamsMap = result['defaultParams'] as Map<String, dynamic>;
       final preset = FilterPreset(
         id: result['presetId'] as String,
         name: name,
         type: FilterPresetType.custom,
         lutPath: result['lutPath'] as String,
-        params: AdjustParams.zero,
+        params: AdjustParams.fromJson(defaultParamsMap),
         defaultIntensity: 0.8,
         thumbnailPath: result['thumbnailPath'] as String,
         createdAt: now,
@@ -354,7 +368,7 @@ class _CreateFilterPageState extends State<CreateFilterPage> {
       hapticMedium();
 
       await Future.delayed(const Duration(milliseconds: 350));
-      if (mounted) _showSuccessSheet(preset, styleImagePath);
+      if (mounted) _showSuccessSheet(preset, styleImagePaths.first);
     } catch (e) {
       _cancelIsolate();
       _showSnack(S.get('create.error'));
@@ -437,7 +451,7 @@ class _CreateFilterPageState extends State<CreateFilterPage> {
                       ),
                       const SizedBox(height: 20),
                       _ImageStage(
-                        imagePath: _styleImagePath,
+                        imagePaths: _styleImagePaths,
                         generating: _generating,
                         onTap: _pickStyleImage,
                       ),
@@ -516,12 +530,12 @@ class _Header extends StatelessWidget {
 }
 
 class _ImageStage extends StatelessWidget {
-  final String? imagePath;
+  final List<String> imagePaths;
   final bool generating;
   final VoidCallback onTap;
 
   const _ImageStage({
-    required this.imagePath,
+    required this.imagePaths,
     required this.generating,
     required this.onTap,
   });
@@ -550,8 +564,8 @@ class _ImageStage extends StatelessWidget {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                if (imagePath != null)
-                  Image.file(File(imagePath!), fit: BoxFit.cover)
+                if (imagePaths.isNotEmpty)
+                  _buildCollage(imagePaths)
                 else
                   Image.asset(
                     'assets/frames/hp_frame_08_large.jpg',
@@ -609,7 +623,7 @@ class _ImageStage extends StatelessWidget {
                             ),
                           ] else ...[
                             Icon(
-                              imagePath == null
+                              imagePaths.isEmpty
                                   ? Icons.add_photo_alternate_outlined
                                   : Icons.compare_rounded,
                               color: AppColors.oceanFoam,
@@ -617,9 +631,9 @@ class _ImageStage extends StatelessWidget {
                             ),
                             const SizedBox(width: 10),
                             Text(
-                              imagePath == null
+                              imagePaths.isEmpty
                                   ? S.get('create.select')
-                                  : S.get('create.ready'),
+                                  : S.get('create.ready') + ' (${imagePaths.length})',
                               style: const TextStyle(
                                 fontWeight: FontWeight.w800,
                                 letterSpacing: 2.0,
@@ -637,6 +651,94 @@ class _ImageStage extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildCollage(List<String> paths) {
+    if (paths.length == 1) {
+      return Image.file(File(paths.first), fit: BoxFit.cover);
+    }
+    if (paths.length == 2) {
+      return Row(
+        children: [
+          Expanded(child: Image.file(File(paths[0]), fit: BoxFit.cover)),
+          const VerticalDivider(width: 2, color: AppColors.cloudWhite),
+          Expanded(child: Image.file(File(paths[1]), fit: BoxFit.cover)),
+        ],
+      );
+    }
+    if (paths.length == 3) {
+      return Row(
+        children: [
+          Expanded(child: Image.file(File(paths[0]), fit: BoxFit.cover)),
+          const VerticalDivider(width: 2, color: AppColors.cloudWhite),
+          Expanded(
+            child: Column(
+              children: [
+                Expanded(child: Image.file(File(paths[1]), fit: BoxFit.cover)),
+                const Divider(height: 2, color: AppColors.cloudWhite),
+                Expanded(child: Image.file(File(paths[2]), fit: BoxFit.cover)),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+    if (paths.length == 4) {
+      return Column(
+        children: [
+          Expanded(
+            child: Row(
+              children: [
+                Expanded(child: Image.file(File(paths[0]), fit: BoxFit.cover)),
+                const VerticalDivider(width: 2, color: AppColors.cloudWhite),
+                Expanded(child: Image.file(File(paths[1]), fit: BoxFit.cover)),
+              ],
+            ),
+          ),
+          const Divider(height: 2, color: AppColors.cloudWhite),
+          Expanded(
+            child: Row(
+              children: [
+                Expanded(child: Image.file(File(paths[2]), fit: BoxFit.cover)),
+                const VerticalDivider(width: 2, color: AppColors.cloudWhite),
+                Expanded(child: Image.file(File(paths[3]), fit: BoxFit.cover)),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+    return Row(
+      children: [
+        Expanded(child: Image.file(File(paths[0]), fit: BoxFit.cover)),
+        const VerticalDivider(width: 2, color: AppColors.cloudWhite),
+        Expanded(
+          child: Column(
+            children: [
+              Expanded(
+                child: Row(
+                  children: [
+                    Expanded(child: Image.file(File(paths[1]), fit: BoxFit.cover)),
+                    const VerticalDivider(width: 2, color: AppColors.cloudWhite),
+                    Expanded(child: Image.file(File(paths[2]), fit: BoxFit.cover)),
+                  ],
+                ),
+              ),
+              const Divider(height: 2, color: AppColors.cloudWhite),
+              Expanded(
+                child: Row(
+                  children: [
+                    Expanded(child: Image.file(File(paths[3]), fit: BoxFit.cover)),
+                    const VerticalDivider(width: 2, color: AppColors.cloudWhite),
+                    Expanded(child: Image.file(File(paths[4]), fit: BoxFit.cover)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

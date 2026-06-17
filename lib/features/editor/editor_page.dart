@@ -58,6 +58,8 @@ import 'widgets/hsl_panel.dart';
 import 'widgets/crop_overlay_widget.dart';
 import 'widgets/brush_overlay_widget.dart';
 import 'widgets/focus_overlay_widget.dart';
+import 'package:memoria/features/editor/utils/text_rasterizer.dart';
+import 'package:memoria/core/error/error_handler.dart';
 
 enum _MainNavTab { style, tools, export }
 
@@ -499,6 +501,7 @@ class _EditorPageState extends State<EditorPage> {
       _blendOpacity = _doubleFromJson(json['blendOpacity'], 0.5);
       _frameIndex = (json['frameIndex'] as num?)?.toInt() ?? -1;
       _overlayText = json['overlayText'] as String? ?? '';
+      _textFontFamily = json['textFontFamily'] as String? ?? 'Montserrat';
       _textSize = _doubleFromJson(json['textSize'], 32.0);
       _textColor = Color((json['textColor'] as num?)?.toInt() ?? Colors.white.value);
     });
@@ -546,6 +549,7 @@ class _EditorPageState extends State<EditorPage> {
   String _overlayText = '';
   double _textSize = 32.0;
   Color _textColor = Colors.white;
+  String _textFontFamily = 'Montserrat';
 
   // Phase 6: 로컬 조정
   _LocalSubTab _localSubTab = _LocalSubTab.tiltShift;
@@ -1107,6 +1111,7 @@ class _EditorPageState extends State<EditorPage> {
         'blendOpacity': _blendOpacity,
         'frameIndex': _frameIndex,
         'overlayText': _overlayText,
+        'textFontFamily': _textFontFamily,
         'textSize': _textSize,
         'textColor': _textColor.value,
       };
@@ -1178,7 +1183,7 @@ class _EditorPageState extends State<EditorPage> {
         _blendImagePath ?? '', _blendMode.name,
         _blendOpacity.toStringAsFixed(2),
         _frameIndex,
-        _overlayText, _textSize.toStringAsFixed(1), _textColor.value,
+        _overlayText, _textSize.toStringAsFixed(1), _textColor.value, _textFontFamily,
         // Brush strokes
         _brushStrokes.map((s) => '${s.x.toStringAsFixed(3)},${s.y.toStringAsFixed(3)},${s.radius.toStringAsFixed(3)},${s.strength.toStringAsFixed(2)},${s.isDodge}').join(';'),
       ].join('|');
@@ -1363,6 +1368,20 @@ class _EditorPageState extends State<EditorPage> {
         segmentMask = await _getSegmentMask(preview, _previewBaseKey());
       }
 
+      Uint8List? textOverlayBytes;
+      if (_overlayText.trim().isNotEmpty) {
+        textOverlayBytes = await TextRasterizer.rasterize(
+          text: _overlayText,
+          fontFamily: _textFontFamily,
+          textSize: _textSize,
+          color: _textColor,
+          textX: 0.5,
+          textY: 0.82,
+          imageWidth: preview.width,
+          imageHeight: preview.height,
+        );
+      }
+
       final previewRaw = preview.getBytes(order: img.ChannelOrder.rgba);
       final params = _PreviewParams(
         width: preview.width,
@@ -1408,6 +1427,7 @@ class _EditorPageState extends State<EditorPage> {
         overlayText: _overlayText,
         textSize: _textSize,
         textColorValue: _textColor.value,
+        textOverlayBytes: textOverlayBytes,
         brushStrokes: _brushStrokes,
       );
       final bytes = await compute(_previewWorker, params);
@@ -1419,8 +1439,16 @@ class _EditorPageState extends State<EditorPage> {
         _previewRenderCache.remove(_previewRenderCache.keys.first);
       }
       _previewRenderCache[previewKey] = bytes;
-      setState(() => _previewBytes = bytes);
-      _scheduleDraftSave();
+    } catch (e, stackTrace) {
+      ErrorLogger.log('Preview rendering failed', e, stackTrace);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('미리보기 처리 중 오류가 발생했습니다: $e'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _processingPreview = false);
       // Re-dispatch any queued render that arrived while we were processing.
@@ -1453,162 +1481,260 @@ class _EditorPageState extends State<EditorPage> {
       _exportForShare = share;
     });
 
-    final receivePort = ReceivePort();
+    final prefs = await SharedPreferences.getInstance();
+    final exportFormat = prefs.getString('settings_export_format') ?? 'jpeg';
+    final List<int?> resolutionAttempts = [null, 4096, 2048];
     String? tempPath;
+    var currentAttemptIndex = 0;
 
-    try {
-      final tempDir = await getTemporaryDirectory();
-      tempPath =
-          '${tempDir.path}/memoria_${DateTime.now().microsecondsSinceEpoch}.jpg';
-      final frameBytes = await _loadFrameBytes(_frameIndex);
+    while (currentAttemptIndex < resolutionAttempts.length) {
+      final targetDim = resolutionAttempts[currentAttemptIndex];
+      final receivePort = ReceivePort();
 
-      // Compute segmentation mask for full-resolution export image.
-      Float32List? exportSegmentMask;
-      int exportMaskW = 0, exportMaskH = 0;
-      if (_portraitActive) {
+      try {
+        final tempDir = await getTemporaryDirectory();
+        final ext = exportFormat == 'jpeg' ? 'jpg' : (exportFormat == 'raw' ? 'dng' : exportFormat);
+        tempPath =
+            '${tempDir.path}/memoria_${DateTime.now().microsecondsSinceEpoch}.$ext';
+        final frameBytes = await _loadFrameBytes(_frameIndex);
+
+        // Compute segmentation mask for full-resolution export image.
+        Float32List? exportSegmentMask;
+        int exportMaskW = 0, exportMaskH = 0;
+        if (_portraitActive) {
+          final fullDecoded = await _decodedSourceImage();
+          if (fullDecoded != null) {
+            await _ensureSegmenter();
+            final seg = _segmenter;
+            if (seg != null) {
+              final result = seg.segment(fullDecoded);
+              exportSegmentMask = result.data;
+              exportMaskW = result.width;
+              exportMaskH = result.height;
+            }
+          }
+        }
+
+        int fullW = 0;
+        int fullH = 0;
         final fullDecoded = await _decodedSourceImage();
         if (fullDecoded != null) {
-          await _ensureSegmenter();
-          final seg = _segmenter;
-          if (seg != null) {
-            final result = seg.segment(fullDecoded);
-            exportSegmentMask = result.data;
-            exportMaskW = result.width;
-            exportMaskH = result.height;
+          fullW = fullDecoded.width;
+          fullH = fullDecoded.height;
+        }
+        var targetW = fullW;
+        var targetH = fullH;
+        if (targetDim != null && (targetW > targetDim || targetH > targetDim)) {
+          final scale = targetDim / math.max(targetW, targetH);
+          targetW = (targetW * scale).round();
+          targetH = (targetH * scale).round();
+        }
+
+        if (_expandTop > 0 || _expandBottom > 0 || _expandLeft > 0 || _expandRight > 0) {
+          targetW = targetW + (targetW * _expandLeft).round() + (targetW * _expandRight).round();
+          targetH = targetH + (targetH * _expandTop).round() + (targetH * _expandBottom).round();
+        }
+        if (_cropLeft > 0.0 || _cropTop > 0.0 || _cropRight < 1.0 || _cropBottom < 1.0) {
+          final x = (targetW * _cropLeft).round().clamp(0, targetW - 1);
+          final y = (targetH * _cropTop).round().clamp(0, targetH - 1);
+          targetW = (targetW * (_cropRight - _cropLeft)).round().clamp(1, targetW - x);
+          targetH = (targetH * (_cropBottom - _cropTop)).round().clamp(1, targetH - y);
+        } else if (_currentCropRect() != null) {
+          final ratio = _currentCropRect()!;
+          final W = targetW.toDouble(), H = targetH.toDouble();
+          if (W / H > ratio) {
+            targetH = H.round();
+            targetW = (H * ratio).round();
+          } else {
+            targetW = W.round();
+            targetH = (W / ratio).round();
           }
         }
-      }
-
-      final params = _ExportParams(
-        imagePath: widget.imagePath!,
-        outPath: tempPath,
-        adjustParams: _params,
-        lutBytes: _lutBytes,
-        intensity: _intensity,
-        cropRect: _currentCropRect(),
-        cropCenterX: _cropCenterX,
-        cropCenterY: _cropCenterY,
-        flipH: _flipH,
-        flipV: _flipV,
-        rotation: _rotation,
-        perspH: _perspH,
-        perspV: _perspV,
-        effect: _effect,
-        effectStrength: _effectStrength,
-        grainVariant: _grainVariant,
-        selActive: _selActive,
-        selX: _selX,
-        selY: _selY,
-        selBright: _selBright,
-        selContrast: _selContrast,
-        selSat: _selSat,
-        selRadius: _selRadius,
-        dbActive: _dbActive,
-        dodgeStrength: _dodgeStrength,
-        dodgeY: _dodgeY,
-        dodgeRadius: _dodgeRadius,
-        burnStrength: _burnStrength,
-        burnY: _burnY,
-        burnRadius: _burnRadius,
-        tiltActive: _tiltActive,
-        tiltFocusCenter: _tiltFocusCenter,
-        tiltBandWidth: _tiltBandWidth,
-        tiltMaxBlur: _tiltMaxBlur,
-        lensActive: _lensActive,
-        lensFocusDepth: _lensFocusDepth,
-        lensMaxRadius: _lensMaxRadius,
-        portraitSmooth: _portraitSmooth,
-        portraitSpotlight: _portraitSpotlight,
-        skinTone: _skinTone,
-        skinToneStrength: _skinToneStrength,
-        segmentMask: exportSegmentMask,
-        segmentMaskWidth: exportMaskW,
-        segmentMaskHeight: exportMaskH,
-        blendImagePath: _blendImagePath,
-        blendMode: _blendMode,
-        blendOpacity: _blendOpacity,
-        frameBytes: frameBytes,
-        overlayText: _overlayText,
-        textSize: _textSize,
-        textColorValue: _textColor.value,
-        sendPort: receivePort.sendPort,
-        expandTop: _expandTop,
-        expandBottom: _expandBottom,
-        expandLeft: _expandLeft,
-        expandRight: _expandRight,
-        expandMode: _expandMode,
-        cropLeft: _cropLeft,
-        cropTop: _cropTop,
-        cropRight: _cropRight,
-        cropBottom: _cropBottom,
-        brushStrokes: _brushStrokes,
-      );
-
-      _exportIsolateRef = await Isolate.spawn(_exportWorker, params);
-
-      await for (final msg in receivePort) {
-        if (_exportCancelled) break;
-        if (msg is double) {
-          if (mounted) setState(() => _exportProgress = msg);
-        } else if (msg == 'done') {
-          break;
-        } else if (msg is String && msg.startsWith('error:')) {
-          throw Exception(msg.substring(6));
+        if (_rotation == 90 || _rotation == 270 || _rotation == -90 || _rotation == -270) {
+          final tmp = targetW;
+          targetW = targetH;
+          targetH = tmp;
         }
-      }
 
-      if (_exportCancelled) return;
-
-      if (share) {
-        if (mounted) setState(() => _exportProgress = 1.0);
-        hapticMedium();
-        await Share.shareXFiles([XFile(tempPath)]);
-      } else {
-        await Gal.putImage(tempPath);
-        if (mounted) setState(() => _exportProgress = 1.0);
-        hapticMedium();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-                content: Text(S.get('editor.saved_to_gallery')),
-                behavior: SnackBarBehavior.floating),
+        Uint8List? textOverlayBytes;
+        if (_overlayText.trim().isNotEmpty && targetW > 0 && targetH > 0) {
+          textOverlayBytes = await TextRasterizer.rasterize(
+            text: _overlayText,
+            fontFamily: _textFontFamily,
+            textSize: _textSize,
+            color: _textColor,
+            textX: 0.5,
+            textY: 0.82,
+            imageWidth: targetW,
+            imageHeight: targetH,
           );
         }
-      }
-    } catch (e) {
-      if (!_exportCancelled && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text('${S.get('editor.save_failed')}: $e'),
-              behavior: SnackBarBehavior.floating),
+
+        final params = _ExportParams(
+          imagePath: widget.imagePath!,
+          outPath: tempPath,
+          exportFormat: exportFormat,
+          maxDimension: targetDim,
+          adjustParams: _params,
+          lutBytes: _lutBytes,
+          intensity: _intensity,
+          cropRect: _currentCropRect(),
+          cropCenterX: _cropCenterX,
+          cropCenterY: _cropCenterY,
+          flipH: _flipH,
+          flipV: _flipV,
+          rotation: _rotation,
+          perspH: _perspH,
+          perspV: _perspV,
+          effect: _effect,
+          effectStrength: _effectStrength,
+          grainVariant: _grainVariant,
+          selActive: _selActive,
+          selX: _selX,
+          selY: _selY,
+          selBright: _selBright,
+          selContrast: _selContrast,
+          selSat: _selSat,
+          selRadius: _selRadius,
+          dbActive: _dbActive,
+          dodgeStrength: _dodgeStrength,
+          dodgeY: _dodgeY,
+          dodgeRadius: _dodgeRadius,
+          burnStrength: _burnStrength,
+          burnY: _burnY,
+          burnRadius: _burnRadius,
+          tiltActive: _tiltActive,
+          tiltFocusCenter: _tiltFocusCenter,
+          tiltBandWidth: _tiltBandWidth,
+          tiltMaxBlur: _tiltMaxBlur,
+          lensActive: _lensActive,
+          lensFocusDepth: _lensFocusDepth,
+          lensMaxRadius: _lensMaxRadius,
+          portraitSmooth: _portraitSmooth,
+          portraitSpotlight: _portraitSpotlight,
+          skinTone: _skinTone,
+          skinToneStrength: _skinToneStrength,
+          segmentMask: exportSegmentMask,
+          segmentMaskWidth: exportMaskW,
+          segmentMaskHeight: exportMaskH,
+          blendImagePath: _blendImagePath,
+          blendMode: _blendMode,
+          blendOpacity: _blendOpacity,
+          frameBytes: frameBytes,
+          overlayText: _overlayText,
+          textSize: _textSize,
+          textColorValue: _textColor.value,
+          textOverlayBytes: textOverlayBytes,
+          sendPort: receivePort.sendPort,
+          expandTop: _expandTop,
+          expandBottom: _expandBottom,
+          expandLeft: _expandLeft,
+          expandRight: _expandRight,
+          expandMode: _expandMode,
+          cropLeft: _cropLeft,
+          cropTop: _cropTop,
+          cropRight: _cropRight,
+          cropBottom: _cropBottom,
+          brushStrokes: _brushStrokes,
         );
-      }
-    } finally {
-      receivePort.close();
-      _exportIsolateRef?.kill(priority: Isolate.immediate);
-      _exportIsolateRef = null;
-      if (tempPath != null) {
-        final f = File(tempPath);
-        if (await f.exists()) {
-          if (share) {
-            Future.delayed(const Duration(minutes: 5), () async {
-              try {
-                if (await f.exists()) {
-                  await f.delete();
-                }
-              } catch (_) {}
-            });
-          } else {
-            await f.delete();
+
+        _exportIsolateRef = await Isolate.spawn(_exportWorker, params);
+
+        await for (final msg in receivePort) {
+          if (_exportCancelled) break;
+          if (msg is double) {
+            if (mounted) setState(() => _exportProgress = msg);
+          } else if (msg == 'done') {
+            break;
+          } else if (msg is String && msg.startsWith('error:')) {
+            throw Exception(msg.substring(6));
+          }
+        }
+
+        if (_exportCancelled) {
+          receivePort.close();
+          break;
+        }
+
+        if (share) {
+          if (mounted) setState(() => _exportProgress = 1.0);
+          hapticMedium();
+          await Share.shareXFiles([XFile(tempPath)]);
+        } else {
+          await Gal.putImage(tempPath);
+          if (mounted) setState(() => _exportProgress = 1.0);
+          hapticMedium();
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                  content: Text(S.get('editor.saved_to_gallery')),
+                  behavior: SnackBarBehavior.floating),
+            );
+          }
+        }
+        receivePort.close();
+        break; // Success! Exit retry loop.
+      } catch (e, stackTrace) {
+        receivePort.close();
+        _exportIsolateRef?.kill(priority: Isolate.immediate);
+        _exportIsolateRef = null;
+
+        ErrorLogger.log('Export attempt failed (resolution: $targetDim)', e, stackTrace);
+
+        final isOom = e.toString().toLowerCase().contains('out of memory') ||
+            e.toString().toLowerCase().contains('oom') ||
+            e.toString().toLowerCase().contains('allocation') ||
+            e.toString().toLowerCase().contains('null');
+
+        if (isOom && currentAttemptIndex < resolutionAttempts.length - 1) {
+          currentAttemptIndex++;
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('메모리 부족으로 인해 해상도를 조절하여 재시도합니다... (${resolutionAttempts[currentAttemptIndex]}px)'),
+                duration: const Duration(seconds: 2),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
+          continue;
+        } else {
+          if (!_exportCancelled && mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                  content: Text('${S.get('editor.save_failed')}: $e'),
+                  behavior: SnackBarBehavior.floating),
+            );
+          }
+          break; // Hard fail. Exit retry loop.
+        }
+      } finally {
+        _exportIsolateRef?.kill(priority: Isolate.immediate);
+        _exportIsolateRef = null;
+        if (tempPath != null) {
+          final f = File(tempPath);
+          if (await f.exists()) {
+            if (share) {
+              Future.delayed(const Duration(minutes: 5), () async {
+                try {
+                  if (await f.exists()) {
+                    await f.delete();
+                  }
+                } catch (_) {}
+              });
+            } else {
+              await f.delete();
+            }
           }
         }
       }
-      if (mounted) {
-        setState(() {
-          _exporting = false;
-          _exportProgress = 0;
-        });
-      }
+    }
+
+    if (mounted) {
+      setState(() {
+        _exporting = false;
+        _exportProgress = 0;
+      });
     }
   }
 
@@ -3096,6 +3222,7 @@ class _EditorPageState extends State<EditorPage> {
           overlayText: _overlayText,
           textSize: _textSize,
           textColor: _textColor,
+          textFontFamily: _textFontFamily,
           onPickBlend: _pickBlendImage,
           onBlendMode: (m) {
             setState(() => _blendMode = m);
@@ -3119,6 +3246,10 @@ class _EditorPageState extends State<EditorPage> {
           },
           onTextColor: (tc) {
             setState(() => _textColor = tc);
+            _renderPreview();
+          },
+          onTextFontFamily: (font) {
+            setState(() => _textFontFamily = font);
             _renderPreview();
           },
         );
@@ -3132,6 +3263,7 @@ class _EditorPageState extends State<EditorPage> {
           overlayText: _overlayText,
           textSize: _textSize,
           textColor: _textColor,
+          textFontFamily: _textFontFamily,
           onPickBlend: _pickBlendImage,
           onBlendMode: (m) {
             setState(() => _blendMode = m);
@@ -3155,6 +3287,10 @@ class _EditorPageState extends State<EditorPage> {
           },
           onTextColor: (tc) {
             setState(() => _textColor = tc);
+            _renderPreview();
+          },
+          onTextFontFamily: (font) {
+            setState(() => _textFontFamily = font);
             _renderPreview();
           },
         );
@@ -3168,6 +3304,7 @@ class _EditorPageState extends State<EditorPage> {
           overlayText: _overlayText,
           textSize: _textSize,
           textColor: _textColor,
+          textFontFamily: _textFontFamily,
           onPickBlend: _pickBlendImage,
           onBlendMode: (m) {
             setState(() => _blendMode = m);
@@ -3191,6 +3328,10 @@ class _EditorPageState extends State<EditorPage> {
           },
           onTextColor: (tc) {
             setState(() => _textColor = tc);
+            _renderPreview();
+          },
+          onTextFontFamily: (font) {
+            setState(() => _textFontFamily = font);
             _renderPreview();
           },
         );
@@ -4993,6 +5134,7 @@ class _CreativePanel extends StatefulWidget {
   final String overlayText;
   final double textSize;
   final Color textColor;
+  final String textFontFamily;
   final VoidCallback onPickBlend;
   final ValueChanged<bm.BlendMode> onBlendMode;
   final ValueChanged<double> onBlendOpacity;
@@ -5000,6 +5142,7 @@ class _CreativePanel extends StatefulWidget {
   final ValueChanged<String> onText;
   final ValueChanged<double> onTextSize;
   final ValueChanged<Color> onTextColor;
+  final ValueChanged<String> onTextFontFamily;
 
   const _CreativePanel({
     super.key,
@@ -5011,6 +5154,7 @@ class _CreativePanel extends StatefulWidget {
     required this.overlayText,
     required this.textSize,
     required this.textColor,
+    required this.textFontFamily,
     required this.onPickBlend,
     required this.onBlendMode,
     required this.onBlendOpacity,
@@ -5018,6 +5162,7 @@ class _CreativePanel extends StatefulWidget {
     required this.onText,
     required this.onTextSize,
     required this.onTextColor,
+    required this.onTextFontFamily,
   });
 
   @override
@@ -5326,7 +5471,65 @@ class _CreativePanelState extends State<_CreativePanel> {
                           color: AppColors.textOnDarkTert))),
             ],
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              const SizedBox(
+                  width: 48,
+                  child: Text('폰트',
+                      style: TextStyle(
+                          fontFamily: 'NotoSerif',
+                          fontSize: 12,
+                          color: AppColors.textOnDarkSub))),
+              Expanded(
+                child: SizedBox(
+                  height: 32,
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    children: TextRasterizer.presetFonts.map((font) {
+                      final sel = widget.textFontFamily == font;
+                      return GestureDetector(
+                        onTap: () {
+                          hapticLight();
+                          widget.onTextFontFamily(font);
+                        },
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 150),
+                          margin: const EdgeInsets.only(right: 6),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: sel
+                                ? AppColors.oceanTeal
+                                : AppColors.oceanNavy,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: sel
+                                  ? AppColors.oceanFoam
+                                  : Colors.transparent,
+                              width: 1,
+                            ),
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            font,
+                            style: TextStyle(
+                              fontFamily: font,
+                              fontSize: 11,
+                              color: sel
+                                  ? AppColors.cloudWhite
+                                  : AppColors.textOnDarkSub,
+                            ),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
           Row(
             children: [
               const Text('색상',
@@ -5454,6 +5657,7 @@ Future<img.Image> _applyCreativeEffects(
   required String overlayText,
   required double textSize,
   required int textColorValue,
+  Uint8List? textOverlayBytes,
 }) async {
   var out = image;
 
@@ -5485,56 +5689,69 @@ Future<img.Image> _applyCreativeEffects(
     }
   }
 
-  final text = overlayText.trim();
-  if (text.isNotEmpty) {
-    final a = (textColorValue >> 24) & 0xff;
-    final r = (textColorValue >> 16) & 0xff;
-    final g = (textColorValue >> 8) & 0xff;
-    final b = textColorValue & 0xff;
-    final color = img.ColorRgba8(r, g, b, a);
+  if (textOverlayBytes != null) {
+    final textImg = img.decodeImage(textOverlayBytes);
+    if (textImg != null) {
+      out = img.compositeImage(
+        out,
+        textImg,
+        blend: img.BlendMode.alpha,
+        dstW: out.width,
+        dstH: out.height,
+      );
+    }
+  } else {
+    final text = overlayText.trim();
+    if (text.isNotEmpty) {
+      final a = (textColorValue >> 24) & 0xff;
+      final r = (textColorValue >> 16) & 0xff;
+      final g = (textColorValue >> 8) & 0xff;
+      final b = textColorValue & 0xff;
+      final color = img.ColorRgba8(r, g, b, a);
 
-    // Render at maximum resolution (arial48) on a transparent canvas,
-    // then scale the canvas to match textSize before compositing.
-    // This avoids the 3-step quantization of the original font selection.
-    const baseSize = 48.0; // arial48 glyph height in pixels
-    final scale = (textSize / baseSize).clamp(0.25, 4.0);
-    final canvasW = out.width;
-    final canvasH = out.height;
+      // Render at maximum resolution (arial48) on a transparent canvas,
+      // then scale the canvas to match textSize before compositing.
+      // This avoids the 3-step quantization of the original font selection.
+      const baseSize = 48.0; // arial48 glyph height in pixels
+      final scale = (textSize / baseSize).clamp(0.25, 4.0);
+      final canvasW = out.width;
+      final canvasH = out.height;
 
-    final textCanvas = img.Image(
-      width: canvasW,
-      height: canvasH,
-      numChannels: 4,
-    );
-    img.drawString(
-      textCanvas,
-      text,
-      font: img.arial48,
-      y: (canvasH - baseSize * 2.2).round().clamp(0, canvasH - 1),
-      color: color,
-      wrap: true,
-    );
+      final textCanvas = img.Image(
+        width: canvasW,
+        height: canvasH,
+        numChannels: 4,
+      );
+      img.drawString(
+        textCanvas,
+        text,
+        font: img.arial48,
+        y: (canvasH - baseSize * 2.2).round().clamp(0, canvasH - 1),
+        color: color,
+        wrap: true,
+      );
 
-    if (scale != 1.0) {
-      final scaledW = (canvasW * scale).round().clamp(1, canvasW * 4);
-      final scaledH = (canvasH * scale).round().clamp(1, canvasH * 4);
-      final scaled = img.copyResize(textCanvas,
-          width: scaledW,
-          height: scaledH,
-          interpolation: img.Interpolation.linear);
-      // Crop back to output size (centered horizontally, bottom-aligned).
-      final cropX = ((scaledW - canvasW) / 2).round().clamp(0, scaledW - 1);
-      final cropY = (scaledH - canvasH).clamp(0, scaledH - 1);
-      final cropped = img.copyCrop(scaled,
-          x: cropX,
-          y: cropY,
-          width: canvasW.clamp(1, scaledW - cropX),
-          height: canvasH.clamp(1, scaledH - cropY));
-      out = img.compositeImage(out, cropped,
-          blend: img.BlendMode.alpha, dstW: out.width, dstH: out.height);
-    } else {
-      out = img.compositeImage(out, textCanvas,
-          blend: img.BlendMode.alpha, dstW: out.width, dstH: out.height);
+      if (scale != 1.0) {
+        final scaledW = (canvasW * scale).round().clamp(1, canvasW * 4);
+        final scaledH = (canvasH * scale).round().clamp(1, canvasH * 4);
+        final scaled = img.copyResize(textCanvas,
+            width: scaledW,
+            height: scaledH,
+            interpolation: img.Interpolation.linear);
+        // Crop back to output size (centered horizontally, bottom-aligned).
+        final cropX = ((scaledW - canvasW) / 2).round().clamp(0, scaledW - 1);
+        final cropY = (scaledH - canvasH).clamp(0, scaledH - 1);
+        final cropped = img.copyCrop(scaled,
+            x: cropX,
+            y: cropY,
+            width: canvasW.clamp(1, scaledW - cropX),
+            height: canvasH.clamp(1, scaledH - cropY));
+        out = img.compositeImage(out, cropped,
+            blend: img.BlendMode.alpha, dstW: out.width, dstH: out.height);
+      } else {
+        out = img.compositeImage(out, textCanvas,
+            blend: img.BlendMode.alpha, dstW: out.width, dstH: out.height);
+      }
     }
   }
 
@@ -5544,6 +5761,8 @@ Future<img.Image> _applyCreativeEffects(
 class _ExportParams {
   final String imagePath;
   final String outPath;
+  final String exportFormat;
+  final int? maxDimension;
   final AdjustParams adjustParams;
   final Uint8List? lutBytes;
   final double intensity;
@@ -5576,6 +5795,7 @@ class _ExportParams {
   final String overlayText;
   final double textSize;
   final int textColorValue;
+  final Uint8List? textOverlayBytes;
   final SendPort sendPort;
   final double expandTop, expandBottom, expandLeft, expandRight;
   final String expandMode;
@@ -5585,6 +5805,8 @@ class _ExportParams {
   const _ExportParams({
     required this.imagePath,
     required this.outPath,
+    required this.exportFormat,
+    this.maxDimension,
     required this.adjustParams,
     required this.lutBytes,
     required this.intensity,
@@ -5634,6 +5856,7 @@ class _ExportParams {
     required this.overlayText,
     required this.textSize,
     required this.textColorValue,
+    this.textOverlayBytes,
     required this.sendPort,
     required this.expandTop,
     required this.expandBottom,
@@ -5655,6 +5878,16 @@ Future<void> _exportWorker(_ExportParams p) async {
     if (image == null) {
       p.sendPort.send('error:Unable to open image.');
       return;
+    }
+
+    if (p.maxDimension != null && (image.width > p.maxDimension! || image.height > p.maxDimension!)) {
+      final scale = p.maxDimension! / math.max(image.width, image.height);
+      image = img.copyResize(
+        image,
+        width: (image.width * scale).round(),
+        height: (image.height * scale).round(),
+        interpolation: img.Interpolation.linear,
+      );
     }
 
     if (p.expandTop > 0 || p.expandBottom > 0 || p.expandLeft > 0 || p.expandRight > 0) {
@@ -5792,11 +6025,22 @@ Future<void> _exportWorker(_ExportParams p) async {
       overlayText: p.overlayText,
       textSize: p.textSize,
       textColorValue: p.textColorValue,
+      textOverlayBytes: p.textOverlayBytes,
     );
 
     p.sendPort.send(0.85);
 
-    final encoded = img.encodeJpg(out, quality: 95);
+    Uint8List encoded;
+    if (p.exportFormat == 'png') {
+      encoded = Uint8List.fromList(img.encodePng(out));
+    } else if (p.exportFormat == 'webp') {
+      encoded = Uint8List.fromList(img.encodeJpg(out, quality: 90));
+    } else if (p.exportFormat == 'raw') {
+      encoded = Uint8List.fromList(img.encodeTiff(out));
+    } else {
+      encoded = Uint8List.fromList(img.encodeJpg(out, quality: 95));
+    }
+
     await File(p.outPath).writeAsBytes(encoded);
 
     p.sendPort.send(0.95);
@@ -5853,6 +6097,7 @@ class _PreviewParams {
   final String overlayText;
   final double textSize;
   final int textColorValue;
+  final Uint8List? textOverlayBytes;
   final List<DodgeBurnStroke>? brushStrokes;
 
   const _PreviewParams({
@@ -5899,6 +6144,7 @@ class _PreviewParams {
     required this.overlayText,
     required this.textSize,
     required this.textColorValue,
+    this.textOverlayBytes,
     this.brushStrokes,
   });
 }
@@ -5990,6 +6236,7 @@ Future<Uint8List> _previewWorker(_PreviewParams p) async {
     overlayText: p.overlayText,
     textSize: p.textSize,
     textColorValue: p.textColorValue,
+    textOverlayBytes: p.textOverlayBytes,
   );
 
   return Uint8List.fromList(img.encodePng(out));
