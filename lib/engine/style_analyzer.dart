@@ -58,6 +58,101 @@ class StyleProfile {
 // ─── Style analyzer ──────────────────────────────────────────────────────────
 
 class StyleAnalyzer {
+  /// Outlier rejection helper using standard deviation threshold (1.5 * stdDev).
+  static double _rejectOutliersAndMean(List<double> values) {
+    if (values.isEmpty) return 0.0;
+    if (values.length <= 2) {
+      return values.reduce((a, b) => a + b) / values.length;
+    }
+    double sum = 0.0;
+    for (final v in values) sum += v;
+    final mean = sum / values.length;
+
+    double variance = 0.0;
+    for (final v in values) {
+      variance += (v - mean) * (v - mean);
+    }
+    final stdDev = math.sqrt(variance / values.length);
+    if (stdDev < 1e-4) return mean;
+
+    final filtered = <double>[];
+    for (final v in values) {
+      if ((v - mean).abs() <= 1.5 * stdDev) {
+        filtered.add(v);
+      }
+    }
+    if (filtered.isEmpty) return mean;
+    return filtered.reduce((a, b) => a + b) / filtered.length;
+  }
+
+  /// Fuse multiple StyleProfile objects into one.
+  static StyleProfile fuseProfiles(List<StyleProfile> profiles) {
+    if (profiles.isEmpty) {
+      throw ArgumentError('Profiles list cannot be empty');
+    }
+    if (profiles.length == 1) {
+      return profiles.first;
+    }
+
+    // Fuse per-channel tone curves
+    final rCurve = List<int>.filled(256, 0);
+    final gCurve = List<int>.filled(256, 0);
+    final bCurve = List<int>.filled(256, 0);
+
+    for (int i = 0; i < 256; i++) {
+      final rVals = profiles.map((p) => p.rCurve[i].toDouble()).toList();
+      final gVals = profiles.map((p) => p.gCurve[i].toDouble()).toList();
+      final bVals = profiles.map((p) => p.bCurve[i].toDouble()).toList();
+
+      rCurve[i] = _rejectOutliersAndMean(rVals).round().clamp(0, 255);
+      gCurve[i] = _rejectOutliersAndMean(gVals).round().clamp(0, 255);
+      bCurve[i] = _rejectOutliersAndMean(bVals).round().clamp(0, 255);
+    }
+
+    // Enforce curves monotonicity
+    for (int i = 1; i < 256; i++) {
+      if (rCurve[i] < rCurve[i - 1]) rCurve[i] = rCurve[i - 1];
+      if (gCurve[i] < gCurve[i - 1]) gCurve[i] = gCurve[i - 1];
+      if (bCurve[i] < bCurve[i - 1]) bCurve[i] = bCurve[i - 1];
+    }
+
+    // Fuse zone casts
+    ZoneCast fuseZone(List<ZoneCast> casts) {
+      final valid = casts.where((c) => c.count > 0).toList();
+      if (valid.isEmpty) return ZoneCast.zero;
+      final aVals = valid.map((c) => c.a).toList();
+      final bVals = valid.map((c) => c.b).toList();
+      final counts = valid.map((c) => c.count.toDouble()).toList();
+
+      return ZoneCast(
+        a: _rejectOutliersAndMean(aVals),
+        b: _rejectOutliersAndMean(bVals),
+        count: (_rejectOutliersAndMean(counts)).round(),
+      );
+    }
+
+    final shadowCast = fuseZone(profiles.map((p) => p.shadowCast).toList());
+    final midtoneCast = fuseZone(profiles.map((p) => p.midtoneCast).toList());
+    final highlightCast = fuseZone(profiles.map((p) => p.highlightCast).toList());
+
+    final meanL = _rejectOutliersAndMean(profiles.map((p) => p.meanL).toList());
+    final blueDominance = _rejectOutliersAndMean(profiles.map((p) => p.blueDominance).toList());
+    final blueCastStrength = _rejectOutliersAndMean(profiles.map((p) => p.blueCastStrength).toList());
+
+    return StyleProfile(
+      rCurve: rCurve,
+      gCurve: gCurve,
+      bCurve: bCurve,
+      shadowCast: shadowCast,
+      midtoneCast: midtoneCast,
+      highlightCast: highlightCast,
+      meanL: meanL,
+      blueDominance: blueDominance,
+      blueCastStrength: blueCastStrength,
+    );
+  }
+
+  /// Neutral per-channel CDF: Gaussian N(μ=115, σ=55) in 8-bit space.
   /// Neutral per-channel CDF: Gaussian N(μ=115, σ=55) in 8-bit space.
   ///
   /// Represents a balanced, naturally-exposed photograph with no color cast.

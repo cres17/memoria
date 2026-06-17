@@ -247,6 +247,7 @@ class CreativeParams {
   final double textX; // 0-1
   final double textY; // 0-1
   final double textRotation; // degrees
+  final String fontFamily;
 
   const CreativeParams({
     this.blendImagePath,
@@ -259,6 +260,7 @@ class CreativeParams {
     this.textX = 0.5,
     this.textY = 0.82,
     this.textRotation = 0.0,
+    this.fontFamily = 'Montserrat',
   });
 
   static const zero = CreativeParams();
@@ -277,6 +279,7 @@ class CreativeParams {
         'textX': textX,
         'textY': textY,
         'textRotation': textRotation,
+        'fontFamily': fontFamily,
       };
 
   factory CreativeParams.fromJson(Map<String, dynamic> j) => CreativeParams(
@@ -293,6 +296,7 @@ class CreativeParams {
         textX: (j['textX'] as num? ?? 0.5).toDouble(),
         textY: (j['textY'] as num? ?? 0.82).toDouble(),
         textRotation: (j['textRotation'] as num? ?? 0.0).toDouble(),
+        fontFamily: j['fontFamily'] as String? ?? 'Montserrat',
       );
 }
 

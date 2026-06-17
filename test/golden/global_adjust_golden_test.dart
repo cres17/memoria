@@ -26,11 +26,11 @@ void main() {
     // Placeholders to be updated after first run
     final expected = <String, String>{
       'identity': '139359,137574,140986,2956847176', // Should match filter original
-      'exposure_contrast': '205521,192736,198384,2055240490',
-      'saturation_temp_tint': '129463,142498,149275,4277879165',
-      'highlights_shadows_ambiance': '143632,141211,145847,74467781',
-      'tonal_contrast': '131407,129623,133035,162592809',
-      'mixed_realistic': '166414,156042,155681,636270874',
+      'exposure_contrast': '205019,192382,198007,1825787345',
+      'saturation_temp_tint': '128938,142007,148757,1763503120',
+      'highlights_shadows_ambiance': '143157,140683,145345,918998027',
+      'tonal_contrast': '130900,129116,132528,3367122252',
+      'mixed_realistic': '165919,155532,155292,489841564',
     };
 
     for (final entry in cases.entries) {

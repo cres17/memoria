@@ -775,3 +775,741 @@ RgbColor applyDecodedCustomLut(DecodedLut decoded, RgbColor rgb) {
   return lerp(c0, c1, bf).clamp01();
 }
 
+(double, double, double) applyDecodedCustomLutFlat(DecodedLut decoded, double r, double g, double b) {
+  final values = decoded.values;
+  final dim = decoded.dim;
+  final maxIdx = (dim - 1).toDouble();
+
+  final ri = r * maxIdx;
+  final gi = g * maxIdx;
+  final bi = b * maxIdx;
+
+  final r0 = ri.floor().clamp(0, dim - 2);
+  final r1 = (r0 + 1).clamp(0, dim - 1);
+  final g0 = gi.floor().clamp(0, dim - 2);
+  final g1 = (g0 + 1).clamp(0, dim - 1);
+  final b0 = bi.floor().clamp(0, dim - 2);
+  final b1 = (b0 + 1).clamp(0, dim - 1);
+
+  final rf = ri - r0;
+  final gf = gi - g0;
+  final bf = bi - b0;
+
+  final i000 = (r0 + g0 * dim + b0 * dim * dim) * 3;
+  final i100 = (r1 + g0 * dim + b0 * dim * dim) * 3;
+  final i010 = (r0 + g1 * dim + b0 * dim * dim) * 3;
+  final i110 = (r1 + g1 * dim + b0 * dim * dim) * 3;
+  final i001 = (r0 + g0 * dim + b1 * dim * dim) * 3;
+  final i101 = (r1 + g0 * dim + b1 * dim * dim) * 3;
+  final i011 = (r0 + g1 * dim + b1 * dim * dim) * 3;
+  final i111 = (r1 + g1 * dim + b1 * dim * dim) * 3;
+
+  final r000 = values[i000]; final g000 = values[i000 + 1]; final b000 = values[i000 + 2];
+  final r100 = values[i100]; final g100 = values[i100 + 1]; final b100 = values[i100 + 2];
+  final r010 = values[i010]; final g010 = values[i010 + 1]; final b010 = values[i010 + 2];
+  final r110 = values[i110]; final g110 = values[i110 + 1]; final b110 = values[i110 + 2];
+  final r001 = values[i001]; final g001 = values[i001 + 1]; final b001 = values[i001 + 2];
+  final r101 = values[i101]; final g101 = values[i101 + 1]; final b101 = values[i101 + 2];
+  final r011 = values[i011]; final g011 = values[i011 + 1]; final b011 = values[i011 + 2];
+  final r111 = values[i111]; final g111 = values[i111 + 1]; final b111 = values[i111 + 2];
+
+  final r00 = r000 + (r100 - r000) * rf;
+  final g00 = g000 + (g100 - g000) * rf;
+  final b00 = b000 + (b100 - b000) * rf;
+
+  final r10 = r010 + (r110 - r010) * rf;
+  final g10 = g010 + (g110 - g010) * rf;
+  final b10 = b010 + (b110 - b010) * rf;
+
+  final r01 = r001 + (r101 - r001) * rf;
+  final g01 = g001 + (g101 - g001) * rf;
+  final b01 = b001 + (b101 - b001) * rf;
+
+  final r11 = r011 + (r111 - r011) * rf;
+  final g11 = g011 + (g111 - g011) * rf;
+  final b11 = b011 + (b111 - b011) * rf;
+
+  final r0L = r00 + (r10 - r00) * gf;
+  final g0L = g00 + (g10 - g00) * gf;
+  final b0L = b00 + (b10 - b00) * gf;
+
+  final r1L = r01 + (r11 - r01) * gf;
+  final g1L = g01 + (g11 - g01) * gf;
+  final b1L = b01 + (b11 - b01) * gf;
+
+  final rFinal = (r0L + (r1L - r0L) * bf).clamp(0.0, 1.0);
+  final gFinal = (g0L + (g1L - g0L) * bf).clamp(0.0, 1.0);
+  final bFinal = (b0L + (b1L - b0L) * bf).clamp(0.0, 1.0);
+
+  return (rFinal, gFinal, bFinal);
+}
+
+class OklabStats {
+  final double meanL, meanA, meanB;
+  final double stdL, stdA, stdB;
+  const OklabStats({
+    required this.meanL,
+    required this.meanA,
+    required this.meanB,
+    required this.stdL,
+    required this.stdA,
+    required this.stdB,
+  });
+}
+
+OklabStats _analyzeOklabStats(img.Image styleImage) {
+  final sc = _downscale(styleImage, 256);
+  final lValues = <double>[];
+  final aValues = <double>[];
+  final bValues = <double>[];
+
+  for (int y = 0; y < sc.height; y++) {
+    for (int x = 0; x < sc.width; x++) {
+      final px = sc.getPixel(x, y);
+      final rgb = RgbColor(
+        px.rNormalized.toDouble(),
+        px.gNormalized.toDouble(),
+        px.bNormalized.toDouble(),
+      );
+      final ok = rgbToOklab(rgb);
+      lValues.add(ok.l);
+      aValues.add(ok.a);
+      bValues.add(ok.b);
+    }
+  }
+
+  final n = lValues.length.toDouble();
+  final meanL = lValues.fold(0.0, (s, v) => s + v) / n;
+  final meanA = aValues.fold(0.0, (s, v) => s + v) / n;
+  final meanB = bValues.fold(0.0, (s, v) => s + v) / n;
+
+  final stdL = _stdDev(lValues, meanL);
+  final stdA = _stdDev(aValues, meanA);
+  final stdB = _stdDev(bValues, meanB);
+
+  return OklabStats(
+    meanL: meanL,
+    meanA: meanA,
+    meanB: meanB,
+    stdL: stdL,
+    stdA: stdA,
+    stdB: stdB,
+  );
+}
+
+OklabStats _fuseOklabStats(List<OklabStats> statsList) {
+  if (statsList.length == 1) return statsList.first;
+
+  double fuseValues(List<double> values) {
+    if (values.isEmpty) return 0.0;
+    if (values.length <= 2) {
+      return values.reduce((a, b) => a + b) / values.length;
+    }
+    double sum = 0.0;
+    for (final v in values) sum += v;
+    final mean = sum / values.length;
+    double variance = 0.0;
+    for (final v in values) {
+      variance += (v - mean) * (v - mean);
+    }
+    final stdDev = math.sqrt(variance / values.length);
+    if (stdDev < 1e-4) return mean;
+
+    final filtered = <double>[];
+    for (final v in values) {
+      if ((v - mean).abs() <= 1.5 * stdDev) {
+        filtered.add(v);
+      }
+    }
+    if (filtered.isEmpty) return mean;
+    return filtered.reduce((a, b) => a + b) / filtered.length;
+  }
+
+  final meanL = fuseValues(statsList.map((s) => s.meanL).toList());
+  final meanA = fuseValues(statsList.map((s) => s.meanA).toList());
+  final meanB = fuseValues(statsList.map((s) => s.meanB).toList());
+  final stdL = fuseValues(statsList.map((s) => s.stdL).toList());
+  final stdA = fuseValues(statsList.map((s) => s.stdA).toList());
+  final stdB = fuseValues(statsList.map((s) => s.stdB).toList());
+
+  return OklabStats(
+    meanL: meanL,
+    meanA: meanA,
+    meanB: meanB,
+    stdL: stdL,
+    stdA: stdA,
+    stdB: stdB,
+  );
+}
+
+class Tps3D {
+  final List<OklabColor> srcPoints;
+  final List<OklabColor> dstPoints;
+  
+  late List<List<double>> w;
+  late List<List<double>> v;
+
+  Tps3D(this.srcPoints, this.dstPoints) {
+    _solve();
+  }
+
+  void _solve() {
+    final n = srcPoints.length;
+    final size = n + 4;
+    
+    final m = List.generate(size, (_) => List<double>.filled(size, 0.0));
+    final y = List.generate(size, (_) => List<double>.filled(3, 0.0));
+
+    for (int i = 0; i < n; i++) {
+      for (int j = 0; j < n; j++) {
+        if (i == j) {
+          m[i][j] = 0.0;
+        } else {
+          final dx = srcPoints[i].l - srcPoints[j].l;
+          final dy = srcPoints[i].a - srcPoints[j].a;
+          final dz = srcPoints[i].b - srcPoints[j].b;
+          m[i][j] = math.sqrt(dx * dx + dy * dy + dz * dz);
+        }
+      }
+    }
+
+    for (int i = 0; i < n; i++) {
+      m[i][n] = 1.0;
+      m[i][n + 1] = srcPoints[i].l;
+      m[i][n + 2] = srcPoints[i].a;
+      m[i][n + 3] = srcPoints[i].b;
+
+      m[n][i] = 1.0;
+      m[n + 1][i] = srcPoints[i].l;
+      m[n + 2][i] = srcPoints[i].a;
+      m[n + 3][i] = srcPoints[i].b;
+    }
+
+    for (int i = 0; i < n; i++) {
+      y[i][0] = dstPoints[i].l;
+      y[i][1] = dstPoints[i].a;
+      y[i][2] = dstPoints[i].b;
+    }
+
+    final x = _solveLinearSystem(m, y);
+    
+    w = List.generate(n, (i) => [x[i][0], x[i][1], x[i][2]]);
+    v = List.generate(4, (i) => [x[n + i][0], x[n + i][1], x[n + i][2]]);
+  }
+
+  OklabColor evaluate(OklabColor p) {
+    double lOut = v[0][0] + v[1][0] * p.l + v[2][0] * p.a + v[3][0] * p.b;
+    double aOut = v[0][1] + v[1][1] * p.l + v[2][1] * p.a + v[3][1] * p.b;
+    double bOut = v[0][2] + v[1][2] * p.l + v[2][2] * p.a + v[3][2] * p.b;
+
+    for (int i = 0; i < srcPoints.length; i++) {
+      final dx = p.l - srcPoints[i].l;
+      final dy = p.a - srcPoints[i].a;
+      final dz = p.b - srcPoints[i].b;
+      final dist = math.sqrt(dx * dx + dy * dy + dz * dz);
+      
+      lOut += w[i][0] * dist;
+      aOut += w[i][1] * dist;
+      bOut += w[i][2] * dist;
+    }
+
+    return OklabColor(lOut, aOut, bOut);
+  }
+
+  List<List<double>> _solveLinearSystem(List<List<double>> a, List<List<double>> b) {
+    final n = a.length;
+    final ac = List.generate(n, (i) => List<double>.from(a[i]));
+    final bc = List.generate(n, (i) => List<double>.from(b[i]));
+
+    for (int i = 0; i < n; i++) {
+      int pivot = i;
+      for (int j = i + 1; j < n; j++) {
+        if (ac[j][i].abs() > ac[pivot][i].abs()) {
+          pivot = j;
+        }
+      }
+
+      if (pivot != i) {
+        final tempA = ac[i];
+        ac[i] = ac[pivot];
+        ac[pivot] = tempA;
+
+        final tempB = bc[i];
+        bc[i] = bc[pivot];
+        bc[pivot] = tempB;
+      }
+
+      if (ac[i][i].abs() < 1e-9) {
+        continue;
+      }
+
+      for (int j = i + 1; j < n; j++) {
+        final factor = ac[j][i] / ac[i][i];
+        for (int k = i; k < n; k++) {
+          ac[j][k] -= factor * ac[i][k];
+        }
+        for (int k = 0; k < 3; k++) {
+          bc[j][k] -= factor * bc[i][k];
+        }
+      }
+    }
+
+    final x = List.generate(n, (_) => List<double>.filled(3, 0.0));
+    for (int i = n - 1; i >= 0; i--) {
+      if (ac[i][i].abs() < 1e-9) continue;
+      for (int k = 0; k < 3; k++) {
+        double sum = bc[i][k];
+        for (int j = i + 1; j < n; j++) {
+          sum -= ac[i][j] * x[j][k];
+        }
+        x[i][k] = sum / ac[i][i];
+      }
+    }
+
+    return x;
+  }
+}
+
+List<OklabColor> _extractTpsControlPoints(img.Image image) {
+  final sc = _downscale(image, 128);
+  var sumSL = 0.0, sumSA = 0.0, sumSB = 0.0; int sCount = 0;
+  var sumML = 0.0, sumMA = 0.0, sumMB = 0.0; int mCount = 0;
+  var sumHL = 0.0, sumHA = 0.0, sumHB = 0.0; int hCount = 0;
+  var sumWL = 0.0, sumWA = 0.0, sumWB = 0.0; int wCount = 0;
+
+  for (int y = 0; y < sc.height; y++) {
+    for (int x = 0; x < sc.width; x++) {
+      final px = sc.getPixel(x, y);
+      final rgb = RgbColor(px.rNormalized.toDouble(), px.gNormalized.toDouble(), px.bNormalized.toDouble());
+      final ok = rgbToOklab(rgb);
+
+      if (ok.l < 0.35) {
+        sumSL += ok.l; sumSA += ok.a; sumSB += ok.b; sCount++;
+      } else if (ok.l < 0.65) {
+        sumML += ok.l; sumMA += ok.a; sumMB += ok.b; mCount++;
+      } else {
+        sumHL += ok.l; sumHA += ok.a; sumHB += ok.b; hCount++;
+      }
+
+      if (ok.l > 0.4 && ok.l < 0.8 && ok.a > 0.02 && ok.b > 0.02) {
+        sumWL += ok.l; sumWA += ok.a; sumWB += ok.b; wCount++;
+      }
+    }
+  }
+
+  return [
+    sCount > 5 ? OklabColor(sumSL / sCount, sumSA / sCount, sumSB / sCount) : const OklabColor(0.15, 0.0, 0.0),
+    mCount > 5 ? OklabColor(sumML / mCount, sumMA / mCount, sumMB / mCount) : const OklabColor(0.50, 0.0, 0.0),
+    hCount > 5 ? OklabColor(sumHL / hCount, sumHA / hCount, sumHB / hCount) : const OklabColor(0.85, 0.0, 0.0),
+    wCount > 5 ? OklabColor(sumWL / wCount, sumWA / wCount, sumWB / wCount) : const OklabColor(0.60, 0.06, 0.06),
+  ];
+}
+
+List<OklabColor> _fuseTpsControlPoints(List<List<OklabColor>> allPointsList) {
+  if (allPointsList.length == 1) return allPointsList.first;
+  final fused = <OklabColor>[];
+  for (int i = 0; i < 4; i++) {
+    double sumL = 0, sumA = 0, sumB = 0;
+    for (final list in allPointsList) {
+      sumL += list[i].l;
+      sumA += list[i].a;
+      sumB += list[i].b;
+    }
+    final len = allPointsList.length.toDouble();
+    fused.add(OklabColor(sumL / len, sumA / len, sumB / len));
+  }
+  return fused;
+}
+
+List<double> fitMonotonicCubicSpline(List<double> xs, List<double> ys) {
+  final n = xs.length;
+  final ms = List<double>.filled(n, 0.0);
+  final deltas = List<double>.filled(n - 1, 0.0);
+
+  for (int i = 0; i < n - 1; i++) {
+    deltas[i] = (ys[i + 1] - ys[i]) / (xs[i + 1] - xs[i]);
+  }
+
+  ms[0] = deltas[0];
+  for (int i = 1; i < n - 1; i++) {
+    ms[i] = (deltas[i - 1] + deltas[i]) * 0.5;
+  }
+  ms[n - 1] = deltas[n - 2];
+
+  for (int i = 0; i < n - 1; i++) {
+    if (deltas[i].abs() < 1e-9) {
+      ms[i] = 0.0;
+      ms[i + 1] = 0.0;
+    } else {
+      final alpha = ms[i] / deltas[i];
+      final beta = ms[i + 1] / deltas[i];
+      final mag = alpha * alpha + beta * beta;
+      if (mag > 9.0) {
+        final tau = 3.0 / math.sqrt(mag);
+        ms[i] = tau * alpha * deltas[i];
+        ms[i + 1] = tau * beta * deltas[i];
+      }
+    }
+  }
+
+  final curve = List<double>.filled(256, 0.0);
+  for (int x = 0; x < 256; x++) {
+    final xVal = x.toDouble();
+    int i = 0;
+    while (i < n - 2 && xs[i + 1] < xVal) {
+      i++;
+    }
+    final h = xs[i + 1] - xs[i];
+    final t = (xVal - xs[i]) / h;
+    
+    final h00 = 2 * t * t * t - 3 * t * t + 1;
+    final h10 = t * t * t - 2 * t * t + t;
+    final h01 = -2 * t * t * t + 3 * t * t;
+    final h11 = t * t * t - t * t;
+
+    curve[x] = h00 * ys[i] + h10 * h * ms[i] + h01 * ys[i + 1] + h11 * h * ms[i + 1];
+  }
+  return curve;
+}
+
+List<int> smoothCurveSpline(List<int> curve) {
+  final xs = [0.0, 32.0, 64.0, 96.0, 128.0, 160.0, 192.0, 224.0, 255.0];
+  final ys = xs.map((x) => curve[x.round()].toDouble()).toList();
+  final smoothed = fitMonotonicCubicSpline(xs, ys);
+  final out = List<int>.filled(256, 0);
+  for (int i = 0; i < 256; i++) {
+    out[i] = smoothed[i].round().clamp(0, 255);
+  }
+  return out;
+}
+
+({double strength, double size}) analyzeGrainParameters(img.Image image) {
+  final sc = _downscale(image, 256);
+  var sumDiff2 = 0.0;
+  int count = 0;
+  for (int y = 1; y < sc.height - 1; y += 2) {
+    for (int x = 1; x < sc.width - 1; x += 2) {
+      final px = sc.getPixel(x, y);
+      final l = 0.2126 * px.rNormalized + 0.7152 * px.gNormalized + 0.0722 * px.bNormalized;
+
+      final n1 = sc.getPixel(x - 1, y);
+      final n2 = sc.getPixel(x + 1, y);
+      final n3 = sc.getPixel(x, y - 1);
+      final n4 = sc.getPixel(x, y + 1);
+
+      final lB = (n1.rNormalized + n2.rNormalized + n3.rNormalized + n4.rNormalized) * 0.25;
+      final diff = (l - lB).abs();
+      
+      if (diff < 0.08) {
+        sumDiff2 += diff * diff;
+        count++;
+      }
+    }
+  }
+
+  final variance = count > 0 ? sumDiff2 / count : 0.0;
+  final strength = (math.sqrt(variance) * 800.0).clamp(0.0, 75.0);
+  final size = strength > 15.0 ? 1.4 : 1.1;
+
+  return (strength: strength, size: size);
+}
+
+_StyleProfile _fuseStyleProfiles(List<_StyleProfile> profiles) {
+  if (profiles.length == 1) return profiles.first;
+
+  double fuseValues(List<double> values) {
+    if (values.isEmpty) return 0.0;
+    if (values.length <= 2) {
+      return values.reduce((a, b) => a + b) / values.length;
+    }
+    double sum = 0.0;
+    for (final v in values) sum += v;
+    final mean = sum / values.length;
+    double variance = 0.0;
+    for (final v in values) {
+      variance += (v - mean) * (v - mean);
+    }
+    final stdDev = math.sqrt(variance / values.length);
+    if (stdDev < 1e-4) return mean;
+
+    final filtered = <double>[];
+    for (final v in values) {
+      if ((v - mean).abs() <= 1.5 * stdDev) {
+        filtered.add(v);
+      }
+    }
+    if (filtered.isEmpty) return mean;
+    return filtered.reduce((a, b) => a + b) / filtered.length;
+  }
+
+  List<int> fuseCurve(List<List<int>> curves) {
+    final result = List<int>.filled(256, 0);
+    for (int i = 0; i < 256; i++) {
+      final values = curves.map((c) => c[i].toDouble()).toList();
+      result[i] = fuseValues(values).round().clamp(0, 255);
+    }
+    _monotonic(result);
+    return result;
+  }
+
+  final rCurve = fuseCurve(profiles.map((p) => p.rCurve).toList());
+  final gCurve = fuseCurve(profiles.map((p) => p.gCurve).toList());
+  final bCurve = fuseCurve(profiles.map((p) => p.bCurve).toList());
+
+  _ZoneCast fuseZoneCast(List<_ZoneCast> casts) {
+    final nonZeroCasts = casts.where((c) => c.count > 0).toList();
+    if (nonZeroCasts.isEmpty) return _ZoneCast.zero;
+    final as = nonZeroCasts.map((c) => c.a).toList();
+    final bs = nonZeroCasts.map((c) => c.b).toList();
+    final counts = nonZeroCasts.map((c) => c.count.toDouble()).toList();
+    return _ZoneCast(
+      fuseValues(as),
+      fuseValues(bs),
+      (counts.reduce((a, b) => a + b) / counts.length).round(),
+    );
+  }
+
+  final shadowCast = fuseZoneCast(profiles.map((p) => p.shadowCast).toList());
+  final midtoneCast = fuseZoneCast(profiles.map((p) => p.midtoneCast).toList());
+  final highlightCast = fuseZoneCast(profiles.map((p) => p.highlightCast).toList());
+
+  final blueCastStrength = fuseValues(profiles.map((p) => p.blueCastStrength).toList());
+  final curveStrength = fuseValues(profiles.map((p) => p.curveStrength).toList());
+
+  return _StyleProfile(
+    rCurve: rCurve,
+    gCurve: gCurve,
+    bCurve: bCurve,
+    shadowCast: shadowCast,
+    midtoneCast: midtoneCast,
+    highlightCast: highlightCast,
+    blueCastStrength: blueCastStrength,
+    curveStrength: curveStrength,
+  );
+}
+
+_LabStyleProfile _fuseLabStyleProfiles(List<_LabStyleProfile> profiles) {
+  if (profiles.length == 1) return profiles.first;
+
+  double fuseValues(List<double> values) {
+    if (values.isEmpty) return 0.0;
+    if (values.length <= 2) {
+      return values.reduce((a, b) => a + b) / values.length;
+    }
+    double sum = 0.0;
+    for (final v in values) sum += v;
+    final mean = sum / values.length;
+    double variance = 0.0;
+    for (final v in values) {
+      variance += (v - mean) * (v - mean);
+    }
+    final stdDev = math.sqrt(variance / values.length);
+    if (stdDev < 1e-4) return mean;
+
+    final filtered = <double>[];
+    for (final v in values) {
+      if ((v - mean).abs() <= 1.5 * stdDev) {
+        filtered.add(v);
+      }
+    }
+    if (filtered.isEmpty) return mean;
+    return filtered.reduce((a, b) => a + b) / filtered.length;
+  }
+
+  final toneCurve = List<double>.filled(256, 0.0);
+  for (int i = 0; i < 256; i++) {
+    final values = profiles.map((p) => p.toneCurve[i]).toList();
+    toneCurve[i] = fuseValues(values);
+  }
+  for (int i = 1; i < toneCurve.length; i++) {
+    if (toneCurve[i] < toneCurve[i - 1]) toneCurve[i] = toneCurve[i - 1];
+  }
+
+  final meanL = fuseValues(profiles.map((p) => p.meanL).toList());
+  final contrastRatio = fuseValues(profiles.map((p) => p.contrastRatio).toList());
+  final satBoost = fuseValues(profiles.map((p) => p.satBoost).toList());
+  final castStrength = fuseValues(profiles.map((p) => p.castStrength).toList());
+  final neutralConfidence = fuseValues(profiles.map((p) => p.neutralConfidence).toList());
+
+  LabColor fuseLabColor(List<LabColor> colors) {
+    final ls = colors.map((c) => c.l).toList();
+    final as = colors.map((c) => c.a).toList();
+    final bs = colors.map((c) => c.b).toList();
+    return LabColor(
+      fuseValues(ls),
+      fuseValues(as),
+      fuseValues(bs),
+    );
+  }
+
+  final shadow = fuseLabColor(profiles.map((p) => p.shadow).toList());
+  final midtone = fuseLabColor(profiles.map((p) => p.midtone).toList());
+  final highlight = fuseLabColor(profiles.map((p) => p.highlight).toList());
+
+  return _LabStyleProfile(
+    toneCurve: toneCurve,
+    meanL: meanL,
+    contrastRatio: contrastRatio,
+    satBoost: satBoost,
+    castStrength: castStrength,
+    neutralConfidence: neutralConfidence,
+    shadow: shadow,
+    midtone: midtone,
+    highlight: highlight,
+  );
+}
+
+Uint8List buildCustomLutFromStyleImages(
+  List<img.Image> styleImages, {
+  int dim = customLutDim,
+  CustomLutProgressCallback? onProgress,
+}) {
+  if (styleImages.isEmpty) {
+    throw ArgumentError('styleImages cannot be empty');
+  }
+  if (styleImages.length == 1) {
+    return buildCustomLutFromStyleImage(styleImages.first, dim: dim, onProgress: onProgress);
+  }
+
+  onProgress?.call('style_analyze', 0.15);
+  final profiles = <_StyleProfile>[];
+  final labProfiles = <_LabStyleProfile>[];
+  final tpsCtrlPointsList = <List<OklabColor>>[];
+  final oklabStatsList = <OklabStats>[];
+
+  for (int i = 0; i < styleImages.length; i++) {
+    final progressStep = 0.15 + (i / styleImages.length) * 0.30;
+    onProgress?.call('style_analyze', progressStep);
+    
+    final profile = _analyzeStyle(styleImages[i]);
+    final smoothedProfile = _StyleProfile(
+      rCurve: smoothCurveSpline(profile.rCurve),
+      gCurve: smoothCurveSpline(profile.gCurve),
+      bCurve: smoothCurveSpline(profile.bCurve),
+      shadowCast: profile.shadowCast,
+      midtoneCast: profile.midtoneCast,
+      highlightCast: profile.highlightCast,
+      blueCastStrength: profile.blueCastStrength,
+      curveStrength: profile.curveStrength,
+    );
+    profiles.add(smoothedProfile);
+
+    final labProfile = _analyzeLabStyle(styleImages[i]);
+    final smoothedLabProfile = _LabStyleProfile(
+      toneCurve: fitMonotonicCubicSpline(
+        [0.0, 32.0, 64.0, 96.0, 128.0, 160.0, 192.0, 224.0, 255.0],
+        [0.0, 32.0, 64.0, 96.0, 128.0, 160.0, 192.0, 224.0, 255.0].map((x) => labProfile.toneCurve[x.round()]).toList(),
+      ),
+      meanL: labProfile.meanL,
+      contrastRatio: labProfile.contrastRatio,
+      satBoost: labProfile.satBoost,
+      castStrength: labProfile.castStrength,
+      neutralConfidence: labProfile.neutralConfidence,
+      shadow: labProfile.shadow,
+      midtone: labProfile.midtone,
+      highlight: labProfile.highlight,
+    );
+    labProfiles.add(smoothedLabProfile);
+
+    oklabStatsList.add(_analyzeOklabStats(styleImages[i]));
+    tpsCtrlPointsList.add(_extractTpsControlPoints(styleImages[i]));
+  }
+
+  onProgress?.call('lab_analyze', 0.45);
+  final fusedProfile = _fuseStyleProfiles(profiles);
+  final fusedLabProfile = _fuseLabStyleProfiles(labProfiles);
+  final fusedOklabStats = _fuseOklabStats(oklabStatsList);
+  final fusedDstPoints = _fuseTpsControlPoints(tpsCtrlPointsList);
+
+  final srcPoints = [
+    const OklabColor(0.15, 0.0, 0.0),
+    const OklabColor(0.50, 0.0, 0.0),
+    const OklabColor(0.85, 0.0, 0.0),
+    const OklabColor(0.60, 0.06, 0.06),
+  ];
+  final tps = Tps3D(srcPoints, fusedDstPoints);
+
+  onProgress?.call('lut_build', 0.50);
+  final total = dim * dim * dim;
+  final lutData = Uint16List(total * 3);
+  final maxIdx = (dim - 1).toDouble();
+  var lutIdx = 0;
+
+  for (int b = 0; b < dim; b++) {
+    if (b % 16 == 0) {
+      onProgress?.call('lut_build', 0.50 + b / dim * 0.36);
+    }
+    for (int g = 0; g < dim; g++) {
+      for (int r = 0; r < dim; r++) {
+        final original = RgbColor(r / maxIdx, g / maxIdx, b / maxIdx);
+        
+        final channelRgb = _applyChannelStyle(original, fusedProfile, fusedLabProfile);
+        final labRgb = _applyLabStyle(original, fusedLabProfile);
+        final blend = _labBlendWeight(fusedLabProfile.castStrength, fusedLabProfile.neutralConfidence);
+        final mixed = RgbColor(
+          channelRgb.r * (1.0 - blend) + labRgb.r * blend,
+          channelRgb.g * (1.0 - blend) + labRgb.g * blend,
+          channelRgb.b * (1.0 - blend) + labRgb.b * blend,
+        ).clamp01();
+
+        final okCov = applyOklabCovarianceStyle(original, fusedOklabStats);
+        final rgbCov = oklabToRgb(okCov);
+
+        final okOrig = rgbToOklab(original);
+        final okTps = tps.evaluate(okOrig);
+        final rgbTps = oklabToRgb(okTps);
+
+        final finalRgb = RgbColor(
+          mixed.r * 0.40 + rgbCov.r * 0.30 + rgbTps.r * 0.30,
+          mixed.g * 0.40 + rgbCov.g * 0.30 + rgbTps.g * 0.30,
+          mixed.b * 0.40 + rgbCov.b * 0.30 + rgbTps.b * 0.30,
+        ).clamp01();
+
+        final protected = _protectMemoryColors(original, finalRgb, fusedProfile);
+        
+        final strength = _styleStrength(fusedProfile, fusedLabProfile);
+        final outputRgb = RgbColor(
+          original.r * (1.0 - strength) + protected.r * strength,
+          original.g * (1.0 - strength) + protected.g * strength,
+          original.b * (1.0 - strength) + protected.b * strength,
+        ).clamp01();
+
+        lutData[lutIdx++] = floatToHalf(outputRgb.r);
+        lutData[lutIdx++] = floatToHalf(outputRgb.g);
+        lutData[lutIdx++] = floatToHalf(outputRgb.b);
+      }
+    }
+  }
+
+  return lutData.buffer.asUint8List();
+}
+
+OklabColor applyOklabCovarianceStyle(RgbColor rgb, OklabStats styleStats) {
+  final ok = rgbToOklab(rgb);
+  final lOut = (ok.l - 0.5) * (styleStats.stdL / 0.28) + styleStats.meanL;
+  final aOut = ok.a * (styleStats.stdA / 0.08) + styleStats.meanA;
+  final bOut = ok.b * (styleStats.stdB / 0.08) + styleStats.meanB;
+  return OklabColor(lOut.clamp(0.0, 1.0), aOut, bOut);
+}
+
+Map<String, double> inspectCustomLutStyles(List<img.Image> styleImages) {
+  if (styleImages.isEmpty) return {};
+  if (styleImages.length == 1) return inspectCustomLutStyle(styleImages.first);
+
+  final profiles = styleImages.map(_analyzeStyle).toList();
+  final labProfiles = styleImages.map(_analyzeLabStyle).toList();
+
+  final fusedProfile = _fuseStyleProfiles(profiles);
+  final fusedLabProfile = _fuseLabStyleProfiles(labProfiles);
+
+  return {
+    'neutralConfidence': fusedLabProfile.neutralConfidence,
+    'castStrength': fusedLabProfile.castStrength,
+    'blueCastStrength': fusedProfile.blueCastStrength,
+    'curveStrength': fusedProfile.curveStrength,
+    'styleStrength': _styleStrength(fusedProfile, fusedLabProfile),
+    'labBlendWeight': _labBlendWeight(fusedLabProfile.castStrength, fusedLabProfile.neutralConfidence),
+  };
+}
+
+

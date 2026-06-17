@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../ai/ai_manager.dart';
 import '../../core/l10n/app_locale.dart';
 import '../../core/l10n/strings.dart';
@@ -18,13 +19,34 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   int _versionTapCount = 0;
   ModelState _colorModelState = const ModelState(status: ModelStatus.notDownloaded);
+  String _exportFormat = 'jpeg';
 
   @override
   void initState() {
     super.initState();
     setStatusBarForDark();
     _refreshModelState();
+    _loadSettings();
     AiManager.instance.addListener(_onModelStateChanged);
+  }
+
+  Future<void> _loadSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (mounted) {
+      setState(() {
+        _exportFormat = prefs.getString('settings_export_format') ?? 'jpeg';
+      });
+    }
+  }
+
+  Future<void> _setExportFormat(String format) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('settings_export_format', format);
+    if (mounted) {
+      setState(() {
+        _exportFormat = format;
+      });
+    }
   }
 
   void _refreshModelState() {
@@ -134,6 +156,51 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
+  void _showExportFormatPicker() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.oceanMid,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 12),
+            Container(
+              width: 40, height: 4,
+              decoration: BoxDecoration(
+                color: AppColors.oceanNavy,
+                borderRadius: BorderRadius.circular(99),
+              ),
+            ),
+            const SizedBox(height: 16),
+            _buildFormatTile('jpeg', 'JPEG (Standard)'),
+            _buildFormatTile('png', 'PNG (Lossless)'),
+            _buildFormatTile('webp', 'WebP (Lossy 90%)'),
+            _buildFormatTile('raw', 'RAW (DNG 100% Meta Preservation)'),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFormatTile(String formatKey, String label) {
+    return ListTile(
+      leading: const Icon(Icons.check_rounded, color: Colors.transparent),
+      title: Text(label, style: const TextStyle(color: AppColors.textOnDark)),
+      trailing: _exportFormat == formatKey
+          ? const Icon(Icons.check_rounded, color: AppColors.oceanFoam)
+          : const SizedBox.shrink(),
+      onTap: () {
+        _setExportFormat(formatKey);
+        Navigator.pop(context);
+      },
+    );
+  }
+
   void _showLicenses() {
     showLicensePage(
       context: context,
@@ -236,6 +303,13 @@ class _SettingsPageState extends State<SettingsPage> {
                 title: S.get('settings.export_quality'),
                 subtitle: S.get('settings.export_quality_sub'),
                 onTap: null,
+              ),
+              const _Divider(),
+              _SettingRow(
+                icon: Icons.image_outlined,
+                title: S.get('settings.export_format'),
+                subtitle: _exportFormat.toUpperCase(),
+                onTap: () => _showExportFormatPicker(),
               ),
             ],
           ),

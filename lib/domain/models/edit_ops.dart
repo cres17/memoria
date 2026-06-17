@@ -20,7 +20,7 @@ class CropRect {
       );
 }
 
-enum ExportFormat { jpeg, png }
+enum ExportFormat { jpeg, png, webp, raw }
 
 class EditOps {
   final CropRect? cropRect;

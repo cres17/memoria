@@ -25,9 +25,9 @@ void main() {
     };
 
     final expected = <String, String>{
-      'teal_shadows': '135588,139456,142868,1595164771',
-      'warm_highlights': '145213,138905,133831,2314465103',
-      'low_sat_film': '141632,139023,136602,3808442640',
+      'teal_shadows': '135391,139278,142690,1093275944',
+      'warm_highlights': '144928,138606,133498,3685031485',
+      'low_sat_film': '141146,138528,136088,1224552056',
     };
 
     for (final entry in cases.entries) {

@@ -101,6 +101,63 @@ RgbColor _applyHslBands(RgbColor rgb, AdjustParams p) {
   return _hslToRgb(newH, newS, newL);
 }
 
+(double, double, double) _applyHslBandsFlat(double r, double g, double b, AdjustParams p) {
+  final hsl = _rgbToHsl(r, g, b);
+  final h = hsl.h;
+
+  const centers = [0.0, 30.0, 60.0, 120.0, 180.0, 240.0, 280.0, 320.0];
+  const bands = [
+    HslBand.red,
+    HslBand.orange,
+    HslBand.yellow,
+    HslBand.green,
+    HslBand.cyan,
+    HslBand.blue,
+    HslBand.purple,
+    HslBand.magenta
+  ];
+
+  double totalW = 0.0;
+  final weights = List<double>.filled(8, 0.0);
+  for (int i = 0; i < 8; i++) {
+    const double sigma = 35.0;
+    double d = (h - centers[i]).abs();
+    if (d > 180.0) d = 360.0 - d;
+    weights[i] = math.exp(-0.5 * d * d / (sigma * sigma));
+    totalW += weights[i];
+  }
+
+  if (totalW < 1e-6) return (r, g, b);
+
+  double dh = 0.0;
+  double ds = 0.0;
+  double dl = 0.0;
+  for (int i = 0; i < 8; i++) {
+    final bp = p.hsl[bands[i]] ?? HslBandParams.zero;
+    dh += weights[i] * bp.hue;
+    ds += weights[i] * bp.saturation;
+    dl += weights[i] * bp.luminance;
+  }
+  dh /= totalW;
+  ds = (ds / totalW) / 100.0;
+  dl = (dl / totalW) / 100.0;
+
+  final newH = (h + dh + 360.0) % 360.0;
+  final newS = (hsl.s + ds).clamp(0.0, 1.0);
+  final newL = (hsl.l + dl).clamp(0.0, 1.0);
+
+  final hNorm = newH / 360.0;
+  if (newS == 0.0) return (newL, newL, newL);
+  final q = newL < 0.5 ? newL * (1.0 + newS) : newL + newS - newL * newS;
+  final pVal = 2.0 * newL - q;
+  
+  final rOut = _hue2rgb(pVal, q, hNorm + 1.0 / 3.0).clamp(0.0, 1.0);
+  final gOut = _hue2rgb(pVal, q, hNorm).clamp(0.0, 1.0);
+  final bOut = _hue2rgb(pVal, q, hNorm - 1.0 / 3.0).clamp(0.0, 1.0);
+  
+  return (rOut, gOut, bOut);
+}
+
 // ── Split Toning ─────────────────────────────────────────────
 
 RgbColor _applySplitToning(RgbColor rgb, AdjustParams p) {
@@ -134,6 +191,38 @@ RgbColor _applySplitToning(RgbColor rgb, AdjustParams p) {
   return RgbColor(r, g, b);
 }
 
+(double, double, double) _applySplitToningFlat(double rIn, double gIn, double bIn, AdjustParams p) {
+  final lum = 0.2126 * rIn + 0.7152 * gIn + 0.0722 * bIn;
+  final splitPoint = 0.5 + p.splitBalance / 200.0;
+
+  final double denomShadow = splitPoint > 1e-4 ? splitPoint : 1e-4;
+  final shadowW = 1.0 - (lum / denomShadow).clamp(0.0, 1.0);
+  
+  final double denomHigh = (1.0 - splitPoint) > 1e-4 ? (1.0 - splitPoint) : 1e-4;
+  final highW = ((lum - splitPoint) / denomHigh).clamp(0.0, 1.0);
+
+  var r = rIn;
+  var g = gIn;
+  var b = bIn;
+
+  if (p.splitShadowSat > 0.0 && shadowW > 1e-4) {
+    final hRad = p.splitShadowHue * math.pi / 180.0;
+    final str = p.splitShadowSat / 100.0 * shadowW;
+    r = (r + str * math.cos(hRad) * 0.5).clamp(0.0, 1.0);
+    g = (g + str * math.cos(hRad - 2.094) * 0.5).clamp(0.0, 1.0);
+    b = (b + str * math.cos(hRad + 2.094) * 0.5).clamp(0.0, 1.0);
+  }
+  if (p.splitHighSat > 0.0 && highW > 1e-4) {
+    final hRad = p.splitHighHue * math.pi / 180.0;
+    final str = p.splitHighSat / 100.0 * highW;
+    r = (r + str * math.cos(hRad) * 0.5).clamp(0.0, 1.0);
+    g = (g + str * math.cos(hRad - 2.094) * 0.5).clamp(0.0, 1.0);
+    b = (b + str * math.cos(hRad + 2.094) * 0.5).clamp(0.0, 1.0);
+  }
+  return (r, g, b);
+}
+
+
 // ─────────────────────────────────────────────────────────
 //  Image-level pipeline (full img.Image in → img.Image out)
 // ─────────────────────────────────────────────────────────
@@ -155,33 +244,34 @@ img.Image applyImagePipeline({
       : null;
 
   final decodedLutToUse = effectiveLut ?? tryDecodeCustomLut(lutBytes);
+  final BakedCurveLuts luts = bakedLuts ?? bakeCurveLuts(params);
 
-  for (int y = 0; y < image.height; y++) {
-    for (int x = 0; x < image.width; x++) {
-      final px   = image.getPixel(x, y);
-      final orig = RgbColor(
-        px.rNormalized.toDouble(),
-        px.gNormalized.toDouble(),
-        px.bNormalized.toDouble(),
-      );
-      
-      var result = applyAdjustParams(orig, params, bakedLuts: bakedLuts);
+  final imageIterator = image.iterator;
+  for (final frame in output.frames) {
+    for (final pixel in frame) {
+      if (imageIterator.moveNext()) {
+        final inputPixel = imageIterator.current;
+        final double origR = inputPixel.rNormalized.toDouble();
+        final double origG = inputPixel.gNormalized.toDouble();
+        final double origB = inputPixel.bNormalized.toDouble();
 
-      if (decodedLutToUse != null) {
-        result = applyDecodedCustomLut(decodedLutToUse, result);
+        var (r, g, b) = applyAdjustParamsFlat(origR, origG, origB, params, bakedLuts: luts);
+
+        if (decodedLutToUse != null) {
+          final lutRes = applyDecodedCustomLutFlat(decodedLutToUse, r, g, b);
+          r = lutRes.$1;
+          g = lutRes.$2;
+          b = lutRes.$3;
+        }
+
+        r = origR * (1.0 - intensity) + r * intensity;
+        g = origG * (1.0 - intensity) + g * intensity;
+        b = origB * (1.0 - intensity) + b * intensity;
+
+        pixel.r = r * pixel.maxChannelValue;
+        pixel.g = g * pixel.maxChannelValue;
+        pixel.b = b * pixel.maxChannelValue;
       }
-
-      result = RgbColor(
-        orig.r * (1 - intensity) + result.r * intensity,
-        orig.g * (1 - intensity) + result.g * intensity,
-        orig.b * (1 - intensity) + result.b * intensity,
-      ).clamp01();
-
-      output.setPixelRgb(x, y,
-        (result.r * 255).round(),
-        (result.g * 255).round(),
-        (result.b * 255).round(),
-      );
     }
   }
 
@@ -684,16 +774,19 @@ const int _dim = customLutDim;
 typedef LutProgressCallback = void Function(String stage, double progress);
 
 Future<Map<String, dynamic>> generateLutFromStyle(
-  String styleImagePath, {
+  List<String> styleImagePaths, {
   String? basePath,
   LutProgressCallback? onProgress,
 }) async {
-  if (AiManager.instance.colorTransferReady) {
+  if (styleImagePaths.isEmpty) {
+    throw ArgumentError('styleImagePaths cannot be empty');
+  }
+  if (styleImagePaths.length == 1 && AiManager.instance.colorTransferReady) {
     try {
-      return await _generateLutNeural(styleImagePath, basePath: basePath, onProgress: onProgress);
+      return await _generateLutNeural(styleImagePaths.first, basePath: basePath, onProgress: onProgress);
     } catch (_) {}
   }
-  return _generateLutAlgorithmic(styleImagePath, basePath: basePath, onProgress: onProgress);
+  return _generateLutAlgorithmic(styleImagePaths, basePath: basePath, onProgress: onProgress);
 }
 
 Future<Map<String, dynamic>> _generateLutNeural(
@@ -730,17 +823,24 @@ Future<Map<String, dynamic>> _generateLutNeural(
   final thumbPath = '${dir.path}/thumbnail.jpg';
   File(thumbPath).writeAsBytesSync(img.encodeJpg(thumb, quality: 80));
 
+  final grain = analyzeGrainParameters(image);
+
+  final defaultParams = AdjustParams.zero.copyWith(
+    grainStrength: grain.strength,
+    grainSize: grain.size,
+  );
+
   onProgress?.call('saving', 0.96);
   return {
     'presetId':      id,
     'lutPath':       lutPath,
     'thumbnailPath': thumbPath,
-    'defaultParams': AdjustParams.zero.toJson(),
+    'defaultParams': defaultParams.toJson(),
   };
 }
 
 Future<Map<String, dynamic>> _generateLutAlgorithmic(
-  String styleImagePath, {
+  List<String> styleImagePaths, {
   String? basePath,
   LutProgressCallback? onProgress,
 }) async {
@@ -752,24 +852,50 @@ Future<Map<String, dynamic>> _generateLutAlgorithmic(
   final dir   = Directory('${base.path}/filters/$id')
     ..createSync(recursive: true);
 
-  final bytes   = File(styleImagePath).readAsBytesSync();
-  final image   = img.decodeImage(bytes)!;
-  final lutBytes = buildCustomLutFromStyleImage(image, onProgress: onProgress);
+  final images = <img.Image>[];
+  for (final path in styleImagePaths) {
+    final bytes = File(path).readAsBytesSync();
+    final decoded = img.decodeImage(bytes);
+    if (decoded != null) {
+      images.add(decoded);
+    }
+  }
+
+  if (images.isEmpty) {
+    throw Exception('Failed to decode any style images');
+  }
+
+  final lutBytes = buildCustomLutFromStyleImages(images, onProgress: onProgress);
 
   onProgress?.call('thumbnail', 0.90);
   final lutPath = '${dir.path}/lut.bin';
   File(lutPath).writeAsBytesSync(lutBytes);
 
-  final thumb     = img.copyResizeCropSquare(image, size: 128);
+  final thumb     = img.copyResizeCropSquare(images.first, size: 128);
   final thumbPath = '${dir.path}/thumbnail.jpg';
   File(thumbPath).writeAsBytesSync(img.encodeJpg(thumb, quality: 80));
+
+  var grainStr = 0.0;
+  var grainSz = 1.0;
+  for (final img in images) {
+    final grain = analyzeGrainParameters(img);
+    grainStr += grain.strength;
+    grainSz += grain.size;
+  }
+  grainStr /= images.length;
+  grainSz /= images.length;
+
+  final defaultParams = AdjustParams.zero.copyWith(
+    grainStrength: grainStr,
+    grainSize: grainSz,
+  );
 
   onProgress?.call('saving', 0.96);
   return {
     'presetId':      id,
     'lutPath':       lutPath,
     'thumbnailPath': thumbPath,
-    'defaultParams': AdjustParams.zero.toJson(),
+    'defaultParams': defaultParams.toJson(),
   };
 }
 
@@ -911,6 +1037,142 @@ RgbColor applyAdjustParams(
 
   return RgbColor(r.toDouble(), g.toDouble(), b.toDouble()).clamp01();
 }
+
+(double, double, double) applyAdjustParamsFlat(
+  double rIn, double gIn, double bIn,
+  AdjustParams p, {
+  BakedCurveLuts? bakedLuts,
+}) {
+  var r = rIn * math.pow(2.0, p.exposure);
+  var g = gIn * math.pow(2.0, p.exposure);
+  var b = bIn * math.pow(2.0, p.exposure);
+
+  if (p.contrast != 0) {
+    final factor = (259.0 * (p.contrast + 255)) / (255.0 * (259 - p.contrast));
+    r = factor * (r - 0.5) + 0.5;
+    g = factor * (g - 0.5) + 0.5;
+    b = factor * (b - 0.5) + 0.5;
+  }
+
+  if (p.saturation != 0) {
+    final lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    final s   = 1.0 + p.saturation / 100.0;
+    r = lum + (r - lum) * s;
+    g = lum + (g - lum) * s;
+    b = lum + (b - lum) * s;
+  }
+
+  if (p.hasHsl) {
+    final hslAdjusted = _applyHslBandsFlat(r.clamp(0.0, 1.0), g.clamp(0.0, 1.0), b.clamp(0.0, 1.0), p);
+    r = hslAdjusted.$1;
+    g = hslAdjusted.$2;
+    b = hslAdjusted.$3;
+  }
+
+  if (p.hasSplitToning) {
+    final splitAdjusted = _applySplitToningFlat(r.clamp(0.0, 1.0), g.clamp(0.0, 1.0), b.clamp(0.0, 1.0), p);
+    r = splitAdjusted.$1;
+    g = splitAdjusted.$2;
+    b = splitAdjusted.$3;
+  }
+
+  if (p.temperature != 0) {
+    r += p.temperature / 1000.0;
+    b -= p.temperature / 1000.0;
+  }
+  if (p.tint != 0) {
+    g += p.tint / 1000.0;
+    r -= p.tint / 2000.0;
+  }
+
+  if (p.highlights != 0) {
+    final lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    final mask = (lum - 0.5).clamp(0.0, 0.5) * 2.0;
+    final adj  = p.highlights / 100.0 * mask * 0.5;
+    r += adj; g += adj; b += adj;
+  }
+  if (p.shadows != 0) {
+    final lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    final mask = (0.5 - lum).clamp(0.0, 0.5) * 2.0;
+    final adj  = p.shadows / 100.0 * mask * 0.5;
+    r += adj; g += adj; b += adj;
+  }
+
+  if (p.ambiance != 0) {
+    final lum = (0.2126 * r + 0.7152 * g + 0.0722 * b).clamp(0.0, 1.0);
+    final a = p.ambiance / 100.0;
+    final shadowMask = (1.0 - lum) * (1.0 - lum);
+    final highlightMask = lum * lum;
+    final brightAdj = a * (0.22 * shadowMask - 0.15 * highlightMask);
+    r += brightAdj;
+    g += brightAdj;
+    b += brightAdj;
+    final satMask = 4.0 * lum * (1.0 - lum);
+    final satFactor = 1.0 + a * 0.35 * satMask;
+    final newLum = (0.2126 * r + 0.7152 * g + 0.0722 * b).clamp(0.0, 1.0);
+    r = newLum + (r - newLum) * satFactor;
+    g = newLum + (g - newLum) * satFactor;
+    b = newLum + (b - newLum) * satFactor;
+  }
+
+  if (p.hasCurves) {
+    final luts = bakedLuts ?? bakeCurveLuts(p);
+
+    r = luts.rgbMaster[(r.clamp(0.0, 1.0) * 255.0).round()] / 255.0;
+    g = luts.rgbMaster[(g.clamp(0.0, 1.0) * 255.0).round()] / 255.0;
+    b = luts.rgbMaster[(b.clamp(0.0, 1.0) * 255.0).round()] / 255.0;
+
+    r = luts.red[(r.clamp(0.0, 1.0) * 255.0).round()] / 255.0;
+    g = luts.green[(g.clamp(0.0, 1.0) * 255.0).round()] / 255.0;
+    b = luts.blue[(b.clamp(0.0, 1.0) * 255.0).round()] / 255.0;
+
+    if (p.luminanceCurve != null && !p.luminanceCurve!.isLinear) {
+      final lab  = rgbToLab(RgbColor(r.clamp(0.0,1.0), g.clamp(0.0,1.0), b.clamp(0.0,1.0)));
+      final lNew = luts.luminance[(lab.l / 100.0 * 255.0).round().clamp(0, 255)] / 255.0 * 100.0;
+      final rgb2 = labToRgb(LabColor(lNew, lab.a, lab.b));
+      r = rgb2.r; g = rgb2.g; b = rgb2.b;
+    }
+  }
+
+  if (p.tonalShadows != 0 || p.tonalMidtones != 0 || p.tonalHighlights != 0) {
+    final lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+
+    double sCurve(double v, double strength) {
+      final f = strength / 100.0;
+      return v + f * v * (1 - v) * 2.0;
+    }
+
+    double gw(double l, double center) {
+      const sigma = 0.2;
+      final d = l - center;
+      return math.exp(-0.5 * d * d / (sigma * sigma));
+    }
+    final ws = gw(lum, 0.15);
+    final wm = gw(lum, 0.5);
+    final wh = gw(lum, 0.85);
+    final wTotal = ws + wm + wh + 1e-10;
+
+    final adj = (ws * sCurve(lum, p.tonalShadows) +
+                 wm * sCurve(lum, p.tonalMidtones) +
+                 wh * sCurve(lum, p.tonalHighlights)) / wTotal - lum;
+    r = (r + adj).clamp(0.0, 1.0);
+    g = (g + adj).clamp(0.0, 1.0);
+    b = (b + adj).clamp(0.0, 1.0);
+  }
+
+  if (p.bnwEnabled) {
+    final wr = 0.299 + p.bnwRed    / 100.0 * 0.3;
+    final wg = 0.587 + p.bnwGreen  / 100.0 * 0.3;
+    final wb = 0.114 + p.bnwBlue   / 100.0 * 0.3;
+    final wy =         p.bnwYellow / 100.0 * 0.2;
+    final L  = (r * wr + g * wg + b * wb + (r + g) / 2.0 * wy)
+        .clamp(0.0, 1.0);
+    r = L; g = L; b = L;
+  }
+
+  return (r.clamp(0.0, 1.0), g.clamp(0.0, 1.0), b.clamp(0.0, 1.0));
+}
+
 
 RgbColor applyPipeline({
   required RgbColor original,
