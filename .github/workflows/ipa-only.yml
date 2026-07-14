@@ -63,7 +63,25 @@ jobs:
       - name: Build unsigned IPA
         run: |
           set -o pipefail
-          flutter build ipa --no-codesign --release --verbose 2>&1 | tee build_ipa_verbose.log
+          xcodebuild \
+            -workspace ios/Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build/ios/derivedData \
+            SYMROOT="$PWD/build/ios" \
+            OBJROOT="$PWD/build/ios/obj" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            build 2>&1 | tee build_ipa_verbose.log
+
+          rm -rf build/ios/ipa/Payload
+          mkdir -p build/ios/ipa/Payload
+          cp -R build/ios/Release-iphoneos/Runner.app build/ios/ipa/Payload/
+          (cd build/ios/ipa && zip -qry memoria-unsigned.ipa Payload)
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
