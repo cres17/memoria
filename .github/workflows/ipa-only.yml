@@ -60,10 +60,20 @@ jobs:
       - name: Check Flutter environment
         run: flutter doctor -v || true
 
-      - name: Build unsigned IPA
+      - name: Build unsigned iOS app
         run: |
           set -o pipefail
-          flutter build ipa --no-codesign --release --verbose 2>&1 | tee build_ipa_verbose.log
+          flutter build ios --no-codesign --release --verbose 2>&1 | tee build_ipa_verbose.log
+
+      - name: Package unsigned IPA
+        run: |
+          set -euo pipefail
+          rm -rf build/ios/ipa/Payload
+          mkdir -p build/ios/ipa/Payload
+          cp -R build/ios/iphoneos/Runner.app build/ios/ipa/Payload/
+          pushd build/ios/ipa
+          ditto -c -k --sequesterRsrc --keepParent Payload memoria-unsigned.ipa
+          popd
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
