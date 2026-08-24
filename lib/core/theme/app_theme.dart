@@ -38,7 +38,7 @@ class AppTheme {
           letterSpacing: -0.3,
         ),
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: AppColors.oceanMid,
         elevation: 0,
         shape: RoundedRectangleBorder(
@@ -188,7 +188,7 @@ class AppTheme {
           color: AppColors.oceanFoam,
         ),
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: AppColors.cloudWhite,
         elevation: 0,
         shadowColor: AppColors.cloudMist,

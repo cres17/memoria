@@ -5,6 +5,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
 import 'package:memoria/engine/color_utils.dart';
 import 'package:memoria/engine/custom_lut_core.dart';
 
@@ -38,6 +39,59 @@ Uint8List _makeConstantLut(double r, double g, double b) {
     lut[i + 2] = floatToHalf(b);
   }
   return lut.buffer.asUint8List();
+}
+
+img.Image _solidImage(int r, int g, int b) {
+  final image = img.Image(width: 32, height: 32);
+  for (var y = 0; y < image.height; y++) {
+    for (var x = 0; x < image.width; x++) {
+      image.setPixelRgb(x, y, r, g, b);
+    }
+  }
+  return image;
+}
+
+img.Image _warmSceneImage({required int exposureOffset, required bool invert}) {
+  final image = img.Image(width: 32, height: 32);
+  for (var y = 0; y < image.height; y++) {
+    for (var x = 0; x < image.width; x++) {
+      final position = invert ? image.width - 1 - x : x;
+      final luminance =
+          (45 + position * 5 + y * 2 + exposureOffset).clamp(0, 190).toInt();
+      image.setPixelRgb(
+        x,
+        y,
+        (luminance + 45).clamp(0, 255),
+        (luminance + 12).clamp(0, 255),
+        (luminance - 25).clamp(0, 255),
+      );
+    }
+  }
+  return image;
+}
+
+img.Image _saturatedReferenceImage() {
+  final image = img.Image(width: 48, height: 48);
+  for (var y = 0; y < image.height; y++) {
+    for (var x = 0; x < image.width; x++) {
+      if (x < 16) {
+        image.setPixelRgb(x, y, 215, 62, 35);
+      } else if (x < 32) {
+        image.setPixelRgb(x, y, 40, 105, 220);
+      } else {
+        image.setPixelRgb(x, y, 225, 176, 68);
+      }
+    }
+  }
+  return image;
+}
+
+double _chroma(RgbColor color) {
+  final maxChannel =
+      [color.r, color.g, color.b].reduce((a, b) => a > b ? a : b);
+  final minChannel =
+      [color.r, color.g, color.b].reduce((a, b) => a < b ? a : b);
+  return maxChannel - minChannel;
 }
 
 void main() {
@@ -200,6 +254,100 @@ void main() {
       expect((o1.r - o2.r).abs(), lessThan(0.005));
       expect((o1.g - o2.g).abs(), lessThan(0.005));
       expect((o1.b - o2.b).abs(), lessThan(0.005));
+    });
+  });
+
+  group('generated LUT safety constraints', () {
+    test('identity LUT passes the safety inspection', () {
+      final report = inspectCustomLutSafety(buildIdentityCustomLut());
+
+      expect(report.isSafe, isTrue);
+      expect(report.interiorClipRatio, lessThan(0.001));
+      expect(report.neutralInversions, 0);
+      expect(report.neutralLuminanceRange, greaterThan(0.9));
+    });
+
+    test('collapsed LUT is attenuated toward identity before persistence', () {
+      final collapsed = _makeConstantLut(0.5, 0.5, 0.5);
+      expect(inspectCustomLutSafety(collapsed).isSafe, isFalse);
+
+      final constrained = constrainCustomLut(collapsed);
+
+      expect(constrained.report.isSafe, isTrue);
+      expect(constrained.appliedStrength, lessThan(1.0));
+      expect(constrained.fallbackReason, 'lut_safety_strength_reduced');
+      expect(constrained.report.primaryMinChroma, greaterThan(0.05));
+    });
+
+    test('malformed LUT falls back to a safe identity LUT', () {
+      final constrained = constrainCustomLut(Uint8List(16));
+
+      expect(constrained.appliedStrength, 0.0);
+      expect(constrained.fallbackReason, 'lut_safety_identity_fallback');
+      expect(constrained.report.isSafe, isTrue);
+    });
+
+    test('generated color LUT does not collapse saturated primaries to gray',
+        () {
+      final candidate =
+          buildCustomLutFromStyleImage(_saturatedReferenceImage());
+      final constrained = constrainCustomLut(candidate);
+      final blue = applyCustomLut(
+        constrained.bytes,
+        const RgbColor(0.05, 0.25, 0.95),
+      );
+      final red = applyCustomLut(
+        constrained.bytes,
+        const RgbColor(0.95, 0.15, 0.08),
+      );
+
+      expect(constrained.report.isSafe, isTrue);
+      expect(_chroma(blue), greaterThan(0.10));
+      expect(_chroma(red), greaterThan(0.10));
+    });
+  });
+
+  group('reference fusion diagnostics', () {
+    test('keeps a shared look across differently composed scenes', () {
+      final diagnostics = inspectReferenceFusion([
+        _warmSceneImage(exposureOffset: -12, invert: false),
+        _warmSceneImage(exposureOffset: 0, invert: true),
+        _warmSceneImage(exposureOffset: 14, invert: false),
+      ]);
+
+      expect(diagnostics.inputReferenceCount, 3);
+      expect(diagnostics.usedReferenceCount, 3);
+      expect(diagnostics.confidence, greaterThan(0.60));
+    });
+
+    test('excludes a style outlier when three or more references agree', () {
+      final warm = _solidImage(210, 150, 100);
+      final coolOutlier = _solidImage(25, 70, 225);
+
+      final diagnostics = inspectReferenceFusion([
+        warm,
+        _solidImage(210, 150, 100),
+        _solidImage(210, 150, 100),
+        _solidImage(210, 150, 100),
+        coolOutlier,
+      ]);
+
+      expect(diagnostics.inputReferenceCount, 5);
+      expect(diagnostics.usedReferenceCount, 4);
+      expect(diagnostics.excludedReferenceCount, 1);
+      expect(diagnostics.confidence, greaterThan(0.75));
+    });
+
+    test('keeps both references when exactly two looks disagree', () {
+      final diagnostics = inspectReferenceFusion([
+        _solidImage(210, 150, 100),
+        _solidImage(25, 70, 225),
+      ]);
+
+      expect(diagnostics.inputReferenceCount, 2);
+      expect(diagnostics.usedReferenceCount, 2);
+      expect(diagnostics.excludedReferenceCount, 0);
+      expect(diagnostics.confidence, lessThan(1.0));
     });
   });
 }

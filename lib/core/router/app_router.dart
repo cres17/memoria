@@ -1,4 +1,6 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../features/home/home_page.dart';
 import '../../features/editor/editor_page.dart';
@@ -9,13 +11,28 @@ import '../../features/settings/dev_panel_page.dart';
 import '../../features/splash/splash_page.dart';
 import '../shell/main_shell.dart';
 
+Page<void> _adaptivePage(GoRouterState state, Widget child) {
+  if (defaultTargetPlatform == TargetPlatform.iOS) {
+    return CupertinoPage<void>(
+      key: state.pageKey,
+      name: state.name,
+      child: child,
+    );
+  }
+  return MaterialPage<void>(
+    key: state.pageKey,
+    name: state.name,
+    child: child,
+  );
+}
+
 final appRouter = GoRouter(
   initialLocation: '/splash',
   routes: [
     GoRoute(
       path: '/splash',
       name: 'splash',
-      builder: (context, state) => const SplashPage(),
+      pageBuilder: (context, state) => _adaptivePage(state, const SplashPage()),
     ),
     ShellRoute(
       builder: (context, state, child) => MainShell(child: child),
@@ -35,32 +52,37 @@ final appRouter = GoRouter(
     GoRoute(
       path: '/editor',
       name: 'editor',
-      builder: (context, state) {
+      pageBuilder: (context, state) {
         final extra = state.extra;
         if (extra is Map<String, String?>) {
-          return EditorPage(
-            imagePath: extra['imagePath'],
-            initialPresetId: extra['presetId'],
-          );
+          return _adaptivePage(
+              state,
+              EditorPage(
+                imagePath: extra['imagePath'],
+                initialPresetId: extra['presetId'],
+              ));
         }
-        return EditorPage(imagePath: extra as String?);
+        return _adaptivePage(state, EditorPage(imagePath: extra as String?));
       },
     ),
     GoRoute(
       path: '/create-filter',
       name: 'createFilter',
-      builder: (context, state) => const CreateFilterPage(),
+      pageBuilder: (context, state) =>
+          _adaptivePage(state, const CreateFilterPage()),
     ),
     GoRoute(
       path: '/settings',
       name: 'settings',
-      builder: (context, state) => const SettingsPage(),
+      pageBuilder: (context, state) =>
+          _adaptivePage(state, const SettingsPage()),
     ),
     if (kDebugMode)
       GoRoute(
         path: '/dev-panel',
         name: 'devPanel',
-        builder: (context, state) => const DevPanelPage(),
+        pageBuilder: (context, state) =>
+            _adaptivePage(state, const DevPanelPage()),
       ),
   ],
 );

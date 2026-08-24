@@ -1,10 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:image_picker/image_picker.dart';
-import 'package:permission_handler/permission_handler.dart';
 import '../../features/create_filter/create_filter_page.dart'
-    show kPhotoFilterGenerationEnabled;
-import '../l10n/strings.dart';
+    show kPhotoFilterGenerationEnabled, kPhotoFilterGenerationIsBeta;
 import '../theme/app_colors.dart';
 import '../utils/platform_utils.dart';
 
@@ -33,26 +30,6 @@ class MainShell extends StatelessWidget {
 class _BottomNav extends StatelessWidget {
   final int currentIndex;
   const _BottomNav({required this.currentIndex});
-
-  Future<void> _pickAndEdit(BuildContext context) async {
-    hapticMedium();
-    final status = await Permission.photos.request();
-    if (!status.isGranted) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(S.get('permission.photos_denied')),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-      return;
-    }
-    final xFile = await ImagePicker().pickImage(source: ImageSource.gallery);
-    if (xFile != null && context.mounted) {
-      context.pushNamed('editor', extra: xFile.path);
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -87,7 +64,7 @@ class _BottomNav extends StatelessWidget {
               _NavItem(
                 icon: Icons.add_circle_outline_rounded,
                 selectedIcon: Icons.add_circle_rounded,
-                label: 'CREATE',
+                label: kPhotoFilterGenerationIsBeta ? 'CREATE β' : 'CREATE',
                 selected: currentIndex == 1,
                 onTap: () => context.pushNamed('createFilter'),
               ),
@@ -96,7 +73,10 @@ class _BottomNav extends StatelessWidget {
               selectedIcon: Icons.tune_rounded,
               label: 'EDIT',
               selected: currentIndex == 2,
-              onTap: () => _pickAndEdit(context),
+              onTap: () {
+                hapticMedium();
+                context.pushNamed('editor');
+              },
             ),
             _NavItem(
               icon: Icons.photo_library_outlined,

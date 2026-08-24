@@ -60,7 +60,9 @@ void main() {
       }
     });
 
-    test('pattern variation: different seeds produce different grain distributions', () {
+    test(
+        'pattern variation: different seeds produce different grain distributions',
+        () {
       final original = createTestImage();
       const params1 = AdjustParams(
         grainStrength: 45.0,
@@ -88,7 +90,8 @@ void main() {
       }
 
       // Most pixels should be different since the random distribution changes with seed
-      expect(differenceCount, greaterThan(original.width * original.height * 0.8));
+      expect(
+          differenceCount, greaterThan(original.width * original.height * 0.8));
     });
 
     test('intensity: higher strength results in larger pixel deviations', () {
@@ -123,6 +126,31 @@ void main() {
       final highDev = getMeanAbsoluteDeviation(original, outHigh);
 
       expect(highDev, greaterThan(lowDev * 3.0));
+    });
+
+    test('grain visibly changes pixels while preserving alpha', () {
+      final original = img.Image(width: 32, height: 32, numChannels: 4);
+      for (var y = 0; y < original.height; y++) {
+        for (var x = 0; x < original.width; x++) {
+          original.setPixelRgba(x, y, 128, 128, 128, 111 + (x % 5));
+        }
+      }
+      final output = applyImagePipeline(
+        image: original,
+        params: const AdjustParams(
+          grainStrength: 60,
+          grainSize: 1.4,
+          grainSeed: 77,
+        ),
+      );
+      var changed = 0;
+      for (var y = 0; y < original.height; y++) {
+        for (var x = 0; x < original.width; x++) {
+          if (output.getPixel(x, y).r != original.getPixel(x, y).r) changed++;
+          expect(output.getPixel(x, y).a, original.getPixel(x, y).a);
+        }
+      }
+      expect(changed, greaterThan(original.width * original.height * 0.8));
     });
   });
 }

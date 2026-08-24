@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
@@ -20,11 +21,13 @@ class TextRasterizer {
     required Color color,
     required double textX,
     required double textY,
+    required double rotationDegrees,
     required int imageWidth,
     required int imageHeight,
   }) async {
     final recorder = ui.PictureRecorder();
-    final canvas = Canvas(recorder, Rect.fromLTWH(0, 0, imageWidth.toDouble(), imageHeight.toDouble()));
+    final canvas = Canvas(recorder,
+        Rect.fromLTWH(0, 0, imageWidth.toDouble(), imageHeight.toDouble()));
 
     // Clear background to fully transparent
     canvas.drawColor(Colors.transparent, BlendMode.clear);
@@ -33,7 +36,8 @@ class TextRasterizer {
     // Standard reference height is 1080.0.
     final baseResolutionHeight = 1080.0;
     final scaleFactor = imageHeight / baseResolutionHeight;
-    final finalFontSize = (textSize * scaleFactor).clamp(4.0, imageHeight.toDouble());
+    final finalFontSize =
+        (textSize * scaleFactor).clamp(4.0, imageHeight.toDouble());
 
     final textStyle = TextStyle(
       fontFamily: fontFamily,
@@ -55,12 +59,16 @@ class TextRasterizer {
     // Position the text centered at (textX, textY)
     final baseX = imageWidth * textX;
     final baseY = imageHeight * textY;
-    final offset = Offset(
-      baseX - textPainter.width / 2,
-      baseY - textPainter.height / 2,
+    // Paint around the text centre so the visual preview and saved/exported
+    // image use the exact same position and rotation.
+    canvas.save();
+    canvas.translate(baseX, baseY);
+    canvas.rotate(rotationDegrees * math.pi / 180);
+    textPainter.paint(
+      canvas,
+      Offset(-textPainter.width / 2, -textPainter.height / 2),
     );
-
-    textPainter.paint(canvas, offset);
+    canvas.restore();
 
     final picture = recorder.endRecording();
     final img = await picture.toImage(imageWidth, imageHeight);

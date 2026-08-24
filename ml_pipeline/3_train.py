@@ -11,10 +11,14 @@ MobileNetV3-Small 인코더 + Progressive LUT Decoder (5³ → 65³)
 실행: python 3_train.py
 """
 
+import argparse
+import json
 import os
 import math
 import numpy as np
 from pathlib import Path
+import subprocess
+import sys
 
 import torch
 import torch.nn as nn
@@ -26,8 +30,9 @@ from PIL import Image
 from tqdm import tqdm
 
 # ── 설정 ──────────────────────────────────────────────
-DATASET_DIR   = "data/dataset"
-CHECKPOINT    = "checkpoints/color_transfer.pt"
+PIPELINE_DIR   = Path(__file__).resolve().parent
+DATASET_DIR    = PIPELINE_DIR / "data/dataset"
+CHECKPOINT     = PIPELINE_DIR / "checkpoints/color_transfer.pt"
 LUT_DIM       = 65          # 학습 및 저장 해상도
 DECODER_DIM   = 17          # 17³=4913 → 9³의 6.7배 정밀도
 BATCH_SIZE    = 4
@@ -37,29 +42,131 @@ WARMUP_STEPS  = 300
 VAL_RATIO     = 0.05
 N_COLOR_SAMPLES = 2000      # image-space loss용 무작위 색 샘플 수
 LAMBDA        = {"image": 1.0, "smooth": 0.05}  # image-space loss로 전환
+REQUIRED_LUT_KINDS = ("cube", "bin", "canon_clog2", "canon_clog3")
+SOURCE_GROUP_BY_KIND = {
+    "cube": "crawled",
+    "bin": "app",
+    "canon_clog2": "canon",
+    "canon_clog3": "canon",
+}
+REQUIRED_SOURCE_GROUPS = ("crawled", "app", "canon")
 
-os.makedirs("checkpoints", exist_ok=True)
+# Must match lib/ai/models/lut_predictor.dart.
+IMAGENET_MEAN = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
+IMAGENET_STD  = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
+
+os.makedirs(CHECKPOINT.parent, exist_ok=True)
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Device: {DEVICE}")
 
 
 # ── 데이터셋 ──────────────────────────────────────────
 class ColorTransferDataset(Dataset):
-    def __init__(self, root: str):
-        self.graded = sorted(Path(root, "graded").glob("*.jpg"))
-        self.luts   = sorted(Path(root, "luts").glob("*.bin"))
-        assert len(self.graded) == len(self.luts), \
-            f"graded({len(self.graded)}) ≠ luts({len(self.luts)})"
+    """Dataset generated from every required LUT source, tracked by manifest."""
+    def __init__(self, root: str, require_all_sources: bool = True,
+                 require_balanced_sources: bool = True):
+        root_path = Path(root)
+        manifest_path = root_path / "manifest.jsonl"
+        if not manifest_path.exists():
+            raise FileNotFoundError(
+                f"{manifest_path} 없음. `python 3_train.py --prepare-dataset --clean-dataset`으로 "
+                "통합 데이터셋을 새로 생성하세요."
+            )
+
+        self.samples = []
+        seen_ids = set()
+        for line_number, line in enumerate(manifest_path.read_text().splitlines(), start=1):
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+                sample_id = row["id"]
+                source_lut = row["sourceLut"]
+                lut_kind = row["lutKind"]
+                input_domain = row["inputDomain"]
+                sampling_group = row["samplingGroup"]
+                sampling_mode = row["samplingMode"]
+            except (json.JSONDecodeError, KeyError) as error:
+                raise ValueError(
+                    f"{manifest_path}:{line_number} 형식 오류 또는 이전 데이터셋입니다: {error}. "
+                    "`--prepare-dataset --clean-dataset`으로 Canon sRGB 합성 데이터셋을 재생성하세요."
+                ) from error
+
+            expected_domain = "srgb_composed" if lut_kind.startswith("canon_") else "srgb"
+            if input_domain != expected_domain:
+                raise ValueError(
+                    f"{manifest_path}:{line_number}의 {lut_kind} LUT 입력 도메인이 {input_domain!r}입니다. "
+                    f"{expected_domain!r} 데이터셋을 다시 생성하세요."
+                )
+            if sampling_group != SOURCE_GROUP_BY_KIND[lut_kind]:
+                raise ValueError(
+                    f"{manifest_path}:{line_number}의 samplingGroup이 LUT 출처와 맞지 않습니다. "
+                    "데이터셋을 다시 생성하세요."
+                )
+
+            if sample_id in seen_ids:
+                raise ValueError(f"{manifest_path}:{line_number} 중복 sample id: {sample_id}")
+            seen_ids.add(sample_id)
+            style_path = root_path / "graded" / f"{sample_id}.jpg"
+            lut_path = root_path / "luts" / f"{sample_id}.bin"
+            if not style_path.exists() or not lut_path.exists():
+                raise FileNotFoundError(
+                    f"manifest 샘플 {sample_id}의 graded/LUT 파일이 없습니다. "
+                    "--clean-dataset으로 다시 생성하세요."
+                )
+            self.samples.append({
+                "style": style_path,
+                "lut": lut_path,
+                "source_lut": source_lut,
+                "lut_kind": lut_kind,
+                "sampling_group": sampling_group,
+                "sampling_mode": sampling_mode,
+            })
+
+        if not self.samples:
+            raise ValueError(f"{manifest_path}에 유효한 학습 샘플이 없습니다.")
+
+        self.counts_by_kind = {
+            kind: sum(sample["lut_kind"] == kind for sample in self.samples)
+            for kind in REQUIRED_LUT_KINDS
+        }
+        self.counts_by_group = {
+            group: sum(sample["sampling_group"] == group for sample in self.samples)
+            for group in REQUIRED_SOURCE_GROUPS
+        }
+        if require_all_sources:
+            missing = [kind for kind, count in self.counts_by_kind.items() if count == 0]
+            if missing:
+                raise ValueError(
+                    "통합 학습 데이터셋에 누락된 LUT 소스: " + ", ".join(missing) +
+                    ". `--prepare-dataset --clean-dataset`으로 재생성하세요."
+                )
+        if require_balanced_sources:
+            modes = {sample["sampling_mode"] for sample in self.samples}
+            if modes != {"balanced_source"}:
+                raise ValueError(
+                    "균형 샘플링 데이터셋이 아닙니다. "
+                    "`--prepare-dataset --clean-dataset`으로 다시 생성하세요."
+                )
+            if max(self.counts_by_group.values()) - min(self.counts_by_group.values()) > 1:
+                raise ValueError(
+                    f"소스별 학습 쌍이 불균형합니다: {self.counts_by_group}. "
+                    "`--prepare-dataset --clean-dataset`으로 다시 생성하세요."
+                )
+
+        self.lut_sources = sorted({sample["source_lut"] for sample in self.samples})
 
     def __len__(self):
-        return len(self.graded)
+        return len(self.samples)
 
     def __getitem__(self, idx):
-        style = Image.open(self.graded[idx]).convert("RGB")
+        sample = self.samples[idx]
+        style = Image.open(sample["style"]).convert("RGB")
         style = torch.from_numpy(np.array(style, dtype=np.float32) / 255.0)
         style = style.permute(2, 0, 1)  # (3, H, W)
+        style = (style - IMAGENET_MEAN) / IMAGENET_STD
 
-        lut = np.fromfile(self.luts[idx], dtype=np.float16).astype(np.float32)
+        lut = np.fromfile(sample["lut"], dtype=np.float16).astype(np.float32)
         lut = torch.from_numpy(lut).reshape(LUT_DIM, LUT_DIM, LUT_DIM, 3)
         return style, lut
 
@@ -91,7 +198,7 @@ class ColorTransferNet(nn.Module):
             nn.Linear(256, 512),      nn.SiLU(),
         )
 
-        # 5³ LUT 예측: 5*5*5*3 = 375 출력
+        # Small LUT 예측: decoder_dim³ × 3 출력
         self.lut_decoder = nn.Sequential(
             nn.Linear(512, 1024), nn.SiLU(),
             nn.Linear(1024, decoder_dim ** 3 * 3),
@@ -117,7 +224,7 @@ class ColorTransferNet(nn.Module):
         """
         feat  = self.encoder(x)                                       # (B, 576)
         feat  = self.color_head(feat)                                  # (B, 512)
-        lut_s = self.lut_decoder(feat)                                 # (B, 375)
+        lut_s = self.lut_decoder(feat)                                 # (B, decoder_dim³×3)
         lut_s = lut_s.reshape(-1, self.decoder_dim, self.decoder_dim,
                               self.decoder_dim, 3)                     # (B, 5,5,5, 3)
 
@@ -132,7 +239,7 @@ class ColorTransferNet(nn.Module):
         return lut65
 
     def forward_small(self, x: torch.Tensor) -> torch.Tensor:
-        """TFLite export용: 5³ 출력만 반환 (업샘플 없음)."""
+        """TFLite export용: decoder_dim³ 출력만 반환 (업샘플 없음)."""
         feat  = self.encoder(x)
         feat  = self.color_head(feat)
         lut_s = self.lut_decoder(feat)
@@ -218,11 +325,60 @@ def total_loss(pred: torch.Tensor, gt: torch.Tensor):
 
 
 # ── 학습 루프 ──────────────────────────────────────────
-def train():
-    full_ds = ColorTransferDataset(DATASET_DIR)
-    val_n   = max(1, int(len(full_ds) * VAL_RATIO))
-    train_ds, val_ds = torch.utils.data.random_split(
-        full_ds, [len(full_ds) - val_n, val_n])
+def split_by_lut_source(dataset: ColorTransferDataset, val_ratio: float, seed: int):
+    """Hold out complete LUTs so validation cannot memorize a seen target LUT."""
+    by_source = {}
+    for idx, sample in enumerate(dataset.samples):
+        by_source.setdefault(sample["source_lut"], []).append(idx)
+
+    if len(by_source) < 2:
+        raise ValueError("LUT 단위 검증에는 서로 다른 LUT가 최소 2개 필요합니다.")
+    source_luts = sorted(by_source)
+    rng = np.random.default_rng(seed)
+    rng.shuffle(source_luts)
+    val_source_count = min(
+        len(source_luts) - 1,
+        max(1, round(len(source_luts) * val_ratio)),
+    )
+    val_sources = set(source_luts[:val_source_count])
+    train_indices = [idx for source, indices in by_source.items()
+                     if source not in val_sources for idx in indices]
+    val_indices = [idx for source, indices in by_source.items()
+                   if source in val_sources for idx in indices]
+    return (torch.utils.data.Subset(dataset, train_indices),
+            torch.utils.data.Subset(dataset, val_indices),
+            val_sources)
+
+
+def prepare_dataset(clean: bool, pairs_per_lut: int | None):
+    command = [sys.executable, str(Path(__file__).with_name("2_generate_dataset.py")),
+               "--require-all-sources"]
+    if clean:
+        command.append("--clean")
+    if pairs_per_lut is not None:
+        command.extend(["--pairs-per-lut", str(pairs_per_lut)])
+    subprocess.run(command, check=True)
+
+
+def train(args):
+    if args.prepare_dataset:
+        prepare_dataset(args.clean_dataset, args.pairs_per_lut)
+    elif args.clean_dataset or args.pairs_per_lut is not None:
+        raise ValueError("--clean-dataset 및 --pairs-per-lut는 --prepare-dataset과 함께 사용하세요.")
+
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+    full_ds = ColorTransferDataset(
+        DATASET_DIR,
+        require_all_sources=not args.allow_incomplete_dataset,
+        require_balanced_sources=not args.allow_unbalanced_dataset,
+    )
+    train_ds, val_ds, val_sources = split_by_lut_source(full_ds, VAL_RATIO, args.seed)
+    source_summary = ", ".join(
+        f"{group} {full_ds.counts_by_group[group]}쌍" for group in REQUIRED_SOURCE_GROUPS
+    )
+    print(f"통합 데이터셋: {len(full_ds)}쌍 / {len(full_ds.lut_sources)} LUT ({source_summary})")
+    print(f"LUT 단위 분리: train {len(train_ds)}쌍, val {len(val_ds)}쌍 ({len(val_sources)} LUT)")
 
     # Windows에서 num_workers>0 시 멀티프로세스 출력 스팸 발생 → 0으로 고정
     train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE,
@@ -300,6 +456,11 @@ def train():
                 "val_de":      val_de,
                 "lut_dim":     LUT_DIM,
                 "decoder_dim": DECODER_DIM,
+                "dataset_samples": len(full_ds),
+                "dataset_lut_sources": len(full_ds.lut_sources),
+                "dataset_counts_by_kind": full_ds.counts_by_kind,
+                "dataset_counts_by_group": full_ds.counts_by_group,
+                "validation_lut_sources": sorted(val_sources),
             }, CHECKPOINT)
             print(f"  ✓ 저장 (best ΔE={val_de:.4f})")
 
@@ -311,4 +472,28 @@ def train():
 
 
 if __name__ == "__main__":
-    train()
+    parser = argparse.ArgumentParser(
+        description="Train Neural Color Transfer on crawled, app, and Canon LUTs."
+    )
+    parser.add_argument(
+        "--prepare-dataset", action="store_true",
+        help="Build training triplets from crawled CUBE, app BIN, and Canon LUT sources first.",
+    )
+    parser.add_argument(
+        "--clean-dataset", action="store_true",
+        help="With --prepare-dataset, discard old triplets before rebuilding.",
+    )
+    parser.add_argument(
+        "--pairs-per-lut", type=int,
+        help="With --prepare-dataset, use this many image pairs per LUT.",
+    )
+    parser.add_argument(
+        "--allow-incomplete-dataset", action="store_true",
+        help="Allow a dataset without all four LUT kinds; intended only for smoke tests.",
+    )
+    parser.add_argument(
+        "--allow-unbalanced-dataset", action="store_true",
+        help="Allow a non-balanced dataset; intended only for debugging.",
+    )
+    parser.add_argument("--seed", type=int, default=42)
+    train(parser.parse_args())

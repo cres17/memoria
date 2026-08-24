@@ -1,14 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:permission_handler/permission_handler.dart';
 import '../../core/l10n/app_locale.dart';
 import '../../core/l10n/strings.dart';
+import '../../core/services/media_permission_service.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/platform_utils.dart';
 import '../../monetization/banner_ad_widget.dart';
 import '../../monetization/feature_flags_service.dart';
-import '../create_filter/create_filter_page.dart' show kPhotoFilterGenerationEnabled;
+import '../create_filter/create_filter_page.dart'
+    show kPhotoFilterGenerationEnabled, kPhotoFilterGenerationIsBeta;
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -35,35 +36,33 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Future<void> _pickImage() async {
+  Future<void> _pickImage({String? presetId}) async {
     hapticMedium();
-    final status = await Permission.photos.request();
-    if (!status.isGranted) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(S.get('permission.photos_denied')), behavior: SnackBarBehavior.floating),
-      );
+    if (!await MediaPermissionService.ensurePhotoAccess()) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text(S.get('permission.photos_denied')),
+              behavior: SnackBarBehavior.floating),
+        );
+      }
       return;
     }
     final xFile = await ImagePicker().pickImage(source: ImageSource.gallery);
     if (xFile != null && mounted) {
-      context.pushNamed('editor', extra: xFile.path);
+      context.pushNamed(
+        'editor',
+        extra: presetId == null
+            ? xFile.path
+            : <String, String?>{
+                'imagePath': xFile.path,
+                'presetId': presetId,
+              },
+      );
     }
   }
 
-  Future<void> _takePhoto() async {
-    hapticMedium();
-    final status = await Permission.camera.request();
-    if (!status.isGranted) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(S.get('permission.camera_denied')), behavior: SnackBarBehavior.floating),
-      );
-      return;
-    }
-    final xFile = await ImagePicker().pickImage(source: ImageSource.camera);
-    if (xFile != null && mounted) {
-      context.pushNamed('editor', extra: xFile.path);
-    }
-  }
+  Future<void> _openFeaturedLook() => _pickImage(presetId: 'morning');
 
   @override
   Widget build(BuildContext context) {
@@ -85,7 +84,8 @@ class _HomePageState extends State<HomePage> {
                 SliverToBoxAdapter(child: _buildHero()),
                 SliverToBoxAdapter(child: _buildFeatureImage()),
                 SliverToBoxAdapter(child: _buildQuickCards()),
-                SliverToBoxAdapter(child: SizedBox(height: safeBottom(context) + 100)),
+                SliverToBoxAdapter(
+                    child: SizedBox(height: safeBottom(context) + 100)),
               ],
             ),
           ),
@@ -183,7 +183,7 @@ class _HomePageState extends State<HomePage> {
           ),
           const SizedBox(height: 34),
           FilledButton.icon(
-            onPressed: _pickImage,
+            onPressed: () => _pickImage(),
             icon: const Icon(Icons.add_a_photo_outlined),
             label: Text(S.get('home.cta')),
           ),
@@ -196,16 +196,11 @@ class _HomePageState extends State<HomePage> {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24),
       child: GestureDetector(
-        onTap: _pickImage,
+        onTap: _openFeaturedLook,
         child: Container(
           height: 328,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(32),
-            gradient: const LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [Color(0xFFC17A55), Color(0xFF3A1D14)],
-            ),
             boxShadow: const [
               BoxShadow(
                 color: Color(0x1A032111),
@@ -216,31 +211,31 @@ class _HomePageState extends State<HomePage> {
           ),
           child: Stack(
             children: [
-              Center(
-                child: Container(
-                  width: 168,
-                  height: 238,
-                  decoration: BoxDecoration(
-                    color: AppColors.cloudVeil,
-                    borderRadius: BorderRadius.circular(28),
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Color(0x33000000),
-                        blurRadius: 22,
-                        offset: Offset(0, 10),
-                      ),
-                    ],
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(28),
-                    child: Image.asset(
-                      'assets/frames/hp_frame_04_medium.jpg',
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => const Icon(
+              Positioned.fill(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(32),
+                  child: Image.asset(
+                    'assets/images/summer_sapporo.jpg',
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Container(
+                      color: AppColors.cloudVeil,
+                      child: const Icon(
                         Icons.photo_outlined,
                         size: 48,
                         color: AppColors.textTertiary,
                       ),
+                    ),
+                  ),
+                ),
+              ),
+              Positioned.fill(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(32),
+                    gradient: const LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Colors.transparent, Color(0x99000000)],
                     ),
                   ),
                 ),
@@ -272,12 +267,10 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
               Positioned(
-                right: 24,
-                bottom: 36,
-                child: _CircleButton(
-                  icon: Icons.favorite_border_rounded,
-                  onTap: _takePhoto,
-                  light: true,
+                right: 20,
+                top: 20,
+                child: _FeaturedEditButton(
+                  onTap: _openFeaturedLook,
                 ),
               ),
             ],
@@ -304,6 +297,7 @@ class _HomePageState extends State<HomePage> {
               icon: Icons.auto_awesome_rounded,
               title: S.get('home.card_ai'),
               body: S.get('home.card_ai_body'),
+              badge: kPhotoFilterGenerationIsBeta ? 'BETA' : null,
               tinted: true,
               onTap: () => context.pushNamed('createFilter'),
             ),
@@ -319,6 +313,7 @@ class _InfoCard extends StatelessWidget {
   final String title;
   final String body;
   final bool tinted;
+  final String? badge;
   final VoidCallback onTap;
 
   const _InfoCard({
@@ -327,6 +322,7 @@ class _InfoCard extends StatelessWidget {
     required this.body,
     required this.onTap,
     this.tinted = false,
+    this.badge,
   });
 
   @override
@@ -355,20 +351,44 @@ class _InfoCard extends StatelessWidget {
               width: 58,
               height: 58,
               decoration: BoxDecoration(
-                  color: AppColors.oceanFoam.withOpacity(0.08),
+                color: AppColors.oceanFoam.withOpacity(0.08),
                 shape: BoxShape.circle,
               ),
               child: Icon(icon, color: AppColors.oceanFoam, size: 26),
             ),
             const SizedBox(height: 24),
-            Text(
-              title,
-              style: const TextStyle(
-                fontFamily: 'Domine',
-                fontSize: 24,
-                fontWeight: FontWeight.w700,
-                color: AppColors.textPrimary,
-              ),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    title,
+                    style: const TextStyle(
+                      fontFamily: 'Domine',
+                      fontSize: 24,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                ),
+                if (badge != null)
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: AppColors.oceanFoam,
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                    child: Text(
+                      badge!,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                  ),
+              ],
             ),
             const SizedBox(height: 12),
             Text(
@@ -424,33 +444,40 @@ class _Pill extends StatelessWidget {
   }
 }
 
-class _CircleButton extends StatelessWidget {
-  final IconData icon;
+class _FeaturedEditButton extends StatelessWidget {
   final VoidCallback onTap;
-  final bool light;
 
-  const _CircleButton({
-    required this.icon,
-    required this.onTap,
-    this.light = false,
-  });
+  const _FeaturedEditButton({required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 52,
-        height: 52,
-        decoration: BoxDecoration(
-          color: light
-              ? AppColors.cloudWhite.withOpacity(0.18)
-              : AppColors.cloudVeil,
-          shape: BoxShape.circle,
-        ),
-        child: Icon(
-          icon,
-          color: light ? AppColors.cloudWhite : AppColors.oceanFoam,
+    return Material(
+      color: AppColors.cloudWhite.withOpacity(0.9),
+      borderRadius: BorderRadius.circular(999),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.auto_fix_high_rounded,
+                size: 18,
+                color: AppColors.oceanFoam,
+              ),
+              const SizedBox(width: 7),
+              Text(
+                S.get('home.photo_edit'),
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.oceanFoam,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

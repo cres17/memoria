@@ -1,0 +1,6 @@
+# TFLite conversion environment (Python 3.11)
+# onnx-tf 1.10 relies on the legacy ONNX mapping API.
+onnx==1.15.0
+onnx-tf==1.10.0
+tensorflow==2.15.1
+tensorflow-probability==0.23.0

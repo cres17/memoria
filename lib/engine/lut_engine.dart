@@ -8,6 +8,7 @@ import 'package:uuid/uuid.dart';
 import '../ai/ai_manager.dart';
 import '../ai/models/lut_predictor.dart';
 import '../domain/models/adjust_params.dart';
+import '../domain/models/filter_recipe.dart';
 import 'color_utils.dart';
 import 'custom_lut_core.dart';
 
@@ -101,7 +102,8 @@ RgbColor _applyHslBands(RgbColor rgb, AdjustParams p) {
   return _hslToRgb(newH, newS, newL);
 }
 
-(double, double, double) _applyHslBandsFlat(double r, double g, double b, AdjustParams p) {
+(double, double, double) _applyHslBandsFlat(
+    double r, double g, double b, AdjustParams p) {
   final hsl = _rgbToHsl(r, g, b);
   final h = hsl.h;
 
@@ -150,11 +152,11 @@ RgbColor _applyHslBands(RgbColor rgb, AdjustParams p) {
   if (newS == 0.0) return (newL, newL, newL);
   final q = newL < 0.5 ? newL * (1.0 + newS) : newL + newS - newL * newS;
   final pVal = 2.0 * newL - q;
-  
+
   final rOut = _hue2rgb(pVal, q, hNorm + 1.0 / 3.0).clamp(0.0, 1.0);
   final gOut = _hue2rgb(pVal, q, hNorm).clamp(0.0, 1.0);
   final bOut = _hue2rgb(pVal, q, hNorm - 1.0 / 3.0).clamp(0.0, 1.0);
-  
+
   return (rOut, gOut, bOut);
 }
 
@@ -166,8 +168,9 @@ RgbColor _applySplitToning(RgbColor rgb, AdjustParams p) {
 
   final double denomShadow = splitPoint > 1e-4 ? splitPoint : 1e-4;
   final shadowW = 1.0 - (lum / denomShadow).clamp(0.0, 1.0);
-  
-  final double denomHigh = (1.0 - splitPoint) > 1e-4 ? (1.0 - splitPoint) : 1e-4;
+
+  final double denomHigh =
+      (1.0 - splitPoint) > 1e-4 ? (1.0 - splitPoint) : 1e-4;
   final highW = ((lum - splitPoint) / denomHigh).clamp(0.0, 1.0);
 
   var r = rgb.r;
@@ -191,14 +194,16 @@ RgbColor _applySplitToning(RgbColor rgb, AdjustParams p) {
   return RgbColor(r, g, b);
 }
 
-(double, double, double) _applySplitToningFlat(double rIn, double gIn, double bIn, AdjustParams p) {
+(double, double, double) _applySplitToningFlat(
+    double rIn, double gIn, double bIn, AdjustParams p) {
   final lum = 0.2126 * rIn + 0.7152 * gIn + 0.0722 * bIn;
   final splitPoint = 0.5 + p.splitBalance / 200.0;
 
   final double denomShadow = splitPoint > 1e-4 ? splitPoint : 1e-4;
   final shadowW = 1.0 - (lum / denomShadow).clamp(0.0, 1.0);
-  
-  final double denomHigh = (1.0 - splitPoint) > 1e-4 ? (1.0 - splitPoint) : 1e-4;
+
+  final double denomHigh =
+      (1.0 - splitPoint) > 1e-4 ? (1.0 - splitPoint) : 1e-4;
   final highW = ((lum - splitPoint) / denomHigh).clamp(0.0, 1.0);
 
   var r = rIn;
@@ -222,7 +227,6 @@ RgbColor _applySplitToning(RgbColor rgb, AdjustParams p) {
   return (r, g, b);
 }
 
-
 // ─────────────────────────────────────────────────────────
 //  Image-level pipeline (full img.Image in → img.Image out)
 // ─────────────────────────────────────────────────────────
@@ -238,7 +242,11 @@ img.Image applyImagePipeline({
   int decodedLutDim = 65,
   BakedCurveLuts? bakedLuts,
 }) {
-  var output = img.Image(width: image.width, height: image.height);
+  var output = img.Image(
+    width: image.width,
+    height: image.height,
+    numChannels: image.numChannels == 4 ? 4 : 3,
+  );
   final effectiveLut = (decodedLutValues != null && decodedLutValues.isNotEmpty)
       ? DecodedLut(decodedLutValues, decodedLutDim)
       : null;
@@ -255,7 +263,8 @@ img.Image applyImagePipeline({
         final double origG = inputPixel.gNormalized.toDouble();
         final double origB = inputPixel.bNormalized.toDouble();
 
-        var (r, g, b) = applyAdjustParamsFlat(origR, origG, origB, params, bakedLuts: luts);
+        var (r, g, b) =
+            applyAdjustParamsFlat(origR, origG, origB, params, bakedLuts: luts);
 
         if (decodedLutToUse != null) {
           final lutRes = applyDecodedCustomLutFlat(decodedLutToUse, r, g, b);
@@ -271,6 +280,7 @@ img.Image applyImagePipeline({
         pixel.r = r * pixel.maxChannelValue;
         pixel.g = g * pixel.maxChannelValue;
         pixel.b = b * pixel.maxChannelValue;
+        if (image.numChannels == 4) pixel.a = inputPixel.a;
       }
     }
   }
@@ -279,7 +289,8 @@ img.Image applyImagePipeline({
   final effLuminanceNR = params.luminanceNR * intensity;
   final effColourNR = params.colourNR * intensity;
   if (effLuminanceNR > 0 || effColourNR > 0) {
-    output = _applyNoiseReduction(output, effLuminanceNR, effColourNR, params.nrDetail);
+    output = _applyNoiseReduction(
+        output, effLuminanceNR, effColourNR, params.nrDetail);
   }
   final effHdrStrength = params.hdrStrength * intensity;
   if (effHdrStrength > 0) {
@@ -287,47 +298,79 @@ img.Image applyImagePipeline({
   }
   final effGlowStrength = params.glowStrength * intensity;
   if (effGlowStrength > 0) {
-    output = _applyGlowImage(output, effGlowStrength, params.glowSaturation, params.glowWarmth);
+    output = _applyGlowImage(
+        output, effGlowStrength, params.glowSaturation, params.glowWarmth);
   }
   final effLightLeakStrength = params.lightLeakStrength * intensity;
   if (effLightLeakStrength > 0) {
-    output = _applyLightLeakImage(output, effLightLeakStrength, params.lightLeakAngle, params.lightLeakWarmth);
+    output = _applyLightLeakImage(output, effLightLeakStrength,
+        params.lightLeakAngle, params.lightLeakWarmth);
   }
   final effHalationStrength = params.halationStrength * intensity;
   if (effHalationStrength > 0) {
-    output = _applyHalationImage(output, effHalationStrength, params.halationThreshold, params.halationWarmth);
+    output = _applyHalationImage(output, effHalationStrength,
+        params.halationThreshold, params.halationWarmth);
   }
   final effGrainStrength = params.grainStrength * intensity;
   if (effGrainStrength > 0) {
-    output = _applyGrainImage(output, effGrainStrength, params.grainSize, params.grainSeed);
+    output = _applyGrainImage(
+        output, effGrainStrength, params.grainSize, params.grainSeed);
   }
 
   final effSharpen = params.sharpen * intensity;
-  if (effSharpen > 0)    output = _applySharpenImage(output, effSharpen);
+  if (effSharpen > 0) output = _applySharpenImage(output, effSharpen);
   final effStructure = params.structure * intensity;
   if (effStructure != 0) output = _applyStructureImage(output, effStructure);
   final effClarity = params.clarity * intensity;
-  if (effClarity != 0)   output = _applyClarityImage(output, effClarity);
+  if (effClarity != 0) output = _applyClarityImage(output, effClarity);
   final effVignette = params.vignette * intensity;
-  if (effVignette > 0)   output = _applyVignetteImage(output, effVignette);
+  if (effVignette > 0) output = _applyVignetteImage(output, effVignette);
 
+  // Several image-level filters use RGB scratch buffers. Reattach the source
+  // alpha once at the pipeline boundary so transparent overlays and text keep
+  // their exact coverage regardless of which effects were enabled.
+  if (image.numChannels == 4) {
+    final rgba = img.Image(
+      width: output.width,
+      height: output.height,
+      numChannels: 4,
+    );
+    for (var y = 0; y < output.height; y++) {
+      for (var x = 0; x < output.width; x++) {
+        final color = output.getPixel(x, y);
+        rgba.setPixelRgba(
+          x,
+          y,
+          color.r.toInt(),
+          color.g.toInt(),
+          color.b.toInt(),
+          image.getPixel(x, y).a.toInt(),
+        );
+      }
+    }
+    return rgba;
+  }
   return output;
 }
 
 // ── Sharpen: Unsharp Mask ─────────────────────────────────
 img.Image _applySharpenImage(img.Image image, double sharpenValue) {
   final strength = sharpenValue / 100.0 * 1.5;
-  final blurred  = img.gaussianBlur(img.Image.from(image), radius: 2);
-  final result   = img.Image(width: image.width, height: image.height);
+  final blurred = img.gaussianBlur(img.Image.from(image), radius: 2);
+  final result = img.Image(width: image.width, height: image.height);
 
   for (int y = 0; y < image.height; y++) {
     for (int x = 0; x < image.width; x++) {
-      final o  = image.getPixel(x, y);
+      final o = image.getPixel(x, y);
       final bl = blurred.getPixel(x, y);
-      final r  = (o.rNormalized + strength * (o.rNormalized - bl.rNormalized)).clamp(0.0, 1.0);
-      final g  = (o.gNormalized + strength * (o.gNormalized - bl.gNormalized)).clamp(0.0, 1.0);
-      final b  = (o.bNormalized + strength * (o.bNormalized - bl.bNormalized)).clamp(0.0, 1.0);
-      result.setPixelRgb(x, y, (r * 255).round(), (g * 255).round(), (b * 255).round());
+      final r = (o.rNormalized + strength * (o.rNormalized - bl.rNormalized))
+          .clamp(0.0, 1.0);
+      final g = (o.gNormalized + strength * (o.gNormalized - bl.gNormalized))
+          .clamp(0.0, 1.0);
+      final b = (o.bNormalized + strength * (o.bNormalized - bl.bNormalized))
+          .clamp(0.0, 1.0);
+      result.setPixelRgb(
+          x, y, (r * 255).round(), (g * 255).round(), (b * 255).round());
     }
   }
   return result;
@@ -336,17 +379,21 @@ img.Image _applySharpenImage(img.Image image, double sharpenValue) {
 // ── Structure: High-Pass Local Contrast ──────────────────
 img.Image _applyStructureImage(img.Image image, double structureValue) {
   final strength = structureValue / 100.0 * 0.5;
-  final blurred  = img.gaussianBlur(img.Image.from(image), radius: 1);
-  final result   = img.Image(width: image.width, height: image.height);
+  final blurred = img.gaussianBlur(img.Image.from(image), radius: 1);
+  final result = img.Image(width: image.width, height: image.height);
 
   for (int y = 0; y < image.height; y++) {
     for (int x = 0; x < image.width; x++) {
-      final o  = image.getPixel(x, y);
+      final o = image.getPixel(x, y);
       final bl = blurred.getPixel(x, y);
-      final r  = (o.rNormalized + strength * (o.rNormalized - bl.rNormalized)).clamp(0.0, 1.0);
-      final g  = (o.gNormalized + strength * (o.gNormalized - bl.gNormalized)).clamp(0.0, 1.0);
-      final b  = (o.bNormalized + strength * (o.bNormalized - bl.bNormalized)).clamp(0.0, 1.0);
-      result.setPixelRgb(x, y, (r * 255).round(), (g * 255).round(), (b * 255).round());
+      final r = (o.rNormalized + strength * (o.rNormalized - bl.rNormalized))
+          .clamp(0.0, 1.0);
+      final g = (o.gNormalized + strength * (o.gNormalized - bl.gNormalized))
+          .clamp(0.0, 1.0);
+      final b = (o.bNormalized + strength * (o.bNormalized - bl.bNormalized))
+          .clamp(0.0, 1.0);
+      result.setPixelRgb(
+          x, y, (r * 255).round(), (g * 255).round(), (b * 255).round());
     }
   }
   return result;
@@ -355,19 +402,28 @@ img.Image _applyStructureImage(img.Image image, double structureValue) {
 // ── Clarity: Mid-Frequency Contrast (Retinex-lite) ───────
 img.Image _applyClarityImage(img.Image image, double clarityValue) {
   final strength = clarityValue / 100.0 * 0.7;
-  final blurred  = img.gaussianBlur(img.Image.from(image), radius: 7);
-  final result   = img.Image(width: image.width, height: image.height);
+  final blurred = img.gaussianBlur(img.Image.from(image), radius: 7);
+  final result = img.Image(width: image.width, height: image.height);
 
   for (int y = 0; y < image.height; y++) {
     for (int x = 0; x < image.width; x++) {
-      final o   = image.getPixel(x, y);
+      final o = image.getPixel(x, y);
       final low = blurred.getPixel(x, y);
-      final lum = 0.2126 * o.rNormalized + 0.7152 * o.gNormalized + 0.0722 * o.bNormalized;
+      final lum = 0.2126 * o.rNormalized +
+          0.7152 * o.gNormalized +
+          0.0722 * o.bNormalized;
       final midMask = (1.0 - (lum - 0.5).abs() * 2.0).clamp(0.0, 1.0);
-      final r = (o.rNormalized + strength * midMask * (o.rNormalized - low.rNormalized)).clamp(0.0, 1.0);
-      final g = (o.gNormalized + strength * midMask * (o.gNormalized - low.gNormalized)).clamp(0.0, 1.0);
-      final b = (o.bNormalized + strength * midMask * (o.bNormalized - low.bNormalized)).clamp(0.0, 1.0);
-      result.setPixelRgb(x, y, (r * 255).round(), (g * 255).round(), (b * 255).round());
+      final r = (o.rNormalized +
+              strength * midMask * (o.rNormalized - low.rNormalized))
+          .clamp(0.0, 1.0);
+      final g = (o.gNormalized +
+              strength * midMask * (o.gNormalized - low.gNormalized))
+          .clamp(0.0, 1.0);
+      final b = (o.bNormalized +
+              strength * midMask * (o.bNormalized - low.bNormalized))
+          .clamp(0.0, 1.0);
+      result.setPixelRgb(
+          x, y, (r * 255).round(), (g * 255).round(), (b * 255).round());
     }
   }
   return result;
@@ -376,18 +432,20 @@ img.Image _applyClarityImage(img.Image image, double clarityValue) {
 // ── Vignette: Radial Gradient Multiply ───────────────────
 img.Image _applyVignetteImage(img.Image image, double vignetteValue) {
   final strength = vignetteValue / 100.0 * 0.8;
-  final result   = img.Image(width: image.width, height: image.height);
-  final W        = image.width.toDouble();
-  final H        = image.height.toDouble();
+  final result = img.Image(width: image.width, height: image.height);
+  final W = image.width.toDouble();
+  final H = image.height.toDouble();
 
   for (int y = 0; y < image.height; y++) {
     for (int x = 0; x < image.width; x++) {
-      final px  = image.getPixel(x, y);
-      final dx  = x / W - 0.5;
-      final dy  = y / H - 0.5;
+      final px = image.getPixel(x, y);
+      final dx = x / W - 0.5;
+      final dy = y / H - 0.5;
       final dist = math.sqrt(dx * dx + dy * dy) / 0.707;
       final mask = (1.0 - dist * dist * strength).clamp(0.0, 1.0);
-      result.setPixelRgb(x, y,
+      result.setPixelRgb(
+        x,
+        y,
         (px.rNormalized * mask * 255).round(),
         (px.gNormalized * mask * 255).round(),
         (px.bNormalized * mask * 255).round(),
@@ -398,7 +456,8 @@ img.Image _applyVignetteImage(img.Image image, double vignetteValue) {
 }
 
 // ── Noise Reduction ──────────────────────────────────────
-img.Image _applyNoiseReduction(img.Image image, double lumNR, double colNR, double nrDetail) {
+img.Image _applyNoiseReduction(
+    img.Image image, double lumNR, double colNR, double nrDetail) {
   if (lumNR <= 0 && colNR <= 0) return image;
 
   final W = image.width;
@@ -428,8 +487,10 @@ img.Image _applyNoiseReduction(img.Image image, double lumNR, double colNR, doub
   final outA = Float32List(numPixels);
   final outB = Float32List(numPixels);
 
-  final lumRadius = lumNR > 0 ? (lumNR / 50.0 * 2.0 + 1.0).round().clamp(1, 3) : 0;
-  final colRadius = colNR > 0 ? (colNR / 50.0 * 2.0 + 1.0).round().clamp(1, 3) : 0;
+  final lumRadius =
+      lumNR > 0 ? (lumNR / 50.0 * 2.0 + 1.0).round().clamp(1, 3) : 0;
+  final colRadius =
+      colNR > 0 ? (colNR / 50.0 * 2.0 + 1.0).round().clamp(1, 3) : 0;
 
   final sigmaRangeL = 3.0 + lumNR * 0.22;
   final sigmaRangeC = 8.0 + colNR * 0.40;
@@ -509,7 +570,9 @@ img.Image _applyNoiseReduction(img.Image image, double lumNR, double colNR, doub
     for (int x = 0; x < W; x++) {
       final idx = y * W + x;
       final rgb = labToRgb(LabColor(outL[idx], outA[idx], outB[idx]));
-      result.setPixelRgb(x, y,
+      result.setPixelRgb(
+        x,
+        y,
         (rgb.r * 255.0).round().clamp(0, 255),
         (rgb.g * 255.0).round().clamp(0, 255),
         (rgb.b * 255.0).round().clamp(0, 255),
@@ -520,12 +583,13 @@ img.Image _applyNoiseReduction(img.Image image, double lumNR, double colNR, doub
 }
 
 // ── Glamour Glow ─────────────────────────────────────────
-img.Image _applyGlowImage(img.Image image, double strength, double saturation, double warmth) {
+img.Image _applyGlowImage(
+    img.Image image, double strength, double saturation, double warmth) {
   if (strength <= 0) return image;
 
   final W = image.width;
   final H = image.height;
-  
+
   final glowLayer = img.Image(width: W, height: H);
   for (int y = 0; y < H; y++) {
     for (int x = 0; x < W; x++) {
@@ -534,55 +598,59 @@ img.Image _applyGlowImage(img.Image image, double strength, double saturation, d
       final g = px.gNormalized.toDouble();
       final b = px.bNormalized.toDouble();
       final lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-      
+
       final mask = lum * lum;
-      
+
       var gr = r;
       var gg = g;
       var gb = b;
-      
+
       if (saturation != 0) {
         final s = 1.0 + saturation / 100.0;
         gr = lum + (gr - lum) * s;
         gg = lum + (gg - lum) * s;
         gb = lum + (gb - lum) * s;
       }
-      
+
       if (warmth != 0) {
         gr += warmth / 1000.0;
         gb -= warmth / 1000.0;
       }
-      
-      glowLayer.setPixelRgb(x, y,
+
+      glowLayer.setPixelRgb(
+        x,
+        y,
         (gr.clamp(0.0, 1.0) * mask * 255).round(),
         (gg.clamp(0.0, 1.0) * mask * 255).round(),
         (gb.clamp(0.0, 1.0) * mask * 255).round(),
       );
     }
   }
-  
+
   final blurredGlow = img.gaussianBlur(glowLayer, radius: 8);
   final result = img.Image(width: W, height: H);
   final str = strength / 100.0;
-  
+
   for (int y = 0; y < H; y++) {
     for (int x = 0; x < W; x++) {
       final opx = image.getPixel(x, y);
       final gpx = blurredGlow.getPixel(x, y);
-      
+
       final or = opx.rNormalized.toDouble();
       final og = opx.gNormalized.toDouble();
       final ob = opx.bNormalized.toDouble();
-      
+
       final gr = gpx.rNormalized.toDouble() * str;
       final gg = gpx.gNormalized.toDouble() * str;
       final gb = gpx.bNormalized.toDouble() * str;
-      
+
       final r = 1.0 - (1.0 - or) * (1.0 - gr);
       final g = 1.0 - (1.0 - og) * (1.0 - gg);
       final b = 1.0 - (1.0 - ob) * (1.0 - gb);
-      
-      result.setPixelRgb(x, y,
+
+      result.setPixelRgb(
+        x,
+        y,
         (r.clamp(0.0, 1.0) * 255).round(),
         (g.clamp(0.0, 1.0) * 255).round(),
         (b.clamp(0.0, 1.0) * 255).round(),
@@ -598,36 +666,38 @@ img.Image _applyHdrImage(img.Image image, double strength, double saturation) {
 
   final W = image.width;
   final H = image.height;
-  
+
   final blurred = img.gaussianBlur(img.Image.from(image), radius: 10);
   final result = img.Image(width: W, height: H);
   final str = strength / 100.0 * 0.8;
-  
+
   for (int y = 0; y < H; y++) {
     for (int x = 0; x < W; x++) {
       final px = image.getPixel(x, y);
       final bpx = blurred.getPixel(x, y);
-      
+
       var r = px.rNormalized.toDouble();
       var g = px.gNormalized.toDouble();
       var b = px.bNormalized.toDouble();
-      
+
       final br = bpx.rNormalized.toDouble();
       final bg = bpx.gNormalized.toDouble();
       final bb = bpx.bNormalized.toDouble();
-      
+
       const epsilon = 0.01;
       r = r * math.pow((r + epsilon) / (br + epsilon), str);
       g = g * math.pow((g + epsilon) / (bg + epsilon), str);
       b = b * math.pow((b + epsilon) / (bb + epsilon), str);
-      
+
       final lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
       final s = 1.0 + saturation / 100.0 * 0.5;
       r = lum + (r - lum) * s;
       g = lum + (g - lum) * s;
       b = lum + (b - lum) * s;
-      
-      result.setPixelRgb(x, y,
+
+      result.setPixelRgb(
+        x,
+        y,
         (r.clamp(0.0, 1.0) * 255).round(),
         (g.clamp(0.0, 1.0) * 255).round(),
         (b.clamp(0.0, 1.0) * 255).round(),
@@ -638,33 +708,39 @@ img.Image _applyHdrImage(img.Image image, double strength, double saturation) {
 }
 
 // ── Light Leak ───────────────────────────────────────────
-img.Image _applyLightLeakImage(img.Image image, double strength, double angle, double warmth) {
+img.Image _applyLightLeakImage(
+    img.Image image, double strength, double angle, double warmth) {
   if (strength <= 0) return image;
 
   final W = image.width;
   final H = image.height;
   final result = img.Image(width: W, height: H);
-  
+
   final rad = angle * math.pi / 180.0;
   final dx = math.cos(rad);
   final dy = math.sin(rad);
   final str = strength / 100.0 * 0.4;
-  
+  final temperature = (warmth / 100.0).clamp(-1.0, 1.0);
+  final redLeak = 1.0 + temperature * 0.35;
+  final blueLeak = 0.55 - temperature * 0.35;
+
   for (int y = 0; y < H; y++) {
     for (int x = 0; x < W; x++) {
       final px = image.getPixel(x, y);
       final nx = x / W - 0.5;
       final ny = y / H - 0.5;
-      
+
       final projection = nx * dx + ny * dy;
       final dist = (projection + 0.7) / 1.4;
       final leak = dist * dist * str;
-      
-      final r = px.rNormalized.toDouble() + leak;
+
+      final r = px.rNormalized.toDouble() + leak * redLeak;
       final g = px.gNormalized.toDouble() + leak * 0.7;
-      final b = px.bNormalized.toDouble() + leak * (0.3 + warmth / 200.0);
-      
-      result.setPixelRgb(x, y,
+      final b = px.bNormalized.toDouble() + leak * blueLeak;
+
+      result.setPixelRgb(
+        x,
+        y,
         (r.clamp(0.0, 1.0) * 255).round(),
         (g.clamp(0.0, 1.0) * 255).round(),
         (b.clamp(0.0, 1.0) * 255).round(),
@@ -675,15 +751,16 @@ img.Image _applyLightLeakImage(img.Image image, double strength, double angle, d
 }
 
 // ── Halation ─────────────────────────────────────────────
-img.Image _applyHalationImage(img.Image image, double strength, double threshold, double warmth) {
+img.Image _applyHalationImage(
+    img.Image image, double strength, double threshold, double warmth) {
   if (strength <= 0) return image;
 
   final W = image.width;
   final H = image.height;
-  
+
   final hlLayer = img.Image(width: W, height: H);
   final th = threshold / 100.0;
-  
+
   for (int y = 0; y < H; y++) {
     for (int x = 0; x < W; x++) {
       final px = image.getPixel(x, y);
@@ -691,79 +768,83 @@ img.Image _applyHalationImage(img.Image image, double strength, double threshold
       final g = px.gNormalized.toDouble();
       final b = px.bNormalized.toDouble();
       final lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-      
+
       if (lum > th) {
         final w = (lum - th) / (1.0 - th);
-        hlLayer.setPixelRgb(x, y, (r * w * 255).round(), (g * w * 255).round(), (b * w * 255).round());
+        hlLayer.setPixelRgb(x, y, (r * w * 255).round(), (g * w * 255).round(),
+            (b * w * 255).round());
       }
     }
   }
-  
+
   final blurredHl = img.gaussianBlur(hlLayer, radius: 5);
   final result = img.Image(width: W, height: H);
   final str = strength / 100.0 * 0.6;
-  
+
   for (int y = 0; y < H; y++) {
     for (int x = 0; x < W; x++) {
       final px = image.getPixel(x, y);
       final hpx = blurredHl.getPixel(x, y);
-      
+
       final rNorm = px.rNormalized.toDouble();
       final gNorm = px.gNormalized.toDouble();
       final bNorm = px.bNormalized.toDouble();
-      
+
       final hr = hpx.rNormalized.toDouble() * str;
       final hg = hpx.gNormalized.toDouble() * str * 0.4;
       final hb = hpx.bNormalized.toDouble() * str * (0.1 - warmth / 1000.0);
-      
+
       final r = (rNorm + hr).clamp(0.0, 1.0);
       final g = (gNorm + hg).clamp(0.0, 1.0);
       final b = (bNorm + hb).clamp(0.0, 1.0);
-      
-      result.setPixelRgb(x, y, (r * 255).round(), (g * 255).round(), (b * 255).round());
+
+      result.setPixelRgba(x, y, (r * 255).round(), (g * 255).round(),
+          (b * 255).round(), px.a.toInt());
     }
   }
   return result;
 }
 
 // ── Film Grain ───────────────────────────────────────────
-img.Image _applyGrainImage(img.Image image, double strength, double size, int seed) {
+img.Image _applyGrainImage(
+    img.Image image, double strength, double size, int seed) {
   if (strength <= 0) return image;
 
   final rand = math.Random(seed);
   final W = image.width;
   final H = image.height;
-  final result = img.Image(width: W, height: H);
-  
+  final result = img.Image(width: W, height: H, numChannels: 4);
+
   final double s = size.clamp(0.5, 3.0);
   final int gridW = (W / s).ceil();
   final int gridH = (H / s).ceil();
-  
+
   final grid = Float32List(gridW * gridH);
   for (int i = 0; i < grid.length; i++) {
     grid[i] = rand.nextDouble() * 2.0 - 1.0;
   }
-  
+
   for (int y = 0; y < H; y++) {
     final int gy = (y / s).floor().clamp(0, gridH - 1);
     for (int x = 0; x < W; x++) {
       final int gx = (x / s).floor().clamp(0, gridW - 1);
       final double noise = grid[gy * gridW + gx];
-      
+
       final px = image.getPixel(x, y);
       final double rNorm = px.rNormalized.toDouble();
       final double gNorm = px.gNormalized.toDouble();
       final double bNorm = px.bNormalized.toDouble();
       final double lum = 0.2126 * rNorm + 0.7152 * gNorm + 0.0722 * bNorm;
-      
+
       final double weight = 1.0 - (lum - 0.5) * (lum - 0.5) * 4.0;
       final double delta = noise * (strength / 100.0) * weight * (25.0 / 255.0);
-      
+
       final r = (rNorm + delta).clamp(0.0, 1.0);
       final g = (gNorm + delta).clamp(0.0, 1.0);
       final b = (bNorm + delta).clamp(0.0, 1.0);
-      
-      result.setPixelRgb(x, y, (r * 255).round(), (g * 255).round(), (b * 255).round());
+
+      result.setPixelRgba(x, y, (r * 255).round(), (g * 255).round(),
+          (b * 255).round(), px.a.toInt());
     }
   }
   return result;
@@ -776,50 +857,90 @@ typedef LutProgressCallback = void Function(String stage, double progress);
 Future<Map<String, dynamic>> generateLutFromStyle(
   List<String> styleImagePaths, {
   String? basePath,
+  String? neuralModelPath,
   LutProgressCallback? onProgress,
 }) async {
   if (styleImagePaths.isEmpty) {
     throw ArgumentError('styleImagePaths cannot be empty');
   }
-  if (styleImagePaths.length == 1 && AiManager.instance.colorTransferReady) {
+  if (styleImagePaths.length == 1 &&
+      (neuralModelPath != null || AiManager.instance.colorTransferReady)) {
     try {
-      return await _generateLutNeural(styleImagePaths.first, basePath: basePath, onProgress: onProgress);
-    } catch (_) {}
+      return await _generateLutNeural(
+        styleImagePaths.first,
+        basePath: basePath,
+        neuralModelPath: neuralModelPath,
+        onProgress: onProgress,
+      );
+    } catch (_) {
+      // The algorithmic path is intentionally retained as a safe local fallback.
+      // Do not expose the original exception or image path in persisted metadata.
+      return _generateLutAlgorithmic(
+        styleImagePaths,
+        basePath: basePath,
+        onProgress: onProgress,
+        fallbackReason: 'neural_inference_failed',
+      );
+    }
   }
-  return _generateLutAlgorithmic(styleImagePaths, basePath: basePath, onProgress: onProgress);
+  return _generateLutAlgorithmic(
+    styleImagePaths,
+    basePath: basePath,
+    onProgress: onProgress,
+    fallbackReason: styleImagePaths.length == 1
+        ? 'neural_model_unavailable'
+        : 'multi_reference_neural_unsupported',
+  );
+}
+
+img.Image _decodeStyleImage(Uint8List bytes, String path) {
+  final decoded = img.decodeImage(bytes);
+  if (decoded == null) {
+    throw StateError('Failed to decode style image: $path');
+  }
+  return img.bakeOrientation(decoded);
 }
 
 Future<Map<String, dynamic>> _generateLutNeural(
   String styleImagePath, {
   String? basePath,
+  String? neuralModelPath,
   LutProgressCallback? onProgress,
 }) async {
   onProgress?.call('style_loading', 0.10);
-  final id   = const Uuid().v4();
+  final id = const Uuid().v4();
   final base = basePath != null
       ? Directory(basePath)
       : await getApplicationDocumentsDirectory();
-  final dir  = Directory('${base.path}/filters/$id')
+  final dir = Directory('${base.path}/filters/$id')
     ..createSync(recursive: true);
 
   onProgress?.call('model_inference', 0.25);
-  final predictor = await LutPredictor.instance;
-  final lut65     = await predictor.predict(styleImagePath);
+  final predictor = neuralModelPath == null
+      ? await LutPredictor.instance
+      : await LutPredictor.fromPath(neuralModelPath);
+  late final Float32List lut65;
+  try {
+    lut65 = await predictor.predict(styleImagePath);
+  } finally {
+    if (neuralModelPath != null) predictor.dispose();
+  }
 
   onProgress?.call('lut_encode', 0.70);
-  const total   = _dim * _dim * _dim;
+  const total = _dim * _dim * _dim;
   final lutData = Uint16List(total * 3);
   for (int i = 0; i < total * 3; i++) {
     lutData[i] = floatToHalf(lut65[i]);
   }
+  final constrained = constrainCustomLut(lutData.buffer.asUint8List());
 
   final lutPath = '${dir.path}/lut.bin';
-  File(lutPath).writeAsBytesSync(lutData.buffer.asUint8List());
+  File(lutPath).writeAsBytesSync(constrained.bytes);
 
   onProgress?.call('thumbnail', 0.88);
-  final bytes    = File(styleImagePath).readAsBytesSync();
-  final image    = img.decodeImage(bytes)!;
-  final thumb    = img.copyResizeCropSquare(image, size: 128);
+  final bytes = File(styleImagePath).readAsBytesSync();
+  final image = _decodeStyleImage(bytes, styleImagePath);
+  final thumb = img.copyResizeCropSquare(image, size: 128);
   final thumbPath = '${dir.path}/thumbnail.jpg';
   File(thumbPath).writeAsBytesSync(img.encodeJpg(thumb, quality: 80));
 
@@ -832,10 +953,25 @@ Future<Map<String, dynamic>> _generateLutNeural(
 
   onProgress?.call('saving', 0.96);
   return {
-    'presetId':      id,
-    'lutPath':       lutPath,
+    'presetId': id,
+    'lutPath': lutPath,
     'thumbnailPath': thumbPath,
     'defaultParams': defaultParams.toJson(),
+    'generatorType': 'neural',
+    'lutStrength': constrained.appliedStrength,
+    'safetyMetrics': constrained.report.toJson(),
+    'fallbackReason': constrained.fallbackReason,
+    'filterRecipe': FilterRecipe(
+      lutDimension: customLutDim,
+      engineVersion: 'on_device_lut_engine_v1',
+      generatorType: 'neural',
+      lutStrength: constrained.appliedStrength,
+      referenceCount: 1,
+      safetyMetrics: constrained.report.toJson(),
+      fallbackReason: constrained.fallbackReason,
+      modelId: kColorTransferModelId,
+      modelVersion: kColorTransferModelVersion,
+    ).toJson(),
   };
 }
 
@@ -843,21 +979,24 @@ Future<Map<String, dynamic>> _generateLutAlgorithmic(
   List<String> styleImagePaths, {
   String? basePath,
   LutProgressCallback? onProgress,
+  String? fallbackReason,
 }) async {
   onProgress?.call('style_loading', 0.10);
-  final id    = const Uuid().v4();
-  final base  = basePath != null
+  final id = const Uuid().v4();
+  final base = basePath != null
       ? Directory(basePath)
       : await getApplicationDocumentsDirectory();
-  final dir   = Directory('${base.path}/filters/$id')
+  final dir = Directory('${base.path}/filters/$id')
     ..createSync(recursive: true);
 
   final images = <img.Image>[];
+  var skippedReferenceCount = 0;
   for (final path in styleImagePaths) {
-    final bytes = File(path).readAsBytesSync();
-    final decoded = img.decodeImage(bytes);
-    if (decoded != null) {
-      images.add(decoded);
+    try {
+      final bytes = File(path).readAsBytesSync();
+      images.add(_decodeStyleImage(bytes, path));
+    } catch (_) {
+      skippedReferenceCount++;
     }
   }
 
@@ -865,18 +1004,22 @@ Future<Map<String, dynamic>> _generateLutAlgorithmic(
     throw Exception('Failed to decode any style images');
   }
 
-  final lutBytes = buildCustomLutFromStyleImages(images, onProgress: onProgress);
+  final build = buildCustomLutFromStyleImagesWithDiagnostics(
+    images,
+    onProgress: onProgress,
+  );
+  final constrained = constrainCustomLut(build.bytes);
 
   onProgress?.call('thumbnail', 0.90);
   final lutPath = '${dir.path}/lut.bin';
-  File(lutPath).writeAsBytesSync(lutBytes);
+  File(lutPath).writeAsBytesSync(constrained.bytes);
 
-  final thumb     = img.copyResizeCropSquare(images.first, size: 128);
+  final thumb = img.copyResizeCropSquare(images.first, size: 128);
   final thumbPath = '${dir.path}/thumbnail.jpg';
   File(thumbPath).writeAsBytesSync(img.encodeJpg(thumb, quality: 80));
 
   var grainStr = 0.0;
-  var grainSz = 1.0;
+  var grainSz = 0.0;
   for (final img in images) {
     final grain = analyzeGrainParameters(img);
     grainStr += grain.strength;
@@ -892,10 +1035,26 @@ Future<Map<String, dynamic>> _generateLutAlgorithmic(
 
   onProgress?.call('saving', 0.96);
   return {
-    'presetId':      id,
-    'lutPath':       lutPath,
+    'presetId': id,
+    'lutPath': lutPath,
     'thumbnailPath': thumbPath,
     'defaultParams': defaultParams.toJson(),
+    'generatorType': 'algorithmic',
+    'lutStrength': constrained.appliedStrength,
+    'safetyMetrics': constrained.report.toJson(),
+    'fallbackReason': fallbackReason ?? constrained.fallbackReason,
+    'skippedReferenceCount': skippedReferenceCount,
+    'referenceFusion': build.fusion.toJson(),
+    'filterRecipe': FilterRecipe(
+      lutDimension: customLutDim,
+      engineVersion: 'on_device_lut_engine_v1',
+      generatorType: 'algorithmic',
+      lutStrength: constrained.appliedStrength,
+      referenceCount: images.length,
+      safetyMetrics: constrained.report.toJson(),
+      referenceFusion: build.fusion.toJson(),
+      fallbackReason: fallbackReason ?? constrained.fallbackReason,
+    ).toJson(),
   };
 }
 
@@ -921,21 +1080,23 @@ RgbColor applyAdjustParams(
 
   if (p.saturation != 0) {
     final lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-    final s   = 1.0 + p.saturation / 100.0;
+    final s = 1.0 + p.saturation / 100.0;
     r = lum + (r - lum) * s;
     g = lum + (g - lum) * s;
     b = lum + (b - lum) * s;
   }
 
   if (p.hasHsl) {
-    final hslAdjusted = _applyHslBands(RgbColor(r.clamp(0.0, 1.0), g.clamp(0.0, 1.0), b.clamp(0.0, 1.0)), p);
+    final hslAdjusted = _applyHslBands(
+        RgbColor(r.clamp(0.0, 1.0), g.clamp(0.0, 1.0), b.clamp(0.0, 1.0)), p);
     r = hslAdjusted.r;
     g = hslAdjusted.g;
     b = hslAdjusted.b;
   }
 
   if (p.hasSplitToning) {
-    final splitAdjusted = _applySplitToning(RgbColor(r.clamp(0.0, 1.0), g.clamp(0.0, 1.0), b.clamp(0.0, 1.0)), p);
+    final splitAdjusted = _applySplitToning(
+        RgbColor(r.clamp(0.0, 1.0), g.clamp(0.0, 1.0), b.clamp(0.0, 1.0)), p);
     r = splitAdjusted.r;
     g = splitAdjusted.g;
     b = splitAdjusted.b;
@@ -953,14 +1114,18 @@ RgbColor applyAdjustParams(
   if (p.highlights != 0) {
     final lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
     final mask = (lum - 0.5).clamp(0.0, 0.5) * 2.0;
-    final adj  = p.highlights / 100.0 * mask * 0.5;
-    r += adj; g += adj; b += adj;
+    final adj = p.highlights / 100.0 * mask * 0.5;
+    r += adj;
+    g += adj;
+    b += adj;
   }
   if (p.shadows != 0) {
     final lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
     final mask = (0.5 - lum).clamp(0.0, 0.5) * 2.0;
-    final adj  = p.shadows / 100.0 * mask * 0.5;
-    r += adj; g += adj; b += adj;
+    final adj = p.shadows / 100.0 * mask * 0.5;
+    r += adj;
+    g += adj;
+    b += adj;
   }
 
   if (p.ambiance != 0) {
@@ -992,10 +1157,16 @@ RgbColor applyAdjustParams(
     b = luts.blue[(b.clamp(0.0, 1.0) * 255.0).round()] / 255.0;
 
     if (p.luminanceCurve != null && !p.luminanceCurve!.isLinear) {
-      final lab  = rgbToLab(RgbColor(r.clamp(0.0,1.0), g.clamp(0.0,1.0), b.clamp(0.0,1.0)));
-      final lNew = luts.luminance[(lab.l / 100.0 * 255.0).round().clamp(0, 255)] / 255.0 * 100.0;
+      final lab = rgbToLab(
+          RgbColor(r.clamp(0.0, 1.0), g.clamp(0.0, 1.0), b.clamp(0.0, 1.0)));
+      final lNew =
+          luts.luminance[(lab.l / 100.0 * 255.0).round().clamp(0, 255)] /
+              255.0 *
+              100.0;
       final rgb2 = labToRgb(LabColor(lNew, lab.a, lab.b));
-      r = rgb2.r; g = rgb2.g; b = rgb2.b;
+      r = rgb2.r;
+      g = rgb2.g;
+      b = rgb2.b;
     }
   }
 
@@ -1012,34 +1183,40 @@ RgbColor applyAdjustParams(
       final d = l - center;
       return math.exp(-0.5 * d * d / (sigma * sigma));
     }
+
     final ws = gw(lum, 0.15);
     final wm = gw(lum, 0.5);
     final wh = gw(lum, 0.85);
     final wTotal = ws + wm + wh + 1e-10;
 
     final adj = (ws * sCurve(lum, p.tonalShadows) +
-                 wm * sCurve(lum, p.tonalMidtones) +
-                 wh * sCurve(lum, p.tonalHighlights)) / wTotal - lum;
+                wm * sCurve(lum, p.tonalMidtones) +
+                wh * sCurve(lum, p.tonalHighlights)) /
+            wTotal -
+        lum;
     r = (r + adj).clamp(0.0, 1.0);
     g = (g + adj).clamp(0.0, 1.0);
     b = (b + adj).clamp(0.0, 1.0);
   }
 
   if (p.bnwEnabled) {
-    final wr = 0.299 + p.bnwRed    / 100.0 * 0.3;
-    final wg = 0.587 + p.bnwGreen  / 100.0 * 0.3;
-    final wb = 0.114 + p.bnwBlue   / 100.0 * 0.3;
-    final wy =         p.bnwYellow / 100.0 * 0.2;
-    final L  = (r * wr + g * wg + b * wb + (r + g) / 2.0 * wy)
-        .clamp(0.0, 1.0);
-    r = L; g = L; b = L;
+    final wr = 0.299 + p.bnwRed / 100.0 * 0.3;
+    final wg = 0.587 + p.bnwGreen / 100.0 * 0.3;
+    final wb = 0.114 + p.bnwBlue / 100.0 * 0.3;
+    final wy = p.bnwYellow / 100.0 * 0.2;
+    final L = (r * wr + g * wg + b * wb + (r + g) / 2.0 * wy).clamp(0.0, 1.0);
+    r = L;
+    g = L;
+    b = L;
   }
 
   return RgbColor(r.toDouble(), g.toDouble(), b.toDouble()).clamp01();
 }
 
 (double, double, double) applyAdjustParamsFlat(
-  double rIn, double gIn, double bIn,
+  double rIn,
+  double gIn,
+  double bIn,
   AdjustParams p, {
   BakedCurveLuts? bakedLuts,
 }) {
@@ -1056,21 +1233,23 @@ RgbColor applyAdjustParams(
 
   if (p.saturation != 0) {
     final lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-    final s   = 1.0 + p.saturation / 100.0;
+    final s = 1.0 + p.saturation / 100.0;
     r = lum + (r - lum) * s;
     g = lum + (g - lum) * s;
     b = lum + (b - lum) * s;
   }
 
   if (p.hasHsl) {
-    final hslAdjusted = _applyHslBandsFlat(r.clamp(0.0, 1.0), g.clamp(0.0, 1.0), b.clamp(0.0, 1.0), p);
+    final hslAdjusted = _applyHslBandsFlat(
+        r.clamp(0.0, 1.0), g.clamp(0.0, 1.0), b.clamp(0.0, 1.0), p);
     r = hslAdjusted.$1;
     g = hslAdjusted.$2;
     b = hslAdjusted.$3;
   }
 
   if (p.hasSplitToning) {
-    final splitAdjusted = _applySplitToningFlat(r.clamp(0.0, 1.0), g.clamp(0.0, 1.0), b.clamp(0.0, 1.0), p);
+    final splitAdjusted = _applySplitToningFlat(
+        r.clamp(0.0, 1.0), g.clamp(0.0, 1.0), b.clamp(0.0, 1.0), p);
     r = splitAdjusted.$1;
     g = splitAdjusted.$2;
     b = splitAdjusted.$3;
@@ -1088,14 +1267,18 @@ RgbColor applyAdjustParams(
   if (p.highlights != 0) {
     final lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
     final mask = (lum - 0.5).clamp(0.0, 0.5) * 2.0;
-    final adj  = p.highlights / 100.0 * mask * 0.5;
-    r += adj; g += adj; b += adj;
+    final adj = p.highlights / 100.0 * mask * 0.5;
+    r += adj;
+    g += adj;
+    b += adj;
   }
   if (p.shadows != 0) {
     final lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
     final mask = (0.5 - lum).clamp(0.0, 0.5) * 2.0;
-    final adj  = p.shadows / 100.0 * mask * 0.5;
-    r += adj; g += adj; b += adj;
+    final adj = p.shadows / 100.0 * mask * 0.5;
+    r += adj;
+    g += adj;
+    b += adj;
   }
 
   if (p.ambiance != 0) {
@@ -1127,10 +1310,16 @@ RgbColor applyAdjustParams(
     b = luts.blue[(b.clamp(0.0, 1.0) * 255.0).round()] / 255.0;
 
     if (p.luminanceCurve != null && !p.luminanceCurve!.isLinear) {
-      final lab  = rgbToLab(RgbColor(r.clamp(0.0,1.0), g.clamp(0.0,1.0), b.clamp(0.0,1.0)));
-      final lNew = luts.luminance[(lab.l / 100.0 * 255.0).round().clamp(0, 255)] / 255.0 * 100.0;
+      final lab = rgbToLab(
+          RgbColor(r.clamp(0.0, 1.0), g.clamp(0.0, 1.0), b.clamp(0.0, 1.0)));
+      final lNew =
+          luts.luminance[(lab.l / 100.0 * 255.0).round().clamp(0, 255)] /
+              255.0 *
+              100.0;
       final rgb2 = labToRgb(LabColor(lNew, lab.a, lab.b));
-      r = rgb2.r; g = rgb2.g; b = rgb2.b;
+      r = rgb2.r;
+      g = rgb2.g;
+      b = rgb2.b;
     }
   }
 
@@ -1147,32 +1336,35 @@ RgbColor applyAdjustParams(
       final d = l - center;
       return math.exp(-0.5 * d * d / (sigma * sigma));
     }
+
     final ws = gw(lum, 0.15);
     final wm = gw(lum, 0.5);
     final wh = gw(lum, 0.85);
     final wTotal = ws + wm + wh + 1e-10;
 
     final adj = (ws * sCurve(lum, p.tonalShadows) +
-                 wm * sCurve(lum, p.tonalMidtones) +
-                 wh * sCurve(lum, p.tonalHighlights)) / wTotal - lum;
+                wm * sCurve(lum, p.tonalMidtones) +
+                wh * sCurve(lum, p.tonalHighlights)) /
+            wTotal -
+        lum;
     r = (r + adj).clamp(0.0, 1.0);
     g = (g + adj).clamp(0.0, 1.0);
     b = (b + adj).clamp(0.0, 1.0);
   }
 
   if (p.bnwEnabled) {
-    final wr = 0.299 + p.bnwRed    / 100.0 * 0.3;
-    final wg = 0.587 + p.bnwGreen  / 100.0 * 0.3;
-    final wb = 0.114 + p.bnwBlue   / 100.0 * 0.3;
-    final wy =         p.bnwYellow / 100.0 * 0.2;
-    final L  = (r * wr + g * wg + b * wb + (r + g) / 2.0 * wy)
-        .clamp(0.0, 1.0);
-    r = L; g = L; b = L;
+    final wr = 0.299 + p.bnwRed / 100.0 * 0.3;
+    final wg = 0.587 + p.bnwGreen / 100.0 * 0.3;
+    final wb = 0.114 + p.bnwBlue / 100.0 * 0.3;
+    final wy = p.bnwYellow / 100.0 * 0.2;
+    final L = (r * wr + g * wg + b * wb + (r + g) / 2.0 * wy).clamp(0.0, 1.0);
+    r = L;
+    g = L;
+    b = L;
   }
 
   return (r.clamp(0.0, 1.0), g.clamp(0.0, 1.0), b.clamp(0.0, 1.0));
 }
-
 
 RgbColor applyPipeline({
   required RgbColor original,
@@ -1200,7 +1392,7 @@ Future<Uint8List?> loadLutBytes(String? lutPath) async {
   if (lutPath.startsWith('assets/')) {
     try {
       final data = await rootBundle.load(lutPath);
-      return data.buffer.asUint8List();
+      return data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
     } catch (_) {
       return null;
     }

@@ -5,6 +5,8 @@
 torch>=2.1.0
 torchvision>=0.16.0
 timm>=0.9.12
+# Pinned local runtime for MediaPipe Selfie Multiclass semantic-mask cache.
+ai-edge-litert==2.1.6
 
 # 수치 계산
 numpy>=1.24.0
@@ -21,9 +23,7 @@ tqdm>=4.65.0
 onnx>=1.14.0
 onnxruntime>=1.16.0
 
-# TFLite 변환 (선택, Linux/Mac 권장)
-# onnx-tf>=1.10.0
-# tensorflow>=2.13.0
+# TFLite 변환은 Python 3.11 전용 requirements-tflite.txt를 사용한다.
 
 # CoreML 변환 (선택, Mac 전용)
 # coremltools>=7.0

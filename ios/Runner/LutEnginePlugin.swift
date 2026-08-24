@@ -2,6 +2,7 @@ import Flutter
 import UIKit
 import CoreImage
 import Accelerate
+import ImageIO
 
 /// LutEnginePlugin — Flutter MethodChannel handler for iOS Core Image LUT pipeline.
 ///
@@ -33,8 +34,55 @@ import Accelerate
             result(["useDartFallback": true])
         case "export":
             result(["useDartFallback": true])
+        case "encodeWebP":
+            handleEncodeWebP(call: call, result: result)
         default:
             result(FlutterMethodNotImplemented)
+        }
+    }
+
+    // MARK: — WebP export
+
+    /// ImageIO is the source of truth for native codec support. The app only
+    /// exposes WebP when this conversion succeeds, so an extension can never
+    /// claim WebP while containing JPEG bytes.
+    private func handleEncodeWebP(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let args = call.arguments as? [String: Any],
+              let inputPath = args["inputPath"] as? String,
+              let outputPath = args["outputPath"] as? String else {
+            result(FlutterError(code: "INVALID_ARG",
+                                message: "inputPath and outputPath required", details: nil))
+            return
+        }
+        let quality = max(0.0, min(1.0, Double(args["quality"] as? Int ?? 95) / 100.0))
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let webpType = "org.webmproject.webp" as CFString
+                let supportedTypes = CGImageDestinationCopyTypeIdentifiers() as NSArray
+                guard supportedTypes.contains(where: { String(describing: $0) == webpType as String }) else {
+                    throw NSError(domain: "LutEngine", code: 20,
+                                  userInfo: [NSLocalizedDescriptionKey: "WebP is not supported by ImageIO on this device"])
+                }
+                guard let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: inputPath) as CFURL, nil),
+                      let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
+                      let destination = CGImageDestinationCreateWithURL(
+                        URL(fileURLWithPath: outputPath) as CFURL, webpType, 1, nil
+                      ) else {
+                    throw NSError(domain: "LutEngine", code: 21,
+                                  userInfo: [NSLocalizedDescriptionKey: "Unable to create WebP destination"])
+                }
+                CGImageDestinationAddImage(destination, image, [
+                    kCGImageDestinationLossyCompressionQuality: quality
+                ] as CFDictionary)
+                guard CGImageDestinationFinalize(destination) else {
+                    throw NSError(domain: "LutEngine", code: 22,
+                                  userInfo: [NSLocalizedDescriptionKey: "WebP encoding failed"])
+                }
+                DispatchQueue.main.async { result(true) }
+            } catch {
+                DispatchQueue.main.async { result(false) }
+            }
         }
     }
 

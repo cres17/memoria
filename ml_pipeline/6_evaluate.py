@@ -13,6 +13,7 @@ Stage 3 — 모델 정확도 평가
 import argparse
 import math
 import numpy as np
+from importlib import import_module
 from pathlib import Path
 
 import torch
@@ -20,7 +21,14 @@ import torch.nn.functional as F
 from PIL import Image
 from tqdm import tqdm
 
-from 3_train import ColorTransferNet, CHECKPOINT, LUT_DIM, DECODER_DIM, DEVICE
+_train = import_module("3_train")
+ColorTransferNet = _train.ColorTransferNet
+CHECKPOINT = _train.CHECKPOINT
+LUT_DIM = _train.LUT_DIM
+DECODER_DIM = _train.DECODER_DIM
+DEVICE = _train.DEVICE
+IMAGENET_MEAN = _train.IMAGENET_MEAN
+IMAGENET_STD = _train.IMAGENET_STD
 
 
 # ── 색공간 변환 ───────────────────────────────────────────────────────────────
@@ -72,9 +80,9 @@ def apply_lut_np(img: np.ndarray, lut: np.ndarray) -> np.ndarray:
 
 
 # ── 평가 ──────────────────────────────────────────────
-def upsample_lut(lut5: np.ndarray, target_dim: int = LUT_DIM) -> np.ndarray:
-    """5³ LUT numpy → 65³ trilinear upsample."""
-    t = torch.from_numpy(lut5).float().unsqueeze(0).permute(0,4,1,2,3)
+def upsample_lut(lut_small: np.ndarray, target_dim: int = LUT_DIM) -> np.ndarray:
+    """Small D³ LUT numpy → target_dim³ trilinear upsample."""
+    t = torch.from_numpy(lut_small).float().unsqueeze(0).permute(0,4,1,2,3)
     up = F.interpolate(t, size=(target_dim,)*3,
                        mode="trilinear", align_corners=True)
     return up.squeeze(0).permute(1,2,3,0).numpy()
@@ -110,12 +118,13 @@ def evaluate(checkpoint_path: str, n_samples: int = 200):
         style_t   = torch.from_numpy(
             np.array(style_img, dtype=np.float32) / 255.0
         ).permute(2, 0, 1).unsqueeze(0).to(DEVICE)
+        style_t = (style_t - IMAGENET_MEAN.to(DEVICE)) / IMAGENET_STD.to(DEVICE)
 
         with torch.no_grad():
-            lut5 = model.forward_small(style_t)   # (1,5,5,5,3)
-            lut5_np = lut5[0].cpu().numpy()
+            lut_small = model.forward_small(style_t)   # (1,D,D,D,3)
+            lut_small_np = lut_small[0].cpu().numpy()
 
-        pred_lut = upsample_lut(lut5_np, LUT_DIM)  # (65,65,65,3)
+        pred_lut = upsample_lut(lut_small_np, LUT_DIM)  # (65,65,65,3)
 
         # GT LUT 로드
         gt_lut = np.fromfile(gt_lut_path, dtype=np.float16).astype(np.float32)

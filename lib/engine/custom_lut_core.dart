@@ -7,7 +7,317 @@ import 'color_utils.dart';
 
 const int customLutDim = 65;
 
-typedef CustomLutProgressCallback = void Function(String stage, double progress);
+typedef CustomLutProgressCallback = void Function(
+    String stage, double progress);
+
+/// Lightweight checks that catch the most destructive LUT failures before a
+/// generated filter is persisted. The thresholds intentionally allow a stylized
+/// look; they only reject discontinuities, collapse, and broad hard clipping.
+class LutSafetyReport {
+  final bool validEncoding;
+  final bool hasNonFiniteValues;
+  final double interiorClipRatio;
+  final double maxAdjacentDelta;
+  final double neutralLuminanceRange;
+  final int neutralInversions;
+  final double primaryMinChroma;
+
+  const LutSafetyReport({
+    required this.validEncoding,
+    required this.hasNonFiniteValues,
+    required this.interiorClipRatio,
+    required this.maxAdjacentDelta,
+    required this.neutralLuminanceRange,
+    required this.neutralInversions,
+    required this.primaryMinChroma,
+  });
+
+  const LutSafetyReport.invalid()
+      : validEncoding = false,
+        hasNonFiniteValues = true,
+        interiorClipRatio = 1.0,
+        maxAdjacentDelta = double.infinity,
+        neutralLuminanceRange = 0.0,
+        neutralInversions = 1,
+        primaryMinChroma = 0.0;
+
+  bool get isSafe =>
+      validEncoding &&
+      !hasNonFiniteValues &&
+      interiorClipRatio <= 0.08 &&
+      maxAdjacentDelta <= 0.35 &&
+      neutralInversions == 0 &&
+      neutralLuminanceRange >= 0.55 &&
+      primaryMinChroma >= 0.05;
+
+  Map<String, dynamic> toJson() => {
+        'validEncoding': validEncoding,
+        'hasNonFiniteValues': hasNonFiniteValues,
+        'interiorClipRatio': interiorClipRatio,
+        'maxAdjacentDelta': maxAdjacentDelta,
+        'neutralLuminanceRange': neutralLuminanceRange,
+        'neutralInversions': neutralInversions,
+        'primaryMinChroma': primaryMinChroma,
+        'isSafe': isSafe,
+      };
+}
+
+/// A persisted LUT must always be safe to apply. When a candidate is too
+/// aggressive, we blend it back toward identity in deterministic steps.
+class ConstrainedLutResult {
+  final Uint8List bytes;
+  final double appliedStrength;
+  final LutSafetyReport report;
+  final String? fallbackReason;
+
+  const ConstrainedLutResult({
+    required this.bytes,
+    required this.appliedStrength,
+    required this.report,
+    this.fallbackReason,
+  });
+}
+
+/// Diagnostics for the 1–5 reference-image fusion stage. These values are
+/// safe to persist because they contain no image pixels or paths.
+class ReferenceFusionDiagnostics {
+  final int inputReferenceCount;
+  final int usedReferenceCount;
+  final int medoidIndex;
+  final double confidence;
+  final double medianStyleDistance;
+
+  const ReferenceFusionDiagnostics({
+    required this.inputReferenceCount,
+    required this.usedReferenceCount,
+    required this.medoidIndex,
+    required this.confidence,
+    required this.medianStyleDistance,
+  });
+
+  int get excludedReferenceCount => inputReferenceCount - usedReferenceCount;
+
+  Map<String, dynamic> toJson() => {
+        'inputReferenceCount': inputReferenceCount,
+        'usedReferenceCount': usedReferenceCount,
+        'excludedReferenceCount': excludedReferenceCount,
+        'medoidIndex': medoidIndex,
+        'confidence': confidence,
+        'medianStyleDistance': medianStyleDistance,
+      };
+}
+
+class CustomLutBuildResult {
+  final Uint8List bytes;
+  final ReferenceFusionDiagnostics fusion;
+
+  const CustomLutBuildResult({
+    required this.bytes,
+    required this.fusion,
+  });
+}
+
+Uint8List buildIdentityCustomLut({int dim = customLutDim}) {
+  final values = Uint16List(dim * dim * dim * 3);
+  final maxIndex = (dim - 1).toDouble();
+  var i = 0;
+  for (var b = 0; b < dim; b++) {
+    for (var g = 0; g < dim; g++) {
+      for (var r = 0; r < dim; r++) {
+        values[i++] = floatToHalf(r / maxIndex);
+        values[i++] = floatToHalf(g / maxIndex);
+        values[i++] = floatToHalf(b / maxIndex);
+      }
+    }
+  }
+  return values.buffer.asUint8List();
+}
+
+LutSafetyReport inspectCustomLutSafety(
+  Uint8List lutBytes, {
+  int dim = customLutDim,
+}) {
+  if (dim < 2 || lutBytes.offsetInBytes.isOdd) {
+    return const LutSafetyReport.invalid();
+  }
+
+  final expectedBytes = dim * dim * dim * 3 * 2;
+  if (lutBytes.lengthInBytes < expectedBytes) {
+    return const LutSafetyReport.invalid();
+  }
+
+  final values = lutBytes.buffer.asUint16List(
+    lutBytes.offsetInBytes,
+    expectedBytes ~/ 2,
+  );
+  var hasNonFiniteValues = false;
+
+  int indexOf(int r, int g, int b) => (r + g * dim + b * dim * dim) * 3;
+
+  double valueAt(int r, int g, int b, int c) {
+    final value = halfToFloat(values[indexOf(r, g, b) + c]);
+    if (!value.isFinite) {
+      hasNonFiniteValues = true;
+      return 0.0;
+    }
+    return value;
+  }
+
+  var interiorCount = 0;
+  var interiorClipped = 0;
+  var maxAdjacentDelta = 0.0;
+
+  void compareNeighbors(
+    int r1,
+    int g1,
+    int b1,
+    int r2,
+    int g2,
+    int b2,
+  ) {
+    final dr = valueAt(r1, g1, b1, 0) - valueAt(r2, g2, b2, 0);
+    final dg = valueAt(r1, g1, b1, 1) - valueAt(r2, g2, b2, 1);
+    final db = valueAt(r1, g1, b1, 2) - valueAt(r2, g2, b2, 2);
+    final delta = math.sqrt(dr * dr + dg * dg + db * db);
+    if (delta > maxAdjacentDelta) maxAdjacentDelta = delta;
+  }
+
+  for (var b = 0; b < dim; b++) {
+    for (var g = 0; g < dim; g++) {
+      for (var r = 0; r < dim; r++) {
+        final isInterior = r > 0 &&
+            r < dim - 1 &&
+            g > 0 &&
+            g < dim - 1 &&
+            b > 0 &&
+            b < dim - 1;
+        for (var c = 0; c < 3; c++) {
+          final value = valueAt(r, g, b, c);
+          if (isInterior) {
+            interiorCount++;
+            if (value <= 0.0001 || value >= 0.9999) interiorClipped++;
+          }
+        }
+        if (r + 1 < dim) compareNeighbors(r, g, b, r + 1, g, b);
+        if (g + 1 < dim) compareNeighbors(r, g, b, r, g + 1, b);
+        if (b + 1 < dim) compareNeighbors(r, g, b, r, g, b + 1);
+      }
+    }
+  }
+
+  var previousLuminance = double.negativeInfinity;
+  var firstNeutralLuminance = 0.0;
+  var lastNeutralLuminance = 0.0;
+  var neutralInversions = 0;
+  for (var i = 0; i < dim; i++) {
+    final r = valueAt(i, i, i, 0);
+    final g = valueAt(i, i, i, 1);
+    final b = valueAt(i, i, i, 2);
+    final luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    if (i == 0) firstNeutralLuminance = luminance;
+    if (luminance + 0.001 < previousLuminance) neutralInversions++;
+    previousLuminance = luminance;
+    lastNeutralLuminance = luminance;
+  }
+
+  double chromaAt(int r, int g, int b) {
+    final cr = valueAt(r, g, b, 0);
+    final cg = valueAt(r, g, b, 1);
+    final cb = valueAt(r, g, b, 2);
+    return math.max(cr, math.max(cg, cb)) - math.min(cr, math.min(cg, cb));
+  }
+
+  final primaryMinChroma = math.min(
+    chromaAt(dim - 1, 0, 0),
+    math.min(chromaAt(0, dim - 1, 0), chromaAt(0, 0, dim - 1)),
+  );
+
+  return LutSafetyReport(
+    validEncoding: true,
+    hasNonFiniteValues: hasNonFiniteValues,
+    interiorClipRatio:
+        interiorCount == 0 ? 1.0 : interiorClipped / interiorCount,
+    maxAdjacentDelta: maxAdjacentDelta,
+    neutralLuminanceRange: lastNeutralLuminance - firstNeutralLuminance,
+    neutralInversions: neutralInversions,
+    primaryMinChroma: primaryMinChroma,
+  );
+}
+
+ConstrainedLutResult constrainCustomLut(
+  Uint8List lutBytes, {
+  int dim = customLutDim,
+  List<double> strengthSteps = const [1.0, 0.75, 0.5, 0.25],
+}) {
+  final originalReport = inspectCustomLutSafety(lutBytes, dim: dim);
+  if (!originalReport.validEncoding || originalReport.hasNonFiniteValues) {
+    final identity = buildIdentityCustomLut(dim: dim);
+    return ConstrainedLutResult(
+      bytes: identity,
+      appliedStrength: 0.0,
+      report: inspectCustomLutSafety(identity, dim: dim),
+      fallbackReason: 'lut_safety_identity_fallback',
+    );
+  }
+
+  for (final strength in strengthSteps) {
+    final candidate = strength == 1.0
+        ? Uint8List.fromList(lutBytes)
+        : _blendLutWithIdentity(lutBytes, strength, dim: dim);
+    final report = inspectCustomLutSafety(candidate, dim: dim);
+    if (report.isSafe) {
+      return ConstrainedLutResult(
+        bytes: candidate,
+        appliedStrength: strength,
+        report: report,
+        fallbackReason: strength == 1.0 ? null : 'lut_safety_strength_reduced',
+      );
+    }
+  }
+
+  final identity = buildIdentityCustomLut(dim: dim);
+  return ConstrainedLutResult(
+    bytes: identity,
+    appliedStrength: 0.0,
+    report: inspectCustomLutSafety(identity, dim: dim),
+    fallbackReason: 'lut_safety_identity_fallback',
+  );
+}
+
+Uint8List _blendLutWithIdentity(
+  Uint8List lutBytes,
+  double strength, {
+  required int dim,
+}) {
+  final expectedBytes = dim * dim * dim * 3 * 2;
+  if (lutBytes.offsetInBytes.isOdd || lutBytes.lengthInBytes < expectedBytes) {
+    return buildIdentityCustomLut(dim: dim);
+  }
+
+  final source = lutBytes.buffer.asUint16List(
+    lutBytes.offsetInBytes,
+    expectedBytes ~/ 2,
+  );
+  final output = Uint16List(source.length);
+  final maxIndex = (dim - 1).toDouble();
+  var i = 0;
+  for (var b = 0; b < dim; b++) {
+    for (var g = 0; g < dim; g++) {
+      for (var r = 0; r < dim; r++) {
+        final identity = [r / maxIndex, g / maxIndex, b / maxIndex];
+        for (var c = 0; c < 3; c++) {
+          final value = halfToFloat(source[i]);
+          final safeValue = value.isFinite ? value : identity[c];
+          output[i] = floatToHalf(
+            identity[c] + (safeValue - identity[c]) * strength,
+          );
+          i++;
+        }
+      }
+    }
+  }
+  return output.buffer.asUint8List();
+}
 
 Map<String, double> inspectCustomLutStyle(img.Image styleImage) {
   final profile = _analyzeStyle(styleImage);
@@ -18,7 +328,8 @@ Map<String, double> inspectCustomLutStyle(img.Image styleImage) {
     'blueCastStrength': profile.blueCastStrength,
     'curveStrength': profile.curveStrength,
     'styleStrength': _styleStrength(profile, labProfile),
-    'labBlendWeight': _labBlendWeight(labProfile.castStrength, labProfile.neutralConfidence),
+    'labBlendWeight':
+        _labBlendWeight(labProfile.castStrength, labProfile.neutralConfidence),
   };
 }
 
@@ -47,7 +358,8 @@ Uint8List buildCustomLutFromStyleImage(
         final original = RgbColor(r / maxIdx, g / maxIdx, b / maxIdx);
         final channelRgb = _applyChannelStyle(original, profile, labProfile);
         final labRgb = _applyLabStyle(original, labProfile);
-        final blend = _labBlendWeight(labProfile.castStrength, labProfile.neutralConfidence);
+        final blend = _labBlendWeight(
+            labProfile.castStrength, labProfile.neutralConfidence);
         final mixed = RgbColor(
           channelRgb.r * (1.0 - blend) + labRgb.r * blend,
           channelRgb.g * (1.0 - blend) + labRgb.g * blend,
@@ -71,7 +383,8 @@ Uint8List buildCustomLutFromStyleImage(
   return lutData.buffer.asUint8List();
 }
 
-RgbColor applyCustomLut(Uint8List lutBytes, RgbColor rgb, {int dim = customLutDim}) {
+RgbColor applyCustomLut(Uint8List lutBytes, RgbColor rgb,
+    {int dim = customLutDim}) {
   final lut = lutBytes.buffer.asUint16List();
   final maxIdx = (dim - 1).toDouble();
 
@@ -253,8 +566,18 @@ _StyleProfile _analyzeStyle(img.Image styleImage) {
   final bHist = List<int>.filled(256, 0);
   final blueBHist = List<int>.filled(256, 0);
 
-  var sGlobalA = 0.0, sGlobalB = 0.0, mGlobalA = 0.0, mGlobalB = 0.0, hGlobalA = 0.0, hGlobalB = 0.0;
-  var sNeutralA = 0.0, sNeutralB = 0.0, mNeutralA = 0.0, mNeutralB = 0.0, hNeutralA = 0.0, hNeutralB = 0.0;
+  var sGlobalA = 0.0,
+      sGlobalB = 0.0,
+      mGlobalA = 0.0,
+      mGlobalB = 0.0,
+      hGlobalA = 0.0,
+      hGlobalB = 0.0;
+  var sNeutralA = 0.0,
+      sNeutralB = 0.0,
+      mNeutralA = 0.0,
+      mNeutralB = 0.0,
+      hNeutralA = 0.0,
+      hNeutralB = 0.0;
   var sGlobalCount = 0, mGlobalCount = 0, hGlobalCount = 0;
   var sNeutralCount = 0, mNeutralCount = 0, hNeutralCount = 0;
   var blueNegBSum = 0.0;
@@ -289,24 +612,42 @@ _StyleProfile _analyzeStyle(img.Image styleImage) {
 
       final isNeutral = chroma < 18.0 || _rgbSaturation(rgb) < 0.18;
       if (lab.l < 35.0) {
-        sGlobalA += lab.a; sGlobalB += lab.b; sGlobalCount++;
-        if (isNeutral) { sNeutralA += lab.a; sNeutralB += lab.b; sNeutralCount++; }
+        sGlobalA += lab.a;
+        sGlobalB += lab.b;
+        sGlobalCount++;
+        if (isNeutral) {
+          sNeutralA += lab.a;
+          sNeutralB += lab.b;
+          sNeutralCount++;
+        }
       } else if (lab.l < 65.0) {
-        mGlobalA += lab.a; mGlobalB += lab.b; mGlobalCount++;
-        if (isNeutral) { mNeutralA += lab.a; mNeutralB += lab.b; mNeutralCount++; }
+        mGlobalA += lab.a;
+        mGlobalB += lab.b;
+        mGlobalCount++;
+        if (isNeutral) {
+          mNeutralA += lab.a;
+          mNeutralB += lab.b;
+          mNeutralCount++;
+        }
       } else {
-        hGlobalA += lab.a; hGlobalB += lab.b; hGlobalCount++;
-        if (isNeutral) { hNeutralA += lab.a; hNeutralB += lab.b; hNeutralCount++; }
+        hGlobalA += lab.a;
+        hGlobalB += lab.b;
+        hGlobalCount++;
+        if (isNeutral) {
+          hNeutralA += lab.a;
+          hNeutralB += lab.b;
+          hNeutralCount++;
+        }
       }
     }
   }
 
   final n = (sc.width * sc.height).toDouble();
-  final blueCastStrength = blueCount > 0
-      ? (blueNegBSum / (blueCount * 55.0)).clamp(0.0, 1.0)
-      : 0.0;
+  final blueCastStrength =
+      blueCount > 0 ? (blueNegBSum / (blueCount * 55.0)).clamp(0.0, 1.0) : 0.0;
   final contentRisk = (highChromaCount / n).clamp(0.0, 1.0);
-  final curveStrength = (0.86 - contentRisk * 0.22 + blueCastStrength * 0.08).clamp(0.62, 0.92);
+  final curveStrength =
+      (0.86 - contentRisk * 0.22 + blueCastStrength * 0.08).clamp(0.62, 0.92);
 
   final rCurve = _softenCurve(_channelCurve(rHist), curveStrength);
   final gCurve = _softenCurve(_channelCurve(gHist), curveStrength);
@@ -319,7 +660,8 @@ _StyleProfile _analyzeStyle(img.Image styleImage) {
     for (int i = 0; i < 256; i++) {
       final highMask = ((i - 36) / 219.0).clamp(0.0, 1.0);
       final w = baseWeight * highMask;
-      bCurve[i] = ((1.0 - w) * bCurve[i] + w * blueCurve[i]).round().clamp(0, 255);
+      bCurve[i] =
+          ((1.0 - w) * bCurve[i] + w * blueCurve[i]).round().clamp(0, 255);
     }
     _monotonic(bCurve);
   }
@@ -328,9 +670,12 @@ _StyleProfile _analyzeStyle(img.Image styleImage) {
     rCurve: rCurve,
     gCurve: gCurve,
     bCurve: bCurve,
-    shadowCast: _resolvedCast(sGlobalA, sGlobalB, sGlobalCount, sNeutralA, sNeutralB, sNeutralCount),
-    midtoneCast: _resolvedCast(mGlobalA, mGlobalB, mGlobalCount, mNeutralA, mNeutralB, mNeutralCount),
-    highlightCast: _resolvedCast(hGlobalA, hGlobalB, hGlobalCount, hNeutralA, hNeutralB, hNeutralCount),
+    shadowCast: _resolvedCast(
+        sGlobalA, sGlobalB, sGlobalCount, sNeutralA, sNeutralB, sNeutralCount),
+    midtoneCast: _resolvedCast(
+        mGlobalA, mGlobalB, mGlobalCount, mNeutralA, mNeutralB, mNeutralCount),
+    highlightCast: _resolvedCast(
+        hGlobalA, hGlobalB, hGlobalCount, hNeutralA, hNeutralB, hNeutralCount),
     blueCastStrength: blueCastStrength,
     curveStrength: curveStrength,
   );
@@ -370,14 +715,38 @@ _LabStyleProfile _analyzeLabStyle(img.Image styleImage) {
       lHist[(lab.l * 255.0 / 100.0).round().clamp(0, 255)]++;
 
       if (lab.l < 35.0) {
-        sGlobalL += lab.l; sGlobalA += lab.a; sGlobalB += lab.b; sGlobalCount++;
-        if (isNeutral) { sNeutralL += lab.l; sNeutralA += lab.a; sNeutralB += lab.b; sNeutralCount++; }
+        sGlobalL += lab.l;
+        sGlobalA += lab.a;
+        sGlobalB += lab.b;
+        sGlobalCount++;
+        if (isNeutral) {
+          sNeutralL += lab.l;
+          sNeutralA += lab.a;
+          sNeutralB += lab.b;
+          sNeutralCount++;
+        }
       } else if (lab.l < 65.0) {
-        mGlobalL += lab.l; mGlobalA += lab.a; mGlobalB += lab.b; mGlobalCount++;
-        if (isNeutral) { mNeutralL += lab.l; mNeutralA += lab.a; mNeutralB += lab.b; mNeutralCount++; }
+        mGlobalL += lab.l;
+        mGlobalA += lab.a;
+        mGlobalB += lab.b;
+        mGlobalCount++;
+        if (isNeutral) {
+          mNeutralL += lab.l;
+          mNeutralA += lab.a;
+          mNeutralB += lab.b;
+          mNeutralCount++;
+        }
       } else {
-        hGlobalL += lab.l; hGlobalA += lab.a; hGlobalB += lab.b; hGlobalCount++;
-        if (isNeutral) { hNeutralL += lab.l; hNeutralA += lab.a; hNeutralB += lab.b; hNeutralCount++; }
+        hGlobalL += lab.l;
+        hGlobalA += lab.a;
+        hGlobalB += lab.b;
+        hGlobalCount++;
+        if (isNeutral) {
+          hNeutralL += lab.l;
+          hNeutralA += lab.a;
+          hNeutralB += lab.b;
+          hNeutralCount++;
+        }
       }
     }
   }
@@ -418,7 +787,8 @@ _LabStyleProfile _analyzeLabStyle(img.Image styleImage) {
     required int neutralZoneCount,
   }) {
     final global = globalCount > 10
-        ? LabColor(globalL / globalCount, globalA / globalCount, globalB / globalCount)
+        ? LabColor(
+            globalL / globalCount, globalA / globalCount, globalB / globalCount)
         : LabColor(fallbackL, meanA, meanB);
     if (neutralZoneCount <= 10) {
       return LabColor(global.l, global.a * 0.55, global.b * 0.55);
@@ -428,7 +798,8 @@ _LabStyleProfile _analyzeLabStyle(img.Image styleImage) {
       neutralA / neutralZoneCount,
       neutralB / neutralZoneCount,
     );
-    final trust = (neutralZoneCount / math.max(globalCount, 1) * 2.8).clamp(0.0, 1.0);
+    final trust =
+        (neutralZoneCount / math.max(globalCount, 1) * 2.8).clamp(0.0, 1.0);
     return LabColor(
       global.l * (1.0 - trust) + neutral.l * trust,
       global.a * (1.0 - trust) + neutral.a * trust,
@@ -441,22 +812,41 @@ _LabStyleProfile _analyzeLabStyle(img.Image styleImage) {
     meanL: meanL,
     contrastRatio: (sigL / 18.0).clamp(0.72, 1.34),
     satBoost: ((sigA + sigB) / 18.0).clamp(0.82, 1.55),
-    castStrength: math.sqrt(meanA * meanA + meanB * meanB).clamp(0.0, 45.0) / 45.0,
+    castStrength:
+        math.sqrt(meanA * meanA + meanB * meanB).clamp(0.0, 45.0) / 45.0,
     neutralConfidence: neutralConfidence,
     shadow: zone(
       fallbackL: 17.5,
-      globalL: sGlobalL, globalA: sGlobalA, globalB: sGlobalB, globalCount: sGlobalCount,
-      neutralL: sNeutralL, neutralA: sNeutralA, neutralB: sNeutralB, neutralZoneCount: sNeutralCount,
+      globalL: sGlobalL,
+      globalA: sGlobalA,
+      globalB: sGlobalB,
+      globalCount: sGlobalCount,
+      neutralL: sNeutralL,
+      neutralA: sNeutralA,
+      neutralB: sNeutralB,
+      neutralZoneCount: sNeutralCount,
     ),
     midtone: zone(
       fallbackL: 50.0,
-      globalL: mGlobalL, globalA: mGlobalA, globalB: mGlobalB, globalCount: mGlobalCount,
-      neutralL: mNeutralL, neutralA: mNeutralA, neutralB: mNeutralB, neutralZoneCount: mNeutralCount,
+      globalL: mGlobalL,
+      globalA: mGlobalA,
+      globalB: mGlobalB,
+      globalCount: mGlobalCount,
+      neutralL: mNeutralL,
+      neutralA: mNeutralA,
+      neutralB: mNeutralB,
+      neutralZoneCount: mNeutralCount,
     ),
     highlight: zone(
       fallbackL: 82.5,
-      globalL: hGlobalL, globalA: hGlobalA, globalB: hGlobalB, globalCount: hGlobalCount,
-      neutralL: hNeutralL, neutralA: hNeutralA, neutralB: hNeutralB, neutralZoneCount: hNeutralCount,
+      globalL: hGlobalL,
+      globalA: hGlobalA,
+      globalB: hGlobalB,
+      globalCount: hGlobalCount,
+      neutralL: hNeutralL,
+      neutralA: hNeutralA,
+      neutralB: hNeutralB,
+      neutralZoneCount: hNeutralCount,
     ),
   );
 }
@@ -507,11 +897,13 @@ _ZoneCast _resolvedCast(
   int neutralCount,
 ) {
   if (globalCount <= 10) return _ZoneCast.zero;
-  final global = _ZoneCast(globalA / globalCount, globalB / globalCount, globalCount);
+  final global =
+      _ZoneCast(globalA / globalCount, globalB / globalCount, globalCount);
   if (neutralCount <= 10) {
     return _ZoneCast(global.a * 0.55, global.b * 0.55, global.count);
   }
-  final neutral = _ZoneCast(neutralA / neutralCount, neutralB / neutralCount, neutralCount);
+  final neutral =
+      _ZoneCast(neutralA / neutralCount, neutralB / neutralCount, neutralCount);
   final trust = (neutralCount / globalCount * 2.8).clamp(0.0, 1.0);
   return _ZoneCast(
     global.a * (1.0 - trust) + neutral.a * trust,
@@ -520,7 +912,8 @@ _ZoneCast _resolvedCast(
   );
 }
 
-RgbColor _applyChannelStyle(RgbColor rgb, _StyleProfile profile, _LabStyleProfile labProfile) {
+RgbColor _applyChannelStyle(
+    RgbColor rgb, _StyleProfile profile, _LabStyleProfile labProfile) {
   final r8 = (rgb.r * 255).round().clamp(0, 255);
   final g8 = (rgb.g * 255).round().clamp(0, 255);
   final b8 = (rgb.b * 255).round().clamp(0, 255);
@@ -563,7 +956,8 @@ RgbColor _applyLabStyle(RgbColor rgb, _LabStyleProfile profile) {
   ));
 }
 
-RgbColor _protectMemoryColors(RgbColor original, RgbColor styled, _StyleProfile profile) {
+RgbColor _protectMemoryColors(
+    RgbColor original, RgbColor styled, _StyleProfile profile) {
   final lab = rgbToLab(original);
   var weight = 0.0;
 
@@ -623,14 +1017,24 @@ LabColor _weightedLabZone(double l, _LabStyleProfile profile) {
   final wh = _zoneWeight(l, profile.highlight.l, 22.0);
   final total = ws + wm + wh + 1e-10;
   return LabColor(
-    (ws * profile.shadow.l + wm * profile.midtone.l + wh * profile.highlight.l) / total,
-    (ws * profile.shadow.a + wm * profile.midtone.a + wh * profile.highlight.a) / total,
-    (ws * profile.shadow.b + wm * profile.midtone.b + wh * profile.highlight.b) / total,
+    (ws * profile.shadow.l +
+            wm * profile.midtone.l +
+            wh * profile.highlight.l) /
+        total,
+    (ws * profile.shadow.a +
+            wm * profile.midtone.a +
+            wh * profile.highlight.a) /
+        total,
+    (ws * profile.shadow.b +
+            wm * profile.midtone.b +
+            wh * profile.highlight.b) /
+        total,
   );
 }
 
 double _labBlendWeight(double castStrength, double neutralConfidence) {
-  return (0.74 - 0.56 * castStrength + 0.16 * neutralConfidence).clamp(0.22, 0.82);
+  return (0.74 - 0.56 * castStrength + 0.16 * neutralConfidence)
+      .clamp(0.22, 0.82);
 }
 
 double _styleStrength(_StyleProfile profile, _LabStyleProfile labProfile) {
@@ -663,9 +1067,10 @@ double _rgbSaturation(RgbColor rgb) {
 
 double _stdDev(List<double> values, double mean) {
   final variance = values.fold(0.0, (sum, value) {
-    final d = value - mean;
-    return sum + d * d;
-  }) / values.length;
+        final d = value - mean;
+        return sum + d * d;
+      }) /
+      values.length;
   return math.sqrt(variance).clamp(0.001, double.infinity);
 }
 
@@ -696,21 +1101,23 @@ DecodedLut decodeCustomLut(Uint8List bytes) {
 
   const dim = customLutDim; // 65
   const numElements = dim * dim * dim * 3;
-  
-  final halfList = bytes.buffer.asUint16List(bytes.offsetInBytes, bytes.lengthInBytes ~/ 2);
+
+  final halfList =
+      bytes.buffer.asUint16List(bytes.offsetInBytes, bytes.lengthInBytes ~/ 2);
   final values = Float32List(numElements);
-  
+
   for (int i = 0; i < numElements; i++) {
     values[i] = halfToFloat(halfList[i]);
   }
-  
+
   final decoded = DecodedLut(values, dim);
   _lutCache[bytes] = decoded;
   return decoded;
 }
 
 DecodedLut? tryDecodeCustomLut(Uint8List? bytes) {
-  if (bytes == null || bytes.length < customLutDim * customLutDim * customLutDim * 3 * 2) {
+  if (bytes == null ||
+      bytes.length < customLutDim * customLutDim * customLutDim * 3 * 2) {
     return null;
   }
   try {
@@ -775,7 +1182,8 @@ RgbColor applyDecodedCustomLut(DecodedLut decoded, RgbColor rgb) {
   return lerp(c0, c1, bf).clamp01();
 }
 
-(double, double, double) applyDecodedCustomLutFlat(DecodedLut decoded, double r, double g, double b) {
+(double, double, double) applyDecodedCustomLutFlat(
+    DecodedLut decoded, double r, double g, double b) {
   final values = decoded.values;
   final dim = decoded.dim;
   final maxIdx = (dim - 1).toDouble();
@@ -804,14 +1212,30 @@ RgbColor applyDecodedCustomLut(DecodedLut decoded, RgbColor rgb) {
   final i011 = (r0 + g1 * dim + b1 * dim * dim) * 3;
   final i111 = (r1 + g1 * dim + b1 * dim * dim) * 3;
 
-  final r000 = values[i000]; final g000 = values[i000 + 1]; final b000 = values[i000 + 2];
-  final r100 = values[i100]; final g100 = values[i100 + 1]; final b100 = values[i100 + 2];
-  final r010 = values[i010]; final g010 = values[i010 + 1]; final b010 = values[i010 + 2];
-  final r110 = values[i110]; final g110 = values[i110 + 1]; final b110 = values[i110 + 2];
-  final r001 = values[i001]; final g001 = values[i001 + 1]; final b001 = values[i001 + 2];
-  final r101 = values[i101]; final g101 = values[i101 + 1]; final b101 = values[i101 + 2];
-  final r011 = values[i011]; final g011 = values[i011 + 1]; final b011 = values[i011 + 2];
-  final r111 = values[i111]; final g111 = values[i111 + 1]; final b111 = values[i111 + 2];
+  final r000 = values[i000];
+  final g000 = values[i000 + 1];
+  final b000 = values[i000 + 2];
+  final r100 = values[i100];
+  final g100 = values[i100 + 1];
+  final b100 = values[i100 + 2];
+  final r010 = values[i010];
+  final g010 = values[i010 + 1];
+  final b010 = values[i010 + 2];
+  final r110 = values[i110];
+  final g110 = values[i110 + 1];
+  final b110 = values[i110 + 2];
+  final r001 = values[i001];
+  final g001 = values[i001 + 1];
+  final b001 = values[i001 + 2];
+  final r101 = values[i101];
+  final g101 = values[i101 + 1];
+  final b101 = values[i101 + 2];
+  final r011 = values[i011];
+  final g011 = values[i011 + 1];
+  final b011 = values[i011 + 2];
+  final r111 = values[i111];
+  final g111 = values[i111 + 1];
+  final b111 = values[i111 + 2];
 
   final r00 = r000 + (r100 - r000) * rf;
   final g00 = g000 + (g100 - g000) * rf;
@@ -945,7 +1369,7 @@ OklabStats _fuseOklabStats(List<OklabStats> statsList) {
 class Tps3D {
   final List<OklabColor> srcPoints;
   final List<OklabColor> dstPoints;
-  
+
   late List<List<double>> w;
   late List<List<double>> v;
 
@@ -956,7 +1380,7 @@ class Tps3D {
   void _solve() {
     final n = srcPoints.length;
     final size = n + 4;
-    
+
     final m = List.generate(size, (_) => List<double>.filled(size, 0.0));
     final y = List.generate(size, (_) => List<double>.filled(3, 0.0));
 
@@ -992,7 +1416,7 @@ class Tps3D {
     }
 
     final x = _solveLinearSystem(m, y);
-    
+
     w = List.generate(n, (i) => [x[i][0], x[i][1], x[i][2]]);
     v = List.generate(4, (i) => [x[n + i][0], x[n + i][1], x[n + i][2]]);
   }
@@ -1007,7 +1431,7 @@ class Tps3D {
       final dy = p.a - srcPoints[i].a;
       final dz = p.b - srcPoints[i].b;
       final dist = math.sqrt(dx * dx + dy * dy + dz * dz);
-      
+
       lOut += w[i][0] * dist;
       aOut += w[i][1] * dist;
       bOut += w[i][2] * dist;
@@ -1016,7 +1440,8 @@ class Tps3D {
     return OklabColor(lOut, aOut, bOut);
   }
 
-  List<List<double>> _solveLinearSystem(List<List<double>> a, List<List<double>> b) {
+  List<List<double>> _solveLinearSystem(
+      List<List<double>> a, List<List<double>> b) {
     final n = a.length;
     final ac = List.generate(n, (i) => List<double>.from(a[i]));
     final bc = List.generate(n, (i) => List<double>.from(b[i]));
@@ -1072,36 +1497,61 @@ class Tps3D {
 
 List<OklabColor> _extractTpsControlPoints(img.Image image) {
   final sc = _downscale(image, 128);
-  var sumSL = 0.0, sumSA = 0.0, sumSB = 0.0; int sCount = 0;
-  var sumML = 0.0, sumMA = 0.0, sumMB = 0.0; int mCount = 0;
-  var sumHL = 0.0, sumHA = 0.0, sumHB = 0.0; int hCount = 0;
-  var sumWL = 0.0, sumWA = 0.0, sumWB = 0.0; int wCount = 0;
+  var sumSL = 0.0, sumSA = 0.0, sumSB = 0.0;
+  int sCount = 0;
+  var sumML = 0.0, sumMA = 0.0, sumMB = 0.0;
+  int mCount = 0;
+  var sumHL = 0.0, sumHA = 0.0, sumHB = 0.0;
+  int hCount = 0;
+  var sumWL = 0.0, sumWA = 0.0, sumWB = 0.0;
+  int wCount = 0;
 
   for (int y = 0; y < sc.height; y++) {
     for (int x = 0; x < sc.width; x++) {
       final px = sc.getPixel(x, y);
-      final rgb = RgbColor(px.rNormalized.toDouble(), px.gNormalized.toDouble(), px.bNormalized.toDouble());
+      final rgb = RgbColor(px.rNormalized.toDouble(), px.gNormalized.toDouble(),
+          px.bNormalized.toDouble());
       final ok = rgbToOklab(rgb);
 
       if (ok.l < 0.35) {
-        sumSL += ok.l; sumSA += ok.a; sumSB += ok.b; sCount++;
+        sumSL += ok.l;
+        sumSA += ok.a;
+        sumSB += ok.b;
+        sCount++;
       } else if (ok.l < 0.65) {
-        sumML += ok.l; sumMA += ok.a; sumMB += ok.b; mCount++;
+        sumML += ok.l;
+        sumMA += ok.a;
+        sumMB += ok.b;
+        mCount++;
       } else {
-        sumHL += ok.l; sumHA += ok.a; sumHB += ok.b; hCount++;
+        sumHL += ok.l;
+        sumHA += ok.a;
+        sumHB += ok.b;
+        hCount++;
       }
 
       if (ok.l > 0.4 && ok.l < 0.8 && ok.a > 0.02 && ok.b > 0.02) {
-        sumWL += ok.l; sumWA += ok.a; sumWB += ok.b; wCount++;
+        sumWL += ok.l;
+        sumWA += ok.a;
+        sumWB += ok.b;
+        wCount++;
       }
     }
   }
 
   return [
-    sCount > 5 ? OklabColor(sumSL / sCount, sumSA / sCount, sumSB / sCount) : const OklabColor(0.15, 0.0, 0.0),
-    mCount > 5 ? OklabColor(sumML / mCount, sumMA / mCount, sumMB / mCount) : const OklabColor(0.50, 0.0, 0.0),
-    hCount > 5 ? OklabColor(sumHL / hCount, sumHA / hCount, sumHB / hCount) : const OklabColor(0.85, 0.0, 0.0),
-    wCount > 5 ? OklabColor(sumWL / wCount, sumWA / wCount, sumWB / wCount) : const OklabColor(0.60, 0.06, 0.06),
+    sCount > 5
+        ? OklabColor(sumSL / sCount, sumSA / sCount, sumSB / sCount)
+        : const OklabColor(0.15, 0.0, 0.0),
+    mCount > 5
+        ? OklabColor(sumML / mCount, sumMA / mCount, sumMB / mCount)
+        : const OklabColor(0.50, 0.0, 0.0),
+    hCount > 5
+        ? OklabColor(sumHL / hCount, sumHA / hCount, sumHB / hCount)
+        : const OklabColor(0.85, 0.0, 0.0),
+    wCount > 5
+        ? OklabColor(sumWL / wCount, sumWA / wCount, sumWB / wCount)
+        : const OklabColor(0.60, 0.06, 0.06),
   ];
 }
 
@@ -1161,13 +1611,14 @@ List<double> fitMonotonicCubicSpline(List<double> xs, List<double> ys) {
     }
     final h = xs[i + 1] - xs[i];
     final t = (xVal - xs[i]) / h;
-    
+
     final h00 = 2 * t * t * t - 3 * t * t + 1;
     final h10 = t * t * t - 2 * t * t + t;
     final h01 = -2 * t * t * t + 3 * t * t;
     final h11 = t * t * t - t * t;
 
-    curve[x] = h00 * ys[i] + h10 * h * ms[i] + h01 * ys[i + 1] + h11 * h * ms[i + 1];
+    curve[x] =
+        h00 * ys[i] + h10 * h * ms[i] + h01 * ys[i + 1] + h11 * h * ms[i + 1];
   }
   return curve;
 }
@@ -1190,16 +1641,20 @@ List<int> smoothCurveSpline(List<int> curve) {
   for (int y = 1; y < sc.height - 1; y += 2) {
     for (int x = 1; x < sc.width - 1; x += 2) {
       final px = sc.getPixel(x, y);
-      final l = 0.2126 * px.rNormalized + 0.7152 * px.gNormalized + 0.0722 * px.bNormalized;
+      final l = 0.2126 * px.rNormalized +
+          0.7152 * px.gNormalized +
+          0.0722 * px.bNormalized;
 
       final n1 = sc.getPixel(x - 1, y);
       final n2 = sc.getPixel(x + 1, y);
       final n3 = sc.getPixel(x, y - 1);
       final n4 = sc.getPixel(x, y + 1);
 
-      final lB = (n1.rNormalized + n2.rNormalized + n3.rNormalized + n4.rNormalized) * 0.25;
+      final lB =
+          (n1.rNormalized + n2.rNormalized + n3.rNormalized + n4.rNormalized) *
+              0.25;
       final diff = (l - lB).abs();
-      
+
       if (diff < 0.08) {
         sumDiff2 += diff * diff;
         count++;
@@ -1271,10 +1726,13 @@ _StyleProfile _fuseStyleProfiles(List<_StyleProfile> profiles) {
 
   final shadowCast = fuseZoneCast(profiles.map((p) => p.shadowCast).toList());
   final midtoneCast = fuseZoneCast(profiles.map((p) => p.midtoneCast).toList());
-  final highlightCast = fuseZoneCast(profiles.map((p) => p.highlightCast).toList());
+  final highlightCast =
+      fuseZoneCast(profiles.map((p) => p.highlightCast).toList());
 
-  final blueCastStrength = fuseValues(profiles.map((p) => p.blueCastStrength).toList());
-  final curveStrength = fuseValues(profiles.map((p) => p.curveStrength).toList());
+  final blueCastStrength =
+      fuseValues(profiles.map((p) => p.blueCastStrength).toList());
+  final curveStrength =
+      fuseValues(profiles.map((p) => p.curveStrength).toList());
 
   return _StyleProfile(
     rCurve: rCurve,
@@ -1326,10 +1784,12 @@ _LabStyleProfile _fuseLabStyleProfiles(List<_LabStyleProfile> profiles) {
   }
 
   final meanL = fuseValues(profiles.map((p) => p.meanL).toList());
-  final contrastRatio = fuseValues(profiles.map((p) => p.contrastRatio).toList());
+  final contrastRatio =
+      fuseValues(profiles.map((p) => p.contrastRatio).toList());
   final satBoost = fuseValues(profiles.map((p) => p.satBoost).toList());
   final castStrength = fuseValues(profiles.map((p) => p.castStrength).toList());
-  final neutralConfidence = fuseValues(profiles.map((p) => p.neutralConfidence).toList());
+  final neutralConfidence =
+      fuseValues(profiles.map((p) => p.neutralConfidence).toList());
 
   LabColor fuseLabColor(List<LabColor> colors) {
     final ls = colors.map((c) => c.l).toList();
@@ -1359,7 +1819,175 @@ _LabStyleProfile _fuseLabStyleProfiles(List<_LabStyleProfile> profiles) {
   );
 }
 
+class _ReferenceFusionPlan {
+  final List<int> includedIndices;
+  final ReferenceFusionDiagnostics diagnostics;
+
+  const _ReferenceFusionPlan({
+    required this.includedIndices,
+    required this.diagnostics,
+  });
+}
+
+double _median(List<double> values) {
+  if (values.isEmpty) return 0.0;
+  final sorted = [...values]..sort();
+  final middle = sorted.length ~/ 2;
+  if (sorted.length.isOdd) return sorted[middle];
+  return (sorted[middle - 1] + sorted[middle]) * 0.5;
+}
+
+double _labZoneDistance(LabColor a, LabColor b) {
+  final l = (a.l - b.l).abs() / 100.0;
+  final chroma = math.sqrt(
+        math.pow((a.a - b.a) / 128.0, 2) + math.pow((a.b - b.b) / 128.0, 2),
+      ) /
+      math.sqrt(2.0);
+  return (0.45 * l + 0.55 * chroma).clamp(0.0, 1.0);
+}
+
+/// Distance between two reference looks, not between two source images. The
+/// descriptor intentionally ignores composition and uses only global color
+/// characteristics that affect a generated LUT.
+double _styleProfileDistance(_LabStyleProfile a, _LabStyleProfile b) {
+  const curveSamples = [16, 64, 128, 192, 240];
+  var curveDistance = 0.0;
+  for (final index in curveSamples) {
+    curveDistance += (a.toneCurve[index] - b.toneCurve[index]).abs() / 255.0;
+  }
+  curveDistance /= curveSamples.length;
+
+  final zones = (_labZoneDistance(a.shadow, b.shadow) +
+          _labZoneDistance(a.midtone, b.midtone) +
+          _labZoneDistance(a.highlight, b.highlight)) /
+      3.0;
+  final meanLightness = (a.meanL - b.meanL).abs() / 100.0;
+  final contrast = (a.contrastRatio - b.contrastRatio).abs() / 2.0;
+  final saturation = (a.satBoost - b.satBoost).abs() / 1.5;
+  final cast = (a.castStrength - b.castStrength).abs();
+
+  return (0.28 * curveDistance +
+          0.32 * zones +
+          0.12 * meanLightness +
+          0.10 * contrast.clamp(0.0, 1.0) +
+          0.10 * saturation.clamp(0.0, 1.0) +
+          0.08 * cast.clamp(0.0, 1.0))
+      .clamp(0.0, 1.0);
+}
+
+_ReferenceFusionPlan _planReferenceFusion(List<_LabStyleProfile> profiles) {
+  if (profiles.isEmpty) {
+    throw ArgumentError('profiles cannot be empty');
+  }
+  if (profiles.length == 1) {
+    return const _ReferenceFusionPlan(
+      includedIndices: [0],
+      diagnostics: ReferenceFusionDiagnostics(
+        inputReferenceCount: 1,
+        usedReferenceCount: 1,
+        medoidIndex: 0,
+        confidence: 1.0,
+        medianStyleDistance: 0.0,
+      ),
+    );
+  }
+
+  final distances = List.generate(
+    profiles.length,
+    (_) => List<double>.filled(profiles.length, 0.0),
+  );
+  for (var i = 0; i < profiles.length; i++) {
+    for (var j = i + 1; j < profiles.length; j++) {
+      final distance = _styleProfileDistance(profiles[i], profiles[j]);
+      distances[i][j] = distance;
+      distances[j][i] = distance;
+    }
+  }
+
+  var medoidIndex = 0;
+  var medoidTotal = double.infinity;
+  for (var i = 0; i < profiles.length; i++) {
+    final total = distances[i].reduce((sum, value) => sum + value);
+    if (total < medoidTotal) {
+      medoidTotal = total;
+      medoidIndex = i;
+    }
+  }
+
+  final medoidDistances = distances[medoidIndex];
+  final nonMedoidDistances = <double>[
+    for (var i = 0; i < medoidDistances.length; i++)
+      if (i != medoidIndex) medoidDistances[i],
+  ];
+  final medianDistance = _median(nonMedoidDistances);
+  final consistency = (1.0 - medianDistance / 0.60).clamp(0.25, 1.0);
+
+  // With only two references, neither image is an objectively safer outlier.
+  // Preserve both and reduce the effect when their looks disagree.
+  if (profiles.length == 2) {
+    return _ReferenceFusionPlan(
+      includedIndices: const [0, 1],
+      diagnostics: ReferenceFusionDiagnostics(
+        inputReferenceCount: 2,
+        usedReferenceCount: 2,
+        medoidIndex: medoidIndex,
+        confidence: consistency,
+        medianStyleDistance: medianDistance,
+      ),
+    );
+  }
+
+  final absoluteDeviations = nonMedoidDistances
+      .map((value) => (value - medianDistance).abs())
+      .toList();
+  final mad = _median(absoluteDeviations);
+  final cutoff = medianDistance + math.max(0.06, 2.5 * mad);
+  final includedIndices = <int>[
+    for (var i = 0; i < medoidDistances.length; i++)
+      if (medoidDistances[i] <= cutoff) i,
+  ];
+  if (!includedIndices.contains(medoidIndex)) {
+    includedIndices.add(medoidIndex);
+    includedIndices.sort();
+  }
+
+  final retention = includedIndices.length / profiles.length;
+  final confidence = ((0.25 + 0.75 * retention) * consistency).clamp(0.25, 1.0);
+  return _ReferenceFusionPlan(
+    includedIndices: includedIndices,
+    diagnostics: ReferenceFusionDiagnostics(
+      inputReferenceCount: profiles.length,
+      usedReferenceCount: includedIndices.length,
+      medoidIndex: medoidIndex,
+      confidence: confidence,
+      medianStyleDistance: medianDistance,
+    ),
+  );
+}
+
+/// Exposes only aggregate reference-fusion diagnostics for UI messaging and
+/// tests. It does not retain image content.
+ReferenceFusionDiagnostics inspectReferenceFusion(List<img.Image> styleImages) {
+  if (styleImages.isEmpty) {
+    throw ArgumentError('styleImages cannot be empty');
+  }
+  return _planReferenceFusion(styleImages.map(_analyzeLabStyle).toList())
+      .diagnostics;
+}
+
 Uint8List buildCustomLutFromStyleImages(
+  List<img.Image> styleImages, {
+  int dim = customLutDim,
+  CustomLutProgressCallback? onProgress,
+}) {
+  return buildCustomLutFromStyleImagesWithDiagnostics(
+    styleImages,
+    dim: dim,
+    onProgress: onProgress,
+  ).bytes;
+}
+
+CustomLutBuildResult buildCustomLutFromStyleImagesWithDiagnostics(
   List<img.Image> styleImages, {
   int dim = customLutDim,
   CustomLutProgressCallback? onProgress,
@@ -1368,7 +1996,17 @@ Uint8List buildCustomLutFromStyleImages(
     throw ArgumentError('styleImages cannot be empty');
   }
   if (styleImages.length == 1) {
-    return buildCustomLutFromStyleImage(styleImages.first, dim: dim, onProgress: onProgress);
+    return CustomLutBuildResult(
+      bytes: buildCustomLutFromStyleImage(styleImages.first,
+          dim: dim, onProgress: onProgress),
+      fusion: const ReferenceFusionDiagnostics(
+        inputReferenceCount: 1,
+        usedReferenceCount: 1,
+        medoidIndex: 0,
+        confidence: 1.0,
+        medianStyleDistance: 0.0,
+      ),
+    );
   }
 
   onProgress?.call('style_analyze', 0.15);
@@ -1380,7 +2018,7 @@ Uint8List buildCustomLutFromStyleImages(
   for (int i = 0; i < styleImages.length; i++) {
     final progressStep = 0.15 + (i / styleImages.length) * 0.30;
     onProgress?.call('style_analyze', progressStep);
-    
+
     final profile = _analyzeStyle(styleImages[i]);
     final smoothedProfile = _StyleProfile(
       rCurve: smoothCurveSpline(profile.rCurve),
@@ -1398,7 +2036,9 @@ Uint8List buildCustomLutFromStyleImages(
     final smoothedLabProfile = _LabStyleProfile(
       toneCurve: fitMonotonicCubicSpline(
         [0.0, 32.0, 64.0, 96.0, 128.0, 160.0, 192.0, 224.0, 255.0],
-        [0.0, 32.0, 64.0, 96.0, 128.0, 160.0, 192.0, 224.0, 255.0].map((x) => labProfile.toneCurve[x.round()]).toList(),
+        [0.0, 32.0, 64.0, 96.0, 128.0, 160.0, 192.0, 224.0, 255.0]
+            .map((x) => labProfile.toneCurve[x.round()])
+            .toList(),
       ),
       meanL: labProfile.meanL,
       contrastRatio: labProfile.contrastRatio,
@@ -1416,10 +2056,16 @@ Uint8List buildCustomLutFromStyleImages(
   }
 
   onProgress?.call('lab_analyze', 0.45);
-  final fusedProfile = _fuseStyleProfiles(profiles);
-  final fusedLabProfile = _fuseLabStyleProfiles(labProfiles);
-  final fusedOklabStats = _fuseOklabStats(oklabStatsList);
-  final fusedDstPoints = _fuseTpsControlPoints(tpsCtrlPointsList);
+  final fusionPlan = _planReferenceFusion(labProfiles);
+  final includedIndices = fusionPlan.includedIndices;
+  final fusedProfile =
+      _fuseStyleProfiles([for (final i in includedIndices) profiles[i]]);
+  final fusedLabProfile =
+      _fuseLabStyleProfiles([for (final i in includedIndices) labProfiles[i]]);
+  final fusedOklabStats =
+      _fuseOklabStats([for (final i in includedIndices) oklabStatsList[i]]);
+  final fusedDstPoints = _fuseTpsControlPoints(
+      [for (final i in includedIndices) tpsCtrlPointsList[i]]);
 
   final srcPoints = [
     const OklabColor(0.15, 0.0, 0.0),
@@ -1442,10 +2088,12 @@ Uint8List buildCustomLutFromStyleImages(
     for (int g = 0; g < dim; g++) {
       for (int r = 0; r < dim; r++) {
         final original = RgbColor(r / maxIdx, g / maxIdx, b / maxIdx);
-        
-        final channelRgb = _applyChannelStyle(original, fusedProfile, fusedLabProfile);
+
+        final channelRgb =
+            _applyChannelStyle(original, fusedProfile, fusedLabProfile);
         final labRgb = _applyLabStyle(original, fusedLabProfile);
-        final blend = _labBlendWeight(fusedLabProfile.castStrength, fusedLabProfile.neutralConfidence);
+        final blend = _labBlendWeight(
+            fusedLabProfile.castStrength, fusedLabProfile.neutralConfidence);
         final mixed = RgbColor(
           channelRgb.r * (1.0 - blend) + labRgb.r * blend,
           channelRgb.g * (1.0 - blend) + labRgb.g * blend,
@@ -1465,9 +2113,12 @@ Uint8List buildCustomLutFromStyleImages(
           mixed.b * 0.40 + rgbCov.b * 0.30 + rgbTps.b * 0.30,
         ).clamp01();
 
-        final protected = _protectMemoryColors(original, finalRgb, fusedProfile);
-        
-        final strength = _styleStrength(fusedProfile, fusedLabProfile);
+        final protected =
+            _protectMemoryColors(original, finalRgb, fusedProfile);
+
+        final strength = (_styleStrength(fusedProfile, fusedLabProfile) *
+                fusionPlan.diagnostics.confidence)
+            .clamp(0.0, 1.0);
         final outputRgb = RgbColor(
           original.r * (1.0 - strength) + protected.r * strength,
           original.g * (1.0 - strength) + protected.g * strength,
@@ -1481,7 +2132,10 @@ Uint8List buildCustomLutFromStyleImages(
     }
   }
 
-  return lutData.buffer.asUint8List();
+  return CustomLutBuildResult(
+    bytes: lutData.buffer.asUint8List(),
+    fusion: fusionPlan.diagnostics,
+  );
 }
 
 OklabColor applyOklabCovarianceStyle(RgbColor rgb, OklabStats styleStats) {
@@ -1508,8 +2162,7 @@ Map<String, double> inspectCustomLutStyles(List<img.Image> styleImages) {
     'blueCastStrength': fusedProfile.blueCastStrength,
     'curveStrength': fusedProfile.curveStrength,
     'styleStrength': _styleStrength(fusedProfile, fusedLabProfile),
-    'labBlendWeight': _labBlendWeight(fusedLabProfile.castStrength, fusedLabProfile.neutralConfidence),
+    'labBlendWeight': _labBlendWeight(
+        fusedLabProfile.castStrength, fusedLabProfile.neutralConfidence),
   };
 }
-
-

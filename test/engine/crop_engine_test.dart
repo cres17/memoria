@@ -54,6 +54,34 @@ void main() {
       expect(cropped.height, 600);
     });
 
+    test('Original ratio preserves the source aspect ratio', () {
+      const state = CropState(
+        ratio: CropRatioPreset.original,
+        centerX: 0.2,
+        centerY: 0.8,
+      );
+
+      final cropped = cropImage(testImage, state);
+
+      expect(cropped.width, 800);
+      expect(cropped.height, 600);
+    });
+
+    test('Original ratio still honors an explicit interactive crop box', () {
+      const state = CropState(
+        ratio: CropRatioPreset.original,
+        cropLeft: 0.25,
+        cropTop: 0.25,
+        cropRight: 0.75,
+        cropBottom: 0.75,
+      );
+
+      final cropped = cropImage(testImage, state);
+
+      expect(cropped.width, 400);
+      expect(cropped.height, 300);
+    });
+
     test('Legacy fallback centering path', () {
       const state = CropState(
         ratio: CropRatioPreset.r4x3,

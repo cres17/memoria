@@ -75,7 +75,7 @@ class CropState {
     this.expandBottom = 0.0,
     this.expandLeft = 0.0,
     this.expandRight = 0.0,
-    this.expandMode = 'smart',
+    this.expandMode = 'black',
   });
 
   static const identity = CropState();
@@ -175,7 +175,7 @@ class CropState {
         expandBottom: (j['expandBottom'] as num? ?? 0.0).toDouble(),
         expandLeft: (j['expandLeft'] as num? ?? 0.0).toDouble(),
         expandRight: (j['expandRight'] as num? ?? 0.0).toDouble(),
-        expandMode: j['expandMode'] as String? ?? 'smart',
+        expandMode: j['expandMode'] as String? ?? 'black',
       );
 }
 
@@ -420,6 +420,173 @@ class HealStroke {
       );
 }
 
+/// Snapshot of editor state that does not fit the legacy parameter, crop,
+/// portrait, or creative payloads. Edit operations are cumulative snapshots,
+/// so keeping these values together makes undo/redo and draft restoration
+/// deterministic across every spatial and artistic tool.
+class EditorEffectState {
+  final String artisticEffect;
+  final double effectStrength;
+  final int grainVariant;
+
+  final bool selectiveActive;
+  final double selectiveX;
+  final double selectiveY;
+  final double selectiveBrightness;
+  final double selectiveContrast;
+  final double selectiveSaturation;
+  final double selectiveRadius;
+
+  final bool dodgeBurnActive;
+  final String brushMode;
+  final double dodgeY;
+  final double dodgeRadius;
+  final double dodgeStrength;
+  final double burnY;
+  final double burnRadius;
+  final double burnStrength;
+  final List<DodgeBurnHistoryStroke> brushStrokes;
+
+  final bool tiltActive;
+  final double tiltFocusCenter;
+  final double tiltBandWidth;
+  final double tiltMaxBlur;
+
+  final bool lensActive;
+  final double lensFocusDepth;
+  final double lensMaxRadius;
+
+  const EditorEffectState({
+    this.artisticEffect = 'none',
+    this.effectStrength = 1.0,
+    this.grainVariant = 3,
+    this.selectiveActive = false,
+    this.selectiveX = 0.5,
+    this.selectiveY = 0.5,
+    this.selectiveBrightness = 0.0,
+    this.selectiveContrast = 0.0,
+    this.selectiveSaturation = 0.0,
+    this.selectiveRadius = 0.3,
+    this.dodgeBurnActive = false,
+    this.brushMode = 'dodge',
+    this.dodgeY = 0.25,
+    this.dodgeRadius = 0.25,
+    this.dodgeStrength = 0.3,
+    this.burnY = 0.75,
+    this.burnRadius = 0.25,
+    this.burnStrength = 0.3,
+    this.brushStrokes = const [],
+    this.tiltActive = false,
+    this.tiltFocusCenter = 0.5,
+    this.tiltBandWidth = 0.3,
+    this.tiltMaxBlur = 8.0,
+    this.lensActive = false,
+    this.lensFocusDepth = 0.0,
+    this.lensMaxRadius = 8.0,
+  });
+
+  static const defaults = EditorEffectState();
+
+  Map<String, dynamic> toJson() => {
+        'artisticEffect': artisticEffect,
+        'effectStrength': effectStrength,
+        'grainVariant': grainVariant,
+        'selectiveActive': selectiveActive,
+        'selectiveX': selectiveX,
+        'selectiveY': selectiveY,
+        'selectiveBrightness': selectiveBrightness,
+        'selectiveContrast': selectiveContrast,
+        'selectiveSaturation': selectiveSaturation,
+        'selectiveRadius': selectiveRadius,
+        'dodgeBurnActive': dodgeBurnActive,
+        'brushMode': brushMode,
+        'dodgeY': dodgeY,
+        'dodgeRadius': dodgeRadius,
+        'dodgeStrength': dodgeStrength,
+        'burnY': burnY,
+        'burnRadius': burnRadius,
+        'burnStrength': burnStrength,
+        'brushStrokes': brushStrokes.map((stroke) => stroke.toJson()).toList(),
+        'tiltActive': tiltActive,
+        'tiltFocusCenter': tiltFocusCenter,
+        'tiltBandWidth': tiltBandWidth,
+        'tiltMaxBlur': tiltMaxBlur,
+        'lensActive': lensActive,
+        'lensFocusDepth': lensFocusDepth,
+        'lensMaxRadius': lensMaxRadius,
+      };
+
+  factory EditorEffectState.fromJson(Map<String, dynamic> json) =>
+      EditorEffectState(
+        artisticEffect: json['artisticEffect'] as String? ?? 'none',
+        effectStrength: (json['effectStrength'] as num? ?? 1.0).toDouble(),
+        grainVariant: json['grainVariant'] as int? ?? 3,
+        selectiveActive: json['selectiveActive'] as bool? ?? false,
+        selectiveX: (json['selectiveX'] as num? ?? 0.5).toDouble(),
+        selectiveY: (json['selectiveY'] as num? ?? 0.5).toDouble(),
+        selectiveBrightness:
+            (json['selectiveBrightness'] as num? ?? 0.0).toDouble(),
+        selectiveContrast:
+            (json['selectiveContrast'] as num? ?? 0.0).toDouble(),
+        selectiveSaturation:
+            (json['selectiveSaturation'] as num? ?? 0.0).toDouble(),
+        selectiveRadius: (json['selectiveRadius'] as num? ?? 0.3).toDouble(),
+        dodgeBurnActive: json['dodgeBurnActive'] as bool? ?? false,
+        brushMode: json['brushMode'] as String? ?? 'dodge',
+        dodgeY: (json['dodgeY'] as num? ?? 0.25).toDouble(),
+        dodgeRadius: (json['dodgeRadius'] as num? ?? 0.25).toDouble(),
+        dodgeStrength: (json['dodgeStrength'] as num? ?? 0.3).toDouble(),
+        burnY: (json['burnY'] as num? ?? 0.75).toDouble(),
+        burnRadius: (json['burnRadius'] as num? ?? 0.25).toDouble(),
+        burnStrength: (json['burnStrength'] as num? ?? 0.3).toDouble(),
+        brushStrokes: (json['brushStrokes'] as List<dynamic>? ?? const [])
+            .map((stroke) => DodgeBurnHistoryStroke.fromJson(
+                  stroke as Map<String, dynamic>,
+                ))
+            .toList(growable: false),
+        tiltActive: json['tiltActive'] as bool? ?? false,
+        tiltFocusCenter: (json['tiltFocusCenter'] as num? ?? 0.5).toDouble(),
+        tiltBandWidth: (json['tiltBandWidth'] as num? ?? 0.3).toDouble(),
+        tiltMaxBlur: (json['tiltMaxBlur'] as num? ?? 8.0).toDouble(),
+        lensActive: json['lensActive'] as bool? ?? false,
+        lensFocusDepth: (json['lensFocusDepth'] as num? ?? 0.0).toDouble(),
+        lensMaxRadius: (json['lensMaxRadius'] as num? ?? 8.0).toDouble(),
+      );
+}
+
+class DodgeBurnHistoryStroke {
+  final double x;
+  final double y;
+  final double radius;
+  final double strength;
+  final bool isDodge;
+
+  const DodgeBurnHistoryStroke({
+    required this.x,
+    required this.y,
+    required this.radius,
+    required this.strength,
+    required this.isDodge,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'x': x,
+        'y': y,
+        'radius': radius,
+        'strength': strength,
+        'isDodge': isDodge,
+      };
+
+  factory DodgeBurnHistoryStroke.fromJson(Map<String, dynamic> json) =>
+      DodgeBurnHistoryStroke(
+        x: (json['x'] as num).toDouble(),
+        y: (json['y'] as num).toDouble(),
+        radius: (json['radius'] as num).toDouble(),
+        strength: (json['strength'] as num).toDouble(),
+        isDodge: json['isDodge'] as bool? ?? true,
+      );
+}
+
 // ???? ???뼎: EditOperation ????????????????????????????????????????????????????????????????????
 
 class EditOperation {
@@ -456,6 +623,9 @@ class EditOperation {
   // creative
   final CreativeParams? creative;
 
+  // artistic and local effects (schema v2)
+  final EditorEffectState? effectState;
+
   const EditOperation({
     required this.id,
     required this.tool,
@@ -472,6 +642,7 @@ class EditOperation {
     this.healStrokes,
     this.portrait,
     this.creative,
+    this.effectState,
   });
 
   Map<String, dynamic> toJson() {
@@ -500,6 +671,7 @@ class EditOperation {
     }
     if (portrait != null) m['portrait'] = portrait!.toJson();
     if (creative != null) m['creative'] = creative!.toJson();
+    if (effectState != null) m['effects'] = effectState!.toJson();
     return m;
   }
 
@@ -550,6 +722,9 @@ class EditOperation {
           : null,
       creative: j['creative'] != null
           ? CreativeParams.fromJson(j['creative'] as Map<String, dynamic>)
+          : null,
+      effectState: j['effects'] != null
+          ? EditorEffectState.fromJson(j['effects'] as Map<String, dynamic>)
           : null,
     );
   }

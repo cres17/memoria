@@ -5,6 +5,8 @@ env:
 on:
   push:
     branches: [ main ]
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
@@ -32,8 +34,9 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.0'
+          flutter-version: '3.44.6'
           channel: stable
+          cache: true
           architecture: 'x64'
 
       - name: Check installed Flutter/Dart
@@ -41,34 +44,50 @@ jobs:
           flutter --version
           dart --version
 
-      - name: Clean and remove old lock
-        run: |
-          flutter clean || true
-          rm -f pubspec.lock || true
+      - name: Install locked dependencies
+        run: flutter pub get --enforce-lockfile
 
-      - name: Install dependencies
-        run: flutter pub get
+      - name: Verify required runtime assets
+        run: |
+          test -s assets/models/direct_mvp_color_transfer_fp16.tflite
+          test "$(find assets/luts -name '*.bin' -type f | wc -l | tr -d ' ')" -ge 23
+          test "$(find assets/images -name '*_thumb.jpg' -type f | wc -l | tr -d ' ')" -ge 24
+
+      - name: Analyze production and tests
+        run: flutter analyze --no-fatal-infos
+
+      - name: Run unit and widget tests
+        run: flutter test --coverage --reporter compact
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: memoria-flutter-coverage
+          path: coverage/lcov.info
 
       - name: Install iOS CocoaPods
         if: runner.os == 'macOS'
         run: |
           pushd ios
-          pod install --repo-update
+          pod install --deployment
           popd
 
       - name: Check Flutter environment
-        run: flutter doctor -v || true
+        run: flutter doctor -v
 
-      - name: Build unsigned IPA (no codesign)
+      - name: Build iOS simulator smoke app
+        run: flutter build ios --simulator --debug
+
+      - name: Build unsigned iOS release (no codesign)
         run: |
           set -o pipefail
-          flutter build ipa --no-codesign --release --verbose 2>&1 | tee build_ipa_verbose.log
+          flutter build ios --no-codesign --release --verbose 2>&1 | tee build_ipa_verbose.log
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
           name: memoria-unsigned-ipa
-          path: build/ios/ipa
+          path: build/ios/iphoneos/Runner.app
 
       - name: Upload build logs
         uses: actions/upload-artifact@v4

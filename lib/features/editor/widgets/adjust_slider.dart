@@ -8,6 +8,7 @@ class AdjustSliderItem {
   final double value;
   final double min;
   final double max;
+  final ValueChanged<double>? onChangeStart;
   final ValueChanged<double> onChanged;
   final ValueChanged<double>? onChangeEnd;
   final Color? accent;
@@ -18,6 +19,7 @@ class AdjustSliderItem {
     required this.value,
     required this.min,
     required this.max,
+    this.onChangeStart,
     required this.onChanged,
     this.onChangeEnd,
     this.accent,
@@ -72,7 +74,8 @@ class AdjustSlider extends StatelessWidget {
               ),
               AnimatedContainer(
                 duration: const Duration(milliseconds: 150),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
                   color: isNeutral
                       ? AppColors.oceanNavy
@@ -91,9 +94,7 @@ class AdjustSlider extends StatelessWidget {
                     fontFamily: 'NotoSerif',
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
-                    color: isNeutral
-                        ? AppColors.textOnDarkTert
-                        : trackColor,
+                    color: isNeutral ? AppColors.textOnDarkTert : trackColor,
                   ),
                 ),
               ),
@@ -114,13 +115,16 @@ class AdjustSlider extends StatelessWidget {
             value: item.value.clamp(item.min, item.max),
             min: item.min,
             max: item.max,
+            onChangeStart: item.onChangeStart,
             onChanged: (v) {
               hapticLight();
               item.onChanged(v);
             },
-            onChangeEnd: item.onChangeEnd != null ? (v) {
-              item.onChangeEnd!(v);
-            } : null,
+            onChangeEnd: item.onChangeEnd != null
+                ? (v) {
+                    item.onChangeEnd!(v);
+                  }
+                : null,
           ),
         ),
       ],
@@ -169,17 +173,17 @@ class AdjustParamsPanel extends StatelessWidget {
                   margin: const EdgeInsets.only(right: 8, top: 8, bottom: 8),
                   padding: const EdgeInsets.symmetric(horizontal: 14),
                   decoration: BoxDecoration(
-                    color: selected
-                        ? AppColors.oceanTeal
-                        : AppColors.oceanNavy,
+                    color: selected ? AppColors.oceanTeal : AppColors.oceanNavy,
                     borderRadius: BorderRadius.circular(14),
                   ),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Text(items[i].icon,
-                          style: const TextStyle(fontSize: 16)),
-                      const SizedBox(height: 2),
+                      if (items[i].icon.isNotEmpty) ...[
+                        Text(items[i].icon,
+                            style: const TextStyle(fontSize: 16)),
+                        const SizedBox(height: 2),
+                      ],
                       Text(
                         items[i].label,
                         style: TextStyle(

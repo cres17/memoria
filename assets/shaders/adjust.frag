@@ -73,6 +73,7 @@ uniform float uGrainSeed;     // integer seed cast to float
 
 // Resolution (pixels) — passed from Dart
 uniform vec2  uResolution;
+uniform vec2  uOrigin;
 
 out vec4 fragColor;
 
@@ -290,7 +291,7 @@ vec3 applyGrain(vec3 c, vec2 fragCoord) {
 
 // ── Main ─────────────────────────────────────────────────────
 void main() {
-  vec2 uv = FlutterFragCoord().xy / uResolution;
+  vec2 uv = (FlutterFragCoord().xy - uOrigin) / uResolution;
   vec3 c  = texture(uTexture, uv).rgb;
 
   // ── 1. 3D LUT (film simulation / custom filter) ──────────

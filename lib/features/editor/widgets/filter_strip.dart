@@ -54,9 +54,7 @@ class FilterStrip extends StatelessWidget {
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(
-                  color: selected
-                      ? AppColors.oceanFoam
-                      : Colors.transparent,
+                  color: selected ? AppColors.oceanFoam : Colors.transparent,
                   width: 2.5,
                 ),
               ),
@@ -78,9 +76,7 @@ class FilterStrip extends StatelessWidget {
                     style: TextStyle(
                       fontFamily: 'NotoSerif',
                       fontSize: 11,
-                      fontWeight: selected
-                          ? FontWeight.w600
-                          : FontWeight.w400,
+                      fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
                       color: selected
                           ? AppColors.oceanFoam
                           : AppColors.textOnDarkTert,
@@ -137,7 +133,30 @@ class _FilterThumbnail extends StatelessWidget {
         image,
         if (selected)
           Container(
-            color: AppColors.oceanFoam.withOpacity(0.15),
+            color: AppColors.oceanFoam.withValues(alpha: 0.15),
+          ),
+        if (preset.brand != null)
+          Positioned(
+            top: 4,
+            left: 4,
+            child: Container(
+              key: ValueKey('filter-brand-${preset.id}'),
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.62),
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.35)),
+              ),
+              child: Text(
+                preset.brand!.wordmark,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 6.5,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.35,
+                ),
+              ),
+            ),
           ),
         if (isFavorite)
           Positioned(
@@ -146,7 +165,7 @@ class _FilterThumbnail extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.all(2),
               decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.5),
+                color: Colors.black.withValues(alpha: 0.5),
                 shape: BoxShape.circle,
               ),
               child: const Icon(
@@ -175,12 +194,14 @@ class _FilterThumbnail extends StatelessWidget {
 class IntensitySlider extends StatelessWidget {
   final double value; // 0.0 ~ 1.0
   final ValueChanged<double> onChanged;
+  final ValueChanged<double>? onChangeStart;
   final ValueChanged<double>? onChangeEnd;
 
   const IntensitySlider({
     super.key,
     required this.value,
     required this.onChanged,
+    this.onChangeStart,
     this.onChangeEnd,
   });
 
@@ -206,13 +227,14 @@ class IntensitySlider extends StatelessWidget {
                 activeTrackColor: AppColors.oceanFoam,
                 inactiveTrackColor: AppColors.oceanNavy,
                 thumbColor: AppColors.cloudWhite,
-                overlayColor: AppColors.oceanFoam.withOpacity(0.15),
+                overlayColor: AppColors.oceanFoam.withValues(alpha: 0.15),
                 trackHeight: 3,
               ),
               child: Slider(
                 value: value,
                 min: 0.0,
                 max: 1.0,
+                onChangeStart: onChangeStart,
                 onChanged: (v) {
                   hapticLight();
                   onChanged(v);
