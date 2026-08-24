@@ -4,13 +4,24 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:memoria/ai/models/lut_predictor.dart';
 
 void main() {
+  test('LUT flattened index follows the shared R-fastest axis contract', () {
+    const dim = 5;
+    expect(LutPredictor.lutFlatIndex(0, 0, 0, 0, dim), 0);
+    expect(LutPredictor.lutFlatIndex(1, 0, 0, 0, dim), 3);
+    expect(LutPredictor.lutFlatIndex(0, 1, 0, 0, dim), dim * 3);
+    expect(LutPredictor.lutFlatIndex(0, 0, 1, 0, dim), dim * dim * 3);
+    expect(LutPredictor.lutFlatIndex(4, 3, 2, 1, dim),
+        (4 + 3 * dim + 2 * dim * dim) * 3 + 1);
+  });
+
   test('bundled color transfer model predicts a 65 cubed LUT', () async {
     const modelPath = 'assets/models/color_transfer.tflite';
     const imagePath = 'test/원본_1.jpg';
 
     if (!File(modelPath).existsSync() || !File(imagePath).existsSync()) {
       // ignore: avoid_print
-      print('skipped: local model ($modelPath) or test image ($imagePath) not found');
+      print(
+          'skipped: local model ($modelPath) or test image ($imagePath) not found');
       return;
     }
 

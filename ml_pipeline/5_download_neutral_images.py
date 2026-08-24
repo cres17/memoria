@@ -15,6 +15,7 @@ Stage 1 — 중립 이미지 다운로드 및 품질 필터링
 목표: 1000장+
 """
 
+import argparse
 import io
 import os
 import time
@@ -60,7 +61,7 @@ def is_neutral_enough(img: Image.Image) -> bool:
     r, g, b = arr[..., 0], arr[..., 1], arr[..., 2]
     mx = np.maximum(np.maximum(r, g), b)
     mn = np.minimum(np.minimum(r, g), b)
-    sat = np.where(mx > 0, (mx - mn) / mx, 0.0)
+    sat = np.divide(mx - mn, mx, out=np.zeros_like(mx), where=mx > 0)
     if sat.mean() > SAT_THRESHOLD:
         return False
 
@@ -95,13 +96,14 @@ def process_and_save(img: Image.Image, idx: int) -> bool:
 def download_coco(max_images: int = 1000) -> int:
     """COCO val2017에서 최대 max_images장 다운로드."""
     print("\n[소스 1] COCO val2017 다운로드...")
-    zip_url  = "http://images.cocodataset.org/zips/val2017.zip"
+    zip_url  = "https://images.cocodataset.org/zips/val2017.zip"
     zip_path = Path("data/val2017.zip")
-    img_dir  = Path("data/val2017_imgs")
+    img_dir  = Path("data/val2017")
 
     if not img_dir.exists():
         print(f"  ZIP 다운로드 중 (~800MB): {zip_url}")
         r = requests.get(zip_url, stream=True, timeout=120)
+        r.raise_for_status()
         total = int(r.headers.get("content-length", 0))
         with open(zip_path, "wb") as f, tqdm(
             total=total, unit="B", unit_scale=True, desc="  COCO"
@@ -230,26 +232,42 @@ def print_stats():
         r, g, b = arr[...,0], arr[...,1], arr[...,2]
         mx = np.maximum(np.maximum(r,g),b)
         mn = np.minimum(np.minimum(r,g),b)
-        sats.append(np.where(mx>0, (mx-mn)/mx, 0).mean())
+        sats.append(np.divide(mx - mn, mx, out=np.zeros_like(mx), where=mx > 0).mean())
     print(f"\n통계 (샘플 200장):")
     print(f"  평균 채도: {np.mean(sats):.3f}  (기준 < {SAT_THRESHOLD})")
     print(f"  총 이미지: {len(imgs)}장")
 
 
 def main():
-    existing = len(list(OUT_DIR.glob("*.jpg")))
-    print(f"기존 이미지: {existing}장 / 목표: {TARGET_COUNT}장")
+    parser = argparse.ArgumentParser(
+        description="Download neutral training images from permitted public/API sources."
+    )
+    parser.add_argument(
+        "--target-count", type=int, default=TARGET_COUNT,
+        help="Total number of images to retain in data/neutral_images (default: 2000).",
+    )
+    parser.add_argument(
+        "--source", choices=("coco", "all"), default="all",
+        help="Use COCO only, or also configured Unsplash/Pexels APIs (default: all).",
+    )
+    args = parser.parse_args()
+    if args.target_count <= 0:
+        parser.error("--target-count must be positive")
 
-    if existing >= TARGET_COUNT:
+    existing = len(list(OUT_DIR.glob("*.jpg")))
+    print(f"기존 이미지: {existing}장 / 목표: {args.target_count}장")
+
+    if existing >= args.target_count:
         print("이미 충분한 이미지가 있습니다.")
         print_stats()
         return
 
-    need   = TARGET_COUNT - existing
+    need   = args.target_count - existing
     total  = 0
     total += download_coco(min(need, 1000))
-    total += download_unsplash()
-    total += download_pexels()
+    if args.source == "all" and len(list(OUT_DIR.glob("*.jpg"))) < args.target_count:
+        total += download_unsplash()
+        total += download_pexels()
 
     print(f"\n완료: 총 {len(list(OUT_DIR.glob('*.jpg')))}장 ({OUT_DIR})")
     print_stats()

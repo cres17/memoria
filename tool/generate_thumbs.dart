@@ -1,97 +1,95 @@
-/// Run from project root: dart run tool/generate_thumbs.dart
-/// Uses the project's own 'image' package to generate 128x128 JPEG thumbnails.
+/// Generates product filter thumbnails from one fixed scene.
+///
+/// Run from the project root:
+///   dart run tool/generate_thumbs.dart
 library;
 
 import 'dart:io';
-import 'dart:math' as math;
+import 'dart:typed_data';
+
 import 'package:image/image.dart' as img;
+import 'package:memoria/domain/models/filter_preset.dart';
+import 'package:memoria/engine/custom_lut_core.dart';
+
+const _sourcePath = 'assets/images/summer_sapporo.jpg';
+const _outputSize = 320;
 
 void main() {
+  final sourceFile = File(_sourcePath);
+  if (!sourceFile.existsSync()) {
+    stderr.writeln('Fixed thumbnail source is missing: $_sourcePath');
+    exitCode = 66;
+    return;
+  }
+
+  final decoded = img.decodeImage(sourceFile.readAsBytesSync());
+  if (decoded == null) {
+    stderr.writeln('Could not decode fixed thumbnail source: $_sourcePath');
+    exitCode = 65;
+    return;
+  }
+
+  final side = decoded.width < decoded.height ? decoded.width : decoded.height;
+  final square = img.copyCrop(
+    decoded,
+    x: (decoded.width - side) ~/ 2,
+    y: (decoded.height - side) ~/ 2,
+    width: side,
+    height: side,
+  );
+  final source = img.copyResize(
+    square,
+    width: _outputSize,
+    height: _outputSize,
+    interpolation: img.Interpolation.linear,
+  );
+
   Directory('assets/images').createSync(recursive: true);
+  _writeThumbnail(BuiltinPresets.original, source, null);
 
-  _gen('original', _original);
-  _gen('vivid',    _vivid);
-  _gen('cool',     _cool);
-  _gen('warm',     _warm);
-  _gen('fade',     _fade);
-  _gen('noir',     _noir);
-  _gen('pastel',   _pastel);
-  _gen('golden',   _golden);
+  for (final preset in BuiltinPresets.all.skip(1)) {
+    final lutFile = File(preset.lutPath);
+    if (!lutFile.existsSync()) {
+      stderr.writeln('LUT is missing for ${preset.id}: ${preset.lutPath}');
+      exitCode = 66;
+      return;
+    }
+    final lutBytes = Uint8List.fromList(lutFile.readAsBytesSync());
+    _writeThumbnail(preset, source, decodeCustomLut(lutBytes));
+  }
 
-  print('Done — 8 thumbnails written to assets/images/');
+  stdout.writeln(
+    'Generated ${BuiltinPresets.all.length} fixed-scene filter thumbnails.',
+  );
 }
 
-void _gen(String id, _ColorFn fn) {
-  const size = 128;
-  final image = img.Image(width: size, height: size);
-  for (int y = 0; y < size; y++) {
-    for (int x = 0; x < size; x++) {
-      final c = fn(x / (size - 1), y / (size - 1));
-      image.setPixelRgb(x, y,
-        (c.$1 * 255).round().clamp(0, 255),
-        (c.$2 * 255).round().clamp(0, 255),
-        (c.$3 * 255).round().clamp(0, 255),
+void _writeThumbnail(
+  FilterPreset preset,
+  img.Image source,
+  DecodedLut? lut,
+) {
+  final output = img.Image(width: source.width, height: source.height);
+  final mix = preset.defaultIntensity.clamp(0.0, 1.0);
+
+  for (var y = 0; y < source.height; y++) {
+    for (var x = 0; x < source.width; x++) {
+      final pixel = source.getPixel(x, y);
+      final r = pixel.r.toDouble() / 255.0;
+      final g = pixel.g.toDouble() / 255.0;
+      final b = pixel.b.toDouble() / 255.0;
+      final filtered =
+          lut == null ? (r, g, b) : applyDecodedCustomLutFlat(lut, r, g, b);
+      output.setPixelRgb(
+        x,
+        y,
+        ((r * (1 - mix) + filtered.$1 * mix) * 255).round().clamp(0, 255),
+        ((g * (1 - mix) + filtered.$2 * mix) * 255).round().clamp(0, 255),
+        ((b * (1 - mix) + filtered.$3 * mix) * 255).round().clamp(0, 255),
       );
     }
   }
-  final jpg = img.encodeJpg(image, quality: 88);
-  File('assets/images/${id}_thumb.jpg').writeAsBytesSync(jpg);
-  print('  [$id] assets/images/${id}_thumb.jpg');
-}
 
-typedef _ColorFn = (double r, double g, double b) Function(double tx, double ty);
-
-double _lerp(double a, double b, double t) => a + (b - a) * t;
-double _sCurve(double x, double s) => x + (x * x * (3 - 2 * x) - x) * s;
-
-// Original: neutral grey-to-white diagonal
-(double, double, double) _original(double tx, double ty) {
-  final v = _lerp(0.18, 0.88, (tx + ty) / 2);
-  return (v, v, v);
-}
-
-// Vivid: high-saturation rainbow sweep
-(double, double, double) _vivid(double tx, double ty) {
-  final r = _sCurve(_lerp(0.9, 0.1, tx), 0.2);
-  final g = _sCurve(_lerp(0.1, 0.8, tx * 0.7 + ty * 0.3), 0.15);
-  final b = _sCurve(_lerp(0.1, 0.95, ty), 0.2);
-  return (r, g, b);
-}
-
-// Cool: blue-teal gradient
-(double, double, double) _cool(double tx, double ty) {
-  final t = (tx + ty) / 2;
-  return (_lerp(0.08, 0.45, t), _lerp(0.30, 0.72, t), _lerp(0.55, 0.98, t));
-}
-
-// Warm: amber-gold gradient
-(double, double, double) _warm(double tx, double ty) {
-  final t = (tx + ty) / 2;
-  return (_lerp(0.55, 1.0, t), _lerp(0.30, 0.72, t), _lerp(0.02, 0.22, t));
-}
-
-// Fade: matte desaturated
-(double, double, double) _fade(double tx, double ty) {
-  final t = (tx * 0.6 + ty * 0.4);
-  final base = _lerp(0.18, 0.82, t);
-  return (base + 0.02, base, base + 0.06);
-}
-
-// Noir: high-contrast greyscale with slight blue tint
-(double, double, double) _noir(double tx, double ty) {
-  final t = (tx * 0.5 + ty * 0.5);
-  final v = _sCurve(t, 0.45);
-  return (v * 0.90, v * 0.92, v * 1.00);
-}
-
-// Pastel: soft pink-lavender
-(double, double, double) _pastel(double tx, double ty) {
-  final t = (tx + ty) / 2;
-  return (_lerp(0.82, 0.98, t), _lerp(0.70, 0.88, t), _lerp(0.80, 0.95, t));
-}
-
-// Golden: warm gold → orange sunset
-(double, double, double) _golden(double tx, double ty) {
-  final t = (tx * 0.7 + ty * 0.3);
-  return (_lerp(0.60, 1.0, t), _lerp(0.38, 0.72, t), _lerp(0.02, 0.16, t));
+  File(preset.thumbnailPath)
+      .writeAsBytesSync(img.encodeJpg(output, quality: 88));
+  stdout.writeln('  ${preset.id} -> ${preset.thumbnailPath}');
 }

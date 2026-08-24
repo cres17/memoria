@@ -1,11 +1,13 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import '../../ai/ai_manager.dart';
 import '../../core/l10n/app_locale.dart';
 import '../../core/l10n/strings.dart';
+import '../../core/services/export_preferences.dart';
+import '../../core/services/media_permission_service.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/platform_utils.dart';
 
@@ -18,30 +20,28 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsPageState extends State<SettingsPage> {
   int _versionTapCount = 0;
-  ModelState _colorModelState = const ModelState(status: ModelStatus.notDownloaded);
-  String _exportFormat = 'jpeg';
+  ExportFormat _exportFormat = ExportFormat.jpeg;
+  int _exportQuality = 95;
 
   @override
   void initState() {
     super.initState();
     setStatusBarForDark();
-    _refreshModelState();
     _loadSettings();
-    AiManager.instance.addListener(_onModelStateChanged);
   }
 
   Future<void> _loadSettings() async {
-    final prefs = await SharedPreferences.getInstance();
+    final settings = await ExportPreferences.load(allowWebp: Platform.isIOS);
     if (mounted) {
       setState(() {
-        _exportFormat = prefs.getString('settings_export_format') ?? 'jpeg';
+        _exportFormat = settings.format;
+        _exportQuality = settings.quality;
       });
     }
   }
 
-  Future<void> _setExportFormat(String format) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('settings_export_format', format);
+  Future<void> _setExportFormat(ExportFormat format) async {
+    await ExportPreferences.saveFormat(format);
     if (mounted) {
       setState(() {
         _exportFormat = format;
@@ -49,17 +49,34 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  void _refreshModelState() {
-    setState(() {
-      _colorModelState = AiManager.instance.stateOf(kModelColorTransfer.key);
-    });
+  Future<void> _setExportQuality(int quality) async {
+    await ExportPreferences.saveQuality(quality);
+    if (mounted) setState(() => _exportQuality = quality);
   }
 
-  void _onModelStateChanged() => _refreshModelState();
+  bool get _qualityIsAdjustable => _exportFormat.hasAdjustableQuality;
+
+  String get _qualitySubtitle => switch (_exportFormat) {
+        ExportFormat.jpeg => 'JPEG $_exportQuality%',
+        ExportFormat.webp => 'WebP $_exportQuality%',
+        ExportFormat.png => 'PNG · 무손실',
+        ExportFormat.tiff => 'TIFF · 무손실',
+      };
+
+  Future<void> _openSystemPermissionSettings() async {
+    final opened = await MediaPermissionService.openAppPermissionSettings();
+    if (!opened && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(S.get('permission.settings_open_failed')),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
 
   @override
   void dispose() {
-    AiManager.instance.removeListener(_onModelStateChanged);
     setStatusBarForLight();
     super.dispose();
   }
@@ -69,16 +86,20 @@ class _SettingsPageState extends State<SettingsPage> {
       context: context,
       builder: (_) => AlertDialog(
         backgroundColor: AppColors.oceanMid,
-        title: Text(S.get('settings.clear_cache_title'), style: const TextStyle(color: AppColors.textOnDark)),
-        content: Text(S.get('settings.clear_cache_body'), style: const TextStyle(color: AppColors.textOnDarkSub)),
+        title: Text(S.get('settings.clear_cache_title'),
+            style: const TextStyle(color: AppColors.textOnDark)),
+        content: Text(S.get('settings.clear_cache_body'),
+            style: const TextStyle(color: AppColors.textOnDarkSub)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: Text(S.get('settings.clear_cache_cancel'), style: const TextStyle(color: AppColors.textOnDarkTert)),
+            child: Text(S.get('settings.clear_cache_cancel'),
+                style: const TextStyle(color: AppColors.textOnDarkTert)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: Text(S.get('settings.clear_cache_confirm'), style: const TextStyle(color: AppColors.oceanFoam)),
+            child: Text(S.get('settings.clear_cache_confirm'),
+                style: const TextStyle(color: AppColors.oceanFoam)),
           ),
         ],
       ),
@@ -88,7 +109,9 @@ class _SettingsPageState extends State<SettingsPage> {
     try {
       final temp = await getTemporaryDirectory();
       for (final e in temp.listSync()) {
-        try { e.deleteSync(recursive: true); } catch (_) {}
+        try {
+          e.deleteSync(recursive: true);
+        } catch (_) {}
       }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -101,7 +124,9 @@ class _SettingsPageState extends State<SettingsPage> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${S.get('settings.clear_cache_fail')}: $e'), behavior: SnackBarBehavior.floating),
+          SnackBar(
+              content: Text('${S.get('settings.clear_cache_fail')}: $e'),
+              behavior: SnackBarBehavior.floating),
         );
       }
     }
@@ -120,7 +145,8 @@ class _SettingsPageState extends State<SettingsPage> {
           children: [
             const SizedBox(height: 12),
             Container(
-              width: 40, height: 4,
+              width: 40,
+              height: 4,
               decoration: BoxDecoration(
                 color: AppColors.oceanNavy,
                 borderRadius: BorderRadius.circular(99),
@@ -128,26 +154,38 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
             const SizedBox(height: 16),
             ListTile(
-              leading: const Icon(Icons.check_rounded, color: Colors.transparent),
-              title: const Text('한국어', style: TextStyle(color: AppColors.textOnDark)),
+              leading:
+                  const Icon(Icons.check_rounded, color: Colors.transparent),
+              title: const Text('한국어',
+                  style: TextStyle(color: AppColors.textOnDark)),
               trailing: ValueListenableBuilder<Locale>(
                 valueListenable: localeNotifier,
                 builder: (_, locale, __) => locale.languageCode == 'ko'
-                    ? const Icon(Icons.check_rounded, color: AppColors.oceanFoam)
+                    ? const Icon(Icons.check_rounded,
+                        color: AppColors.oceanFoam)
                     : const SizedBox.shrink(),
               ),
-              onTap: () { setLocale('ko'); Navigator.pop(context); },
+              onTap: () {
+                setLocale('ko');
+                Navigator.pop(context);
+              },
             ),
             ListTile(
-              leading: const Icon(Icons.check_rounded, color: Colors.transparent),
-              title: const Text('English', style: TextStyle(color: AppColors.textOnDark)),
+              leading:
+                  const Icon(Icons.check_rounded, color: Colors.transparent),
+              title: const Text('English',
+                  style: TextStyle(color: AppColors.textOnDark)),
               trailing: ValueListenableBuilder<Locale>(
                 valueListenable: localeNotifier,
                 builder: (_, locale, __) => locale.languageCode == 'en'
-                    ? const Icon(Icons.check_rounded, color: AppColors.oceanFoam)
+                    ? const Icon(Icons.check_rounded,
+                        color: AppColors.oceanFoam)
                     : const SizedBox.shrink(),
               ),
-              onTap: () { setLocale('en'); Navigator.pop(context); },
+              onTap: () {
+                setLocale('en');
+                Navigator.pop(context);
+              },
             ),
             const SizedBox(height: 8),
           ],
@@ -169,17 +207,19 @@ class _SettingsPageState extends State<SettingsPage> {
           children: [
             const SizedBox(height: 12),
             Container(
-              width: 40, height: 4,
+              width: 40,
+              height: 4,
               decoration: BoxDecoration(
                 color: AppColors.oceanNavy,
                 borderRadius: BorderRadius.circular(99),
               ),
             ),
             const SizedBox(height: 16),
-            _buildFormatTile('jpeg', 'JPEG (Standard)'),
-            _buildFormatTile('png', 'PNG (Lossless)'),
-            _buildFormatTile('webp', 'WebP (Lossy 90%)'),
-            _buildFormatTile('raw', 'RAW (DNG 100% Meta Preservation)'),
+            _buildFormatTile(ExportFormat.jpeg, 'JPEG (고효율)'),
+            if (Platform.isIOS)
+              _buildFormatTile(ExportFormat.webp, 'WebP (고효율)'),
+            _buildFormatTile(ExportFormat.png, 'PNG (무손실)'),
+            _buildFormatTile(ExportFormat.tiff, 'TIFF (무손실 편집본)'),
             const SizedBox(height: 8),
           ],
         ),
@@ -187,17 +227,87 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  Widget _buildFormatTile(String formatKey, String label) {
+  Widget _buildFormatTile(ExportFormat format, String label) {
     return ListTile(
       leading: const Icon(Icons.check_rounded, color: Colors.transparent),
       title: Text(label, style: const TextStyle(color: AppColors.textOnDark)),
-      trailing: _exportFormat == formatKey
+      trailing: _exportFormat == format
           ? const Icon(Icons.check_rounded, color: AppColors.oceanFoam)
           : const SizedBox.shrink(),
       onTap: () {
-        _setExportFormat(formatKey);
+        _setExportFormat(format);
         Navigator.pop(context);
       },
+    );
+  }
+
+  void _showExportQualityPicker() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.oceanMid,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.oceanNavy,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              const Text(
+                'JPEG 내보내기 품질',
+                style: TextStyle(
+                  color: AppColors.textOnDark,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                '높을수록 디테일은 유지되고 파일 크기는 커집니다.',
+                style: TextStyle(color: AppColors.textOnDarkSub),
+              ),
+              const SizedBox(height: 18),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [70, 80, 90, 95, 100]
+                    .map(
+                      (quality) => ChoiceChip(
+                        label: Text('$quality%'),
+                        selected: _exportQuality == quality,
+                        selectedColor: AppColors.oceanFoam,
+                        backgroundColor: AppColors.oceanNavy,
+                        labelStyle: TextStyle(
+                          color: _exportQuality == quality
+                              ? AppColors.oceanDeep
+                              : AppColors.textOnDark,
+                          fontWeight: FontWeight.w800,
+                        ),
+                        onSelected: (_) async {
+                          await _setExportQuality(quality);
+                          if (mounted) Navigator.pop(context);
+                        },
+                      ),
+                    )
+                    .toList(),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -227,7 +337,8 @@ class _SettingsPageState extends State<SettingsPage> {
           duration: const Duration(seconds: 1),
           backgroundColor: AppColors.oceanNavy,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
       );
     }
@@ -252,7 +363,7 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
         title: Text(
           S.get('settings.title'),
-          style: TextStyle(
+          style: const TextStyle(
             fontFamily: 'NotoSerif',
             fontSize: 18,
             fontWeight: FontWeight.w700,
@@ -301,30 +412,29 @@ class _SettingsPageState extends State<SettingsPage> {
               _SettingRow(
                 icon: Icons.high_quality_rounded,
                 title: S.get('settings.export_quality'),
-                subtitle: S.get('settings.export_quality_sub'),
-                onTap: null,
+                subtitle: _qualitySubtitle,
+                onTap: _qualityIsAdjustable ? _showExportQualityPicker : null,
               ),
               const _Divider(),
               _SettingRow(
                 icon: Icons.image_outlined,
                 title: S.get('settings.export_format'),
-                subtitle: _exportFormat.toUpperCase(),
+                subtitle: _exportFormat == ExportFormat.tiff
+                    ? 'TIFF'
+                    : _exportFormat.name.toUpperCase(),
                 onTap: () => _showExportFormatPicker(),
               ),
             ],
           ),
           const SizedBox(height: 24),
-          _SectionHeader(title: S.get('settings.ai')),
+          _SectionHeader(title: S.get('settings.permissions')),
           _SettingCard(
             children: [
-              _AiModelRow(
-                icon: Icons.palette_outlined,
-                title: S.get('settings.ai_color'),
-                subtitle: S.get('settings.ai_color_sub'),
-                state: _colorModelState,
-                onDownload: kModelColorTransfer.url.isEmpty
-                    ? null
-                    : () => AiManager.instance.preload(kModelColorTransfer),
+              _SettingRow(
+                icon: Icons.admin_panel_settings_outlined,
+                title: S.get('settings.app_permissions'),
+                subtitle: S.get('settings.app_permissions_sub'),
+                onTap: _openSystemPermissionSettings,
               ),
             ],
           ),
@@ -472,145 +582,5 @@ class _Divider extends StatelessWidget {
       padding: EdgeInsets.only(left: 66),
       child: Divider(height: 1, color: AppColors.oceanNavy),
     );
-  }
-}
-
-class _AiModelRow extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final ModelState state;
-  final VoidCallback? onDownload;
-
-  const _AiModelRow({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.state,
-    this.onDownload,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      child: Row(
-        children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: AppColors.oceanNavy,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(icon, color: AppColors.textOnDarkSub, size: 18),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title,
-                    style: const TextStyle(
-                      fontFamily: 'NotoSerif',
-                      fontSize: 15,
-                      fontWeight: FontWeight.w500,
-                      color: AppColors.textOnDark,
-                    )),
-                const SizedBox(height: 2),
-                Text(subtitle,
-                    style: const TextStyle(
-                      fontFamily: 'NotoSerif',
-                      fontSize: 13,
-                      color: AppColors.textOnDarkTert,
-                    )),
-              ],
-            ),
-          ),
-          const SizedBox(width: 12),
-          _statusWidget(),
-        ],
-      ),
-    );
-  }
-
-  Widget _statusWidget() {
-    switch (state.status) {
-      case ModelStatus.ready:
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          decoration: BoxDecoration(
-            color: AppColors.oceanTeal.withOpacity(0.3),
-            borderRadius: BorderRadius.circular(99),
-          ),
-          child: Text(
-            S.get('settings.ai_ready'),
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: AppColors.oceanFoam,
-            ),
-          ),
-        );
-      case ModelStatus.downloading:
-        return SizedBox(
-          width: 72,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                '${(state.progress * 100).round()}%',
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: AppColors.oceanFoam,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 4),
-              LinearProgressIndicator(
-                value: state.progress,
-                backgroundColor: AppColors.oceanNavy,
-                color: AppColors.oceanFoam,
-                borderRadius: BorderRadius.circular(99),
-              ),
-            ],
-          ),
-        );
-      case ModelStatus.error:
-        return TextButton(
-          onPressed: onDownload,
-          style: TextButton.styleFrom(
-            foregroundColor: Colors.redAccent,
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          ),
-          child: Text(S.get('settings.ai_error')),
-        );
-      case ModelStatus.notDownloaded:
-        if (onDownload == null) {
-          return Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-            decoration: BoxDecoration(
-              color: AppColors.oceanNavy,
-              borderRadius: BorderRadius.circular(99),
-            ),
-            child: Text(
-              'N/A',
-              style: const TextStyle(
-                fontSize: 12,
-                color: AppColors.textOnDarkTert,
-              ),
-            ),
-          );
-        }
-        return TextButton(
-          onPressed: onDownload,
-          style: TextButton.styleFrom(
-            foregroundColor: AppColors.oceanFoam,
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          ),
-          child: Text(S.get('settings.ai_download')),
-        );
-    }
   }
 }

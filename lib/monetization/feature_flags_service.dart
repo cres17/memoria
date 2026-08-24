@@ -19,7 +19,7 @@ class FeatureFlagsService {
 
   // ── Getters ──────────────────────────────────────────────────
   bool get enableBannerAd =>
-      !kIsWeb && (_prefs.getBool(_keyBanner) ?? true); // web always OFF
+      !kIsWeb && (_prefs.getBool(_keyBanner) ?? false); // web always OFF
 
   bool get enableFullScreenAdsForCreateFilter =>
       _prefs.getBool(_keyFullCreateFilter) ?? false; // default OFF

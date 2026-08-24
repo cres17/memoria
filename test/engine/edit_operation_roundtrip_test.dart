@@ -103,6 +103,97 @@ void main() {
       expect(rt.intensity, 0.62);
       expect(rt.params!.saturation, 12);
     });
+
+    test('schema v2 preserves artistic and every local effect state', () {
+      final op = EditOperation(
+        id: 'rt-effects',
+        tool: EditToolType.brush,
+        schemaVersion: 2,
+        appliedAt: DateTime.utc(2026, 8, 20),
+        effectState: const EditorEffectState(
+          artisticEffect: 'drama',
+          effectStrength: 0.72,
+          grainVariant: 5,
+          selectiveActive: true,
+          selectiveX: 0.2,
+          selectiveY: 0.8,
+          selectiveBrightness: 0.3,
+          selectiveContrast: -0.2,
+          selectiveSaturation: 0.4,
+          selectiveRadius: 0.18,
+          dodgeBurnActive: true,
+          brushMode: 'burn',
+          dodgeY: 0.24,
+          dodgeRadius: 0.15,
+          dodgeStrength: 0.45,
+          burnY: 0.76,
+          burnRadius: 0.2,
+          burnStrength: 0.55,
+          brushStrokes: [
+            DodgeBurnHistoryStroke(
+              x: 0.12,
+              y: 0.34,
+              radius: 0.08,
+              strength: 0.67,
+              isDodge: false,
+            ),
+          ],
+          tiltActive: true,
+          tiltFocusCenter: 0.42,
+          tiltBandWidth: 0.21,
+          tiltMaxBlur: 7.5,
+          lensActive: true,
+          lensFocusDepth: 0.63,
+          lensMaxRadius: 9.25,
+        ),
+      );
+
+      final rt = EditOperation.fromJsonString(op.toJsonString());
+      final state = rt.effectState!;
+
+      expect(rt.schemaVersion, 2);
+      expect(state.artisticEffect, 'drama');
+      expect(state.effectStrength, 0.72);
+      expect(state.grainVariant, 5);
+      expect(state.selectiveActive, isTrue);
+      expect(state.selectiveX, 0.2);
+      expect(state.selectiveY, 0.8);
+      expect(state.selectiveBrightness, 0.3);
+      expect(state.selectiveContrast, -0.2);
+      expect(state.selectiveSaturation, 0.4);
+      expect(state.selectiveRadius, 0.18);
+      expect(state.dodgeBurnActive, isTrue);
+      expect(state.brushMode, 'burn');
+      expect(state.dodgeStrength, 0.45);
+      expect(state.burnStrength, 0.55);
+      expect(state.brushStrokes, hasLength(1));
+      expect(state.brushStrokes.single.x, 0.12);
+      expect(state.brushStrokes.single.y, 0.34);
+      expect(state.brushStrokes.single.radius, 0.08);
+      expect(state.brushStrokes.single.strength, 0.67);
+      expect(state.brushStrokes.single.isDodge, isFalse);
+      expect(state.tiltActive, isTrue);
+      expect(state.tiltFocusCenter, 0.42);
+      expect(state.tiltBandWidth, 0.21);
+      expect(state.tiltMaxBlur, 7.5);
+      expect(state.lensActive, isTrue);
+      expect(state.lensFocusDepth, 0.63);
+      expect(state.lensMaxRadius, 9.25);
+    });
+
+    test('schema v1 operation without effect state remains compatible', () {
+      final legacy = EditOperation.fromJson({
+        'id': 'legacy',
+        'tool': 'globalAdjust',
+        'v': 1,
+        'at': '2026-01-01T00:00:00.000Z',
+        'params': const AdjustParams(exposure: 0.2).toJson(),
+      });
+
+      expect(legacy.schemaVersion, 1);
+      expect(legacy.effectState, isNull);
+      expect(legacy.params!.exposure, 0.2);
+    });
   });
 
   group('EditSession round-trip coverage', () {
@@ -131,6 +222,7 @@ EditOperation _op(
   List<SelectivePoint>? selectivePoints,
   List<HealStroke>? healStrokes,
   PortraitParams? portrait,
+  EditorEffectState? effectState,
 }) =>
     EditOperation(
       id: 'rt-${tool.name}',
@@ -140,4 +232,5 @@ EditOperation _op(
       selectivePoints: selectivePoints,
       healStrokes: healStrokes,
       portrait: portrait,
+      effectState: effectState,
     );

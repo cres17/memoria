@@ -16,6 +16,7 @@ import 'color_utils.dart';
 import 'inpainting.dart';
 import 'raw_processor.dart';
 import 'crop_engine.dart';
+import 'frame_overlay.dart';
 
 // ─────────────────────────────────────────────────────────
 //  EditOperationPlayer
@@ -454,31 +455,46 @@ class EditOperationPlayer {
   }) {
     if (portrait.isZero) return image;
 
-    final mask = segmentMask ?? _ovalFaceMaskPlayer(image.width, image.height);
     var out = image;
+    final hasSegmentMask =
+        segmentMask != null && segmentMask.length == image.width * image.height;
+    final hasDepthMap =
+        depthMap != null && depthMap.length == image.width * image.height;
 
-    if (portrait.smooth > 0) {
-      out = applySkinSmoothing(out, mask, portrait.smooth);
-    }
-    if (portrait.spotlight > 0) {
-      out = applyFaceSpotlight(out, mask, portrait.spotlight);
-    }
-    if (portrait.skinTone != SkinTone.none) {
-      out = applySkinToning(
-          out, mask, portrait.skinTone, portrait.skinToneStrength);
-    }
-    if (portrait.headYaw != 0 || portrait.headPitch != 0) {
-      out = applyHeadPoseWarp(
-        out,
-        mask,
-        yaw: portrait.headYaw,
-        pitch: portrait.headPitch,
-      );
+    // Never guess a face-shaped region in the middle of a photo. Face/skin
+    // operations require a real mask for this exact image; otherwise they
+    // must fail closed without changing unrelated scenery or objects.
+    if (hasSegmentMask) {
+      final mask = segmentMask;
+      if (portrait.smooth > 0) {
+        out = applySkinSmoothing(out, mask, portrait.smooth);
+      }
+      if (portrait.spotlight > 0) {
+        out = applyFaceSpotlight(out, mask, portrait.spotlight);
+      }
+      if (portrait.skinTone != SkinTone.none) {
+        out = applySkinToning(
+            out, mask, portrait.skinTone, portrait.skinToneStrength);
+      }
+      if (portrait.headYaw != 0 || portrait.headPitch != 0) {
+        out = applyHeadPoseWarp(
+          out,
+          mask,
+          yaw: portrait.headYaw,
+          pitch: portrait.headPitch,
+        );
+      }
     }
     if (portrait.bokeh > 0) {
-      final dm =
-          depthMap ?? _fallbackDepthFromMask(mask, out.width, out.height);
-      out = applyDepthBokeh(out, dm, portrait.bokeh);
+      if (hasDepthMap) {
+        out = applyDepthBokeh(out, depthMap, portrait.bokeh);
+      } else if (hasSegmentMask) {
+        out = applyDepthBokeh(
+          out,
+          _fallbackDepthFromMask(segmentMask, out.width, out.height),
+          portrait.bokeh,
+        );
+      }
     }
 
     return out;
@@ -520,7 +536,14 @@ class EditOperationPlayer {
     if (frameBytes != null && creative.frameIndex >= 0) {
       final frame = img.decodeImage(frameBytes);
       if (frame != null) {
-        out = img.compositeImage(out, frame, dstW: out.width, dstH: out.height);
+        // Frame assets can contain an opaque centre. Keep only their border so
+        // the source photo remains visible, matching the editor preview path.
+        out = img.compositeImage(
+          out,
+          buildFrameOverlay(frame),
+          dstW: out.width,
+          dstH: out.height,
+        );
       }
     }
 
@@ -566,7 +589,8 @@ class EditOperationPlayer {
             ? textLayer
             : img.copyResize(
                 textLayer,
-                width: (textLayer.width * scale).round().clamp(1, out.width * 4),
+                width:
+                    (textLayer.width * scale).round().clamp(1, out.width * 4),
                 height:
                     (textLayer.height * scale).round().clamp(1, out.height * 4),
                 interpolation: img.Interpolation.linear,
@@ -588,23 +612,6 @@ class EditOperationPlayer {
 }
 
 // ── 모듈-레벨 헬퍼 ────────────────────────────────────────
-
-Float32List _ovalFaceMaskPlayer(int width, int height) {
-  final mask = Float32List(width * height);
-  final cx = width * 0.5;
-  final cy = height * 0.38;
-  final rx = width * 0.26;
-  final ry = height * 0.33;
-  for (var y = 0; y < height; y++) {
-    for (var x = 0; x < width; x++) {
-      final nx = (x - cx) / rx;
-      final ny = (y - cy) / ry;
-      final d = math.sqrt(nx * nx + ny * ny);
-      mask[y * width + x] = (1.0 - ((d - 0.78) / 0.22)).clamp(0.0, 1.0);
-    }
-  }
-  return mask;
-}
 
 Float32List _fallbackDepthFromMask(Float32List mask, int w, int h) {
   final depth = Float32List(w * h);

@@ -18,10 +18,15 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:memoria/core/l10n/strings.dart';
+import 'package:memoria/core/services/export_preferences.dart';
+import 'package:memoria/core/services/media_permission_service.dart';
 import 'package:memoria/core/theme/app_colors.dart';
 import 'package:memoria/core/theme/app_theme.dart';
 import 'package:memoria/core/utils/platform_utils.dart';
 import 'package:memoria/engine/gpu_image_view.dart';
+import 'package:memoria/engine/engine_channel.dart';
+import 'package:memoria/engine/export_encoder.dart';
+import 'package:memoria/engine/frame_overlay.dart';
 import 'package:memoria/data/repositories/custom_adjustment_repository.dart';
 import 'package:memoria/data/repositories/favorites_repository.dart';
 import 'package:memoria/data/repositories/filter_repository_impl.dart';
@@ -43,7 +48,6 @@ import 'package:memoria/engine/lut_engine.dart';
 import 'package:memoria/engine/white_balance.dart';
 import 'package:memoria/monetization/feature_flags_service.dart';
 import 'package:memoria/monetization/fullscreen_ad_service.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'widgets/adjust_slider.dart';
 import 'widgets/curve_editor.dart';
 import 'widgets/filter_strip.dart';
@@ -84,10 +88,20 @@ class _EditorPageState extends State<EditorPage> {
   ui.Image? _liveCurve1D;
   ui.Image? _liveLumCurve;
   bool _isSliding = false;
+  bool _slideGestureActive = false;
+  int _livePrepareToken = 0;
   late final ValueNotifier<AdjustParams> _liveParamsNotifier;
   late final ValueNotifier<double> _liveIntensityNotifier;
   late EditSession _editSession;
-  List<String> _favoriteToolIds = ['tune', 'details', 'curves', 'crop', 'rotate', 'selective', 'brush'];
+  List<String> _favoriteToolIds = [
+    'tune',
+    'details',
+    'curves',
+    'crop',
+    'rotate',
+    'selective',
+    'brush'
+  ];
   bool _showFavoriteTip = true;
 
   // Canvas Expansion
@@ -95,7 +109,9 @@ class _EditorPageState extends State<EditorPage> {
   double _expandBottom = 0.0;
   double _expandLeft = 0.0;
   double _expandRight = 0.0;
-  String _expandMode = 'smart';
+  // New edits deliberately avoid the legacy edge-mirroring "smart" mode.
+  // Existing drafts can still replay it through the renderer.
+  String _expandMode = 'black';
 
   // Interactive Crop & Brush bounds
   double _cropLeft = 0.0;
@@ -103,10 +119,9 @@ class _EditorPageState extends State<EditorPage> {
   double _cropRight = 1.0;
   double _cropBottom = 1.0;
   final List<DodgeBurnStroke> _brushStrokes = [];
-  final TransformationController _transformationController = TransformationController();
+  final TransformationController _transformationController =
+      TransformationController();
   String _brushMode = 'dodge';
-
-
 
   // Backup variables
   late AdjustParams _paramsBeforeTool;
@@ -140,6 +155,11 @@ class _EditorPageState extends State<EditorPage> {
   late String _overlayTextBeforeTool;
   late double _textSizeBeforeTool;
   late Color _textColorBeforeTool;
+  late String _textFontFamilyBeforeTool;
+  late double _textXBeforeTool;
+  late double _textYBeforeTool;
+  late double _textRotationBeforeTool;
+  late String _brushModeBeforeTool;
   late bool _selActiveBeforeTool;
   late double _selXBeforeTool;
   late double _selYBeforeTool;
@@ -199,6 +219,11 @@ class _EditorPageState extends State<EditorPage> {
     _overlayTextBeforeTool = _overlayText;
     _textSizeBeforeTool = _textSize;
     _textColorBeforeTool = _textColor;
+    _textFontFamilyBeforeTool = _textFontFamily;
+    _textXBeforeTool = _textX;
+    _textYBeforeTool = _textY;
+    _textRotationBeforeTool = _textRotation;
+    _brushModeBeforeTool = _brushMode;
     _selActiveBeforeTool = _selActive;
     _selXBeforeTool = _selX;
     _selYBeforeTool = _selY;
@@ -260,6 +285,11 @@ class _EditorPageState extends State<EditorPage> {
     _overlayText = _overlayTextBeforeTool;
     _textSize = _textSizeBeforeTool;
     _textColor = _textColorBeforeTool;
+    _textFontFamily = _textFontFamilyBeforeTool;
+    _textX = _textXBeforeTool;
+    _textY = _textYBeforeTool;
+    _textRotation = _textRotationBeforeTool;
+    _brushMode = _brushModeBeforeTool;
     _selActive = _selActiveBeforeTool;
     _selX = _selXBeforeTool;
     _selY = _selYBeforeTool;
@@ -290,7 +320,14 @@ class _EditorPageState extends State<EditorPage> {
   }
 
   void _activateTool(String toolId, String toolName) {
+    if (_isToolActive && _activeToolId == toolId) return;
+    if (_isToolActive) {
+      // A tool switch is a cancellation, never an implicit commit. Keep this
+      // synchronous so the new tool snapshots the restored state.
+      _cancelActiveTool();
+    }
     _backupState();
+    _captureComparePreview();
     if (toolId == 'rotate' || toolId == 'perspective') {
       _spatialBaseBytes = _previewBytes;
     }
@@ -299,16 +336,193 @@ class _EditorPageState extends State<EditorPage> {
       _activeToolId = toolId;
       _activeToolName = toolName;
     });
+    if (toolId == 'text') {
+      // Keep text editable as a live widget while this tool is open instead
+      // of waiting for a full image raster on every keystroke.
+      _renderPreview();
+    }
   }
 
   void _cancelActiveTool() {
+    // Ignore an in-flight LUT selection after the state has been restored.
+    _presetSelectToken++;
     setState(() {
       _restoreState();
       _isToolActive = false;
       _activeToolId = null;
       _activeToolName = null;
       _spatialBaseBytes = null;
+      _showComparePreview = false;
     });
+    _renderPreview();
+  }
+
+  /// Resets only the active tool to its neutral state and keeps the tool open.
+  /// Previously Reset restored the entry snapshot, which meant a filter or
+  /// slider that already had a non-zero value could not actually be reset.
+  void _resetActiveTool() {
+    if (!_isToolActive) return;
+    setState(() {
+      switch (_activeToolId) {
+        case 'filter':
+          _presetSelectToken++;
+          _selectedPreset = null;
+          _lutBytes = null;
+          _intensity = 1.0;
+          _params = AdjustParams.zero;
+          _syncCurvesFromParams();
+          break;
+        case 'tune':
+          _params = AdjustParams.zero;
+          _syncCurvesFromParams();
+          break;
+        case 'details':
+          _params = _params.copyWith(sharpen: 0, structure: 0, clarity: 0);
+          break;
+        case 'curves':
+          final json = Map<String, dynamic>.from(_params.toJson())
+            ..remove('luminanceCurve')
+            ..remove('rgbCurve')
+            ..remove('redCurve')
+            ..remove('greenCurve')
+            ..remove('blueCurve');
+          _params = AdjustParams.fromJson(json);
+          _curves.clear();
+          break;
+        case 'white_balance':
+          _params = _params.copyWith(temperature: 0, tint: 0);
+          break;
+        case 'crop':
+          _cropRatio = CropRatioPreset.free;
+          _cropCenterX = 0.5;
+          _cropCenterY = 0.5;
+          _cropLeft = 0;
+          _cropTop = 0;
+          _cropRight = 1;
+          _cropBottom = 1;
+          break;
+        case 'rotate':
+          _rotation = 0;
+          _flipH = false;
+          _flipV = false;
+          break;
+        case 'perspective':
+          _perspH = 0;
+          _perspV = 0;
+          break;
+        case 'expand':
+          _expandTop = 0;
+          _expandBottom = 0;
+          _expandLeft = 0;
+          _expandRight = 0;
+          _expandMode = 'black';
+          break;
+        case 'hsl':
+          _params = _params.copyWith(
+            hsl: {for (final band in HslBand.values) band: HslBandParams.zero},
+          );
+          break;
+        case 'selective':
+          _selActive = false;
+          _selX = 0.5;
+          _selY = 0.5;
+          _selBright = 0;
+          _selContrast = 0;
+          _selSat = 0;
+          _selRadius = 0.3;
+          break;
+        case 'brush':
+          _dbActive = false;
+          _brushMode = 'dodge';
+          _dodgeY = 0.25;
+          _dodgeRadius = 0.25;
+          _dodgeStrength = 0.3;
+          _burnY = 0.75;
+          _burnRadius = 0.25;
+          _burnStrength = 0.3;
+          _brushStrokes.clear();
+          break;
+        case 'tilt_shift':
+          _tiltActive = false;
+          _tiltFocusCenter = 0.5;
+          _tiltBandWidth = 0.3;
+          _tiltMaxBlur = 0;
+          break;
+        case 'lens_blur':
+          _lensActive = false;
+          _lensFocusDepth = 0;
+          _lensMaxRadius = 0;
+          break;
+        case 'vignette':
+          _params = _params.copyWith(vignette: 0);
+          break;
+        case 'grain':
+          _params =
+              _params.copyWith(grainStrength: 0, grainSize: 1, grainSeed: 0);
+          break;
+        case 'split_toning':
+          _params = _params.copyWith(
+            splitShadowHue: 0,
+            splitShadowSat: 0,
+            splitHighHue: 0,
+            splitHighSat: 0,
+            splitBalance: 0,
+          );
+          break;
+        case 'noise':
+          _params = _params.copyWith(luminanceNR: 0, colourNR: 0, nrDetail: 0);
+          break;
+        case 'glow':
+          _params = _params.copyWith(
+              glowStrength: 0, glowSaturation: 0, glowWarmth: 0);
+          break;
+        case 'portrait':
+          _portraitSmooth = 0;
+          _portraitSpotlight = 0;
+          _skinTone = SkinTone.none;
+          _skinToneStrength = 50;
+          break;
+        case 'double_exposure':
+          _blendImagePath = null;
+          _blendOpacity = 0.5;
+          _blendMode = bm.BlendMode.lighten;
+          break;
+        case 'frame':
+          _frameIndex = -1;
+          break;
+        case 'text':
+          _overlayText = '';
+          _textSize = 32;
+          _textColor = Colors.white;
+          _textFontFamily = 'Montserrat';
+          _textX = 0.5;
+          _textY = 0.82;
+          _textRotation = 0;
+          break;
+        case 'light_leak':
+          _params = _params.copyWith(
+            lightLeakStrength: 0,
+            lightLeakAngle: 35,
+            lightLeakWarmth: 55,
+          );
+          break;
+        case 'halation':
+          _params = _params.copyWith(
+            halationStrength: 0,
+            halationThreshold: 70,
+            halationWarmth: 70,
+          );
+          break;
+        case 'drama':
+        case 'hdr_scape':
+          _effect = ArtisticEffect.none;
+          _effectStrength = 1;
+          break;
+      }
+      _showComparePreview = false;
+    });
+    _liveParamsNotifier.value = _params;
+    _liveIntensityNotifier.value = _intensity;
     _renderPreview();
   }
 
@@ -319,6 +533,7 @@ class _EditorPageState extends State<EditorPage> {
       _activeToolId = null;
       _activeToolName = null;
       _spatialBaseBytes = null;
+      _showComparePreview = false;
     });
     _renderPreview();
   }
@@ -326,12 +541,14 @@ class _EditorPageState extends State<EditorPage> {
   void _saveToHistory() {
     final op = EditOperation(
       id: DateTime.now().microsecondsSinceEpoch.toString(),
-      tool: EditToolType.globalAdjust,
+      tool: _historyToolForActiveTool(),
+      schemaVersion: 2,
       appliedAt: DateTime.now(),
       params: _params,
       presetId: _selectedPreset?.id,
       lutPath: _selectedPreset?.lutPath,
       intensity: _intensity,
+      curves: Map<CurveChannel, CurveData>.from(_curves),
       cropState: CropState(
         ratio: _cropRatio,
         centerX: _cropCenterX,
@@ -357,8 +574,109 @@ class _EditorPageState extends State<EditorPage> {
         skinTone: _skinTone,
         skinToneStrength: _skinToneStrength,
       ),
+      creative: CreativeParams(
+        blendImagePath: _blendImagePath,
+        blendMode: _blendMode,
+        blendOpacity: _blendOpacity,
+        frameIndex: _frameIndex,
+        overlayText: _overlayText,
+        textSize: _textSize,
+        textColorValue: _textColor.value,
+        textX: _textX,
+        textY: _textY,
+        textRotation: _textRotation,
+        fontFamily: _textFontFamily,
+      ),
+      effectState: EditorEffectState(
+        artisticEffect: _effect.name,
+        effectStrength: _effectStrength,
+        grainVariant: _grainVariant,
+        selectiveActive: _selActive,
+        selectiveX: _selX,
+        selectiveY: _selY,
+        selectiveBrightness: _selBright,
+        selectiveContrast: _selContrast,
+        selectiveSaturation: _selSat,
+        selectiveRadius: _selRadius,
+        dodgeBurnActive: _dbActive,
+        brushMode: _brushMode,
+        dodgeY: _dodgeY,
+        dodgeRadius: _dodgeRadius,
+        dodgeStrength: _dodgeStrength,
+        burnY: _burnY,
+        burnRadius: _burnRadius,
+        burnStrength: _burnStrength,
+        brushStrokes: _brushStrokes
+            .map(
+              (stroke) => DodgeBurnHistoryStroke(
+                x: stroke.x,
+                y: stroke.y,
+                radius: stroke.radius,
+                strength: stroke.strength,
+                isDodge: stroke.isDodge,
+              ),
+            )
+            .toList(growable: false),
+        tiltActive: _tiltActive,
+        tiltFocusCenter: _tiltFocusCenter,
+        tiltBandWidth: _tiltBandWidth,
+        tiltMaxBlur: _tiltMaxBlur,
+        lensActive: _lensActive,
+        lensFocusDepth: _lensFocusDepth,
+        lensMaxRadius: _lensMaxRadius,
+      ),
     );
     _editSession = _editSession.pushOp(op);
+  }
+
+  EditToolType _historyToolForActiveTool() {
+    switch (_activeToolId) {
+      case 'filter':
+        return EditToolType.filter;
+      case 'crop':
+      case 'rotate':
+      case 'perspective':
+      case 'expand':
+        return EditToolType.crop;
+      case 'portrait':
+        return EditToolType.portrait;
+      case 'double_exposure':
+      case 'frame':
+      case 'text':
+        return EditToolType.creative;
+      case 'curves':
+        return EditToolType.curve;
+      case 'details':
+        return EditToolType.details;
+      case 'hsl':
+        return EditToolType.hslAdjust;
+      case 'selective':
+        return EditToolType.selective;
+      case 'brush':
+        return EditToolType.brush;
+      case 'tilt_shift':
+      case 'lens_blur':
+        return EditToolType.selective;
+      case 'vignette':
+        return EditToolType.vignette;
+      case 'grain':
+        return EditToolType.grainOverlay;
+      case 'split_toning':
+        return EditToolType.splitTone;
+      case 'noise':
+        return EditToolType.rawDevelop;
+      case 'glow':
+        return EditToolType.glow;
+      case 'light_leak':
+        return EditToolType.lightLeak;
+      case 'halation':
+        return EditToolType.halation;
+      case 'drama':
+      case 'hdr_scape':
+        return EditToolType.drama;
+      default:
+        return EditToolType.globalAdjust;
+    }
   }
 
   void _undo() {
@@ -368,51 +686,16 @@ class _EditorPageState extends State<EditorPage> {
     if (_editSession.undoCursor > 0) {
       final op = _editSession.ops[_editSession.undoCursor - 1];
       setState(() {
-        if (op.params != null) _params = op.params!;
-        _syncCurvesFromParams();
-        if (op.intensity != null) _intensity = op.intensity!;
-        if (op.cropState != null) {
-          final cs = op.cropState!;
-          _cropRatio = cs.ratio;
-          _cropCenterX = cs.centerX;
-          _cropCenterY = cs.centerY;
-          _cropLeft = cs.cropLeft;
-          _cropTop = cs.cropTop;
-          _cropRight = cs.cropRight;
-          _cropBottom = cs.cropBottom;
-          _rotation = cs.rotation;
-          _flipH = cs.flipH;
-          _flipV = cs.flipV;
-          _perspH = cs.perspH;
-          _perspV = cs.perspV;
-          _expandTop = cs.expandTop;
-          _expandBottom = cs.expandBottom;
-          _expandLeft = cs.expandLeft;
-          _expandRight = cs.expandRight;
-          _expandMode = cs.expandMode;
-        }
+        _applyHistorySnapshot(op);
       });
     } else {
       setState(() {
-        _params = AdjustParams.zero;
-        _syncCurvesFromParams();
-        _intensity = 1.0;
-        _cropRatio = CropRatioPreset.free;
-        _cropLeft = 0.0;
-        _cropTop = 0.0;
-        _cropRight = 1.0;
-        _cropBottom = 1.0;
-        _rotation = 0.0;
-        _flipH = false;
-        _flipV = false;
-        _perspH = 0.0;
-        _perspV = 0.0;
-        _expandTop = 0.0;
-        _expandBottom = 0.0;
-        _expandLeft = 0.0;
-        _expandRight = 0.0;
+        _resetCommittedState();
       });
     }
+    _liveParamsNotifier.value = _params;
+    _liveIntensityNotifier.value = _intensity;
+    _reloadSelectedPresetLut();
     _renderPreview();
   }
 
@@ -422,42 +705,191 @@ class _EditorPageState extends State<EditorPage> {
 
     final op = _editSession.ops[_editSession.undoCursor - 1];
     setState(() {
-      if (op.params != null) _params = op.params!;
-      _syncCurvesFromParams();
-      if (op.intensity != null) _intensity = op.intensity!;
-      if (op.cropState != null) {
-        final cs = op.cropState!;
-        _cropRatio = cs.ratio;
-        _cropCenterX = cs.centerX;
-        _cropCenterY = cs.centerY;
-        _cropLeft = cs.cropLeft;
-        _cropTop = cs.cropTop;
-        _cropRight = cs.cropRight;
-        _cropBottom = cs.cropBottom;
-        _rotation = cs.rotation;
-        _flipH = cs.flipH;
-        _flipV = cs.flipV;
-        _perspH = cs.perspH;
-        _perspV = cs.perspV;
-        _expandTop = cs.expandTop;
-        _expandBottom = cs.expandBottom;
-        _expandLeft = cs.expandLeft;
-        _expandRight = cs.expandRight;
-        _expandMode = cs.expandMode;
-      }
+      _applyHistorySnapshot(op);
     });
+    _liveParamsNotifier.value = _params;
+    _liveIntensityNotifier.value = _intensity;
+    _reloadSelectedPresetLut();
     _renderPreview();
+  }
+
+  FilterPreset? _presetForId(String? id) {
+    if (id == null) return null;
+    for (final preset in _allPresets) {
+      if (preset.id == id) return preset;
+    }
+    return null;
+  }
+
+  void _applyHistorySnapshot(EditOperation op) {
+    if (op.params != null) _params = op.params!;
+    _syncCurvesFromParams();
+    if (op.curves != null) {
+      _curves
+        ..clear()
+        ..addAll(op.curves!);
+    }
+    _selectedPreset = _presetForId(op.presetId);
+    _lutBytes = null;
+    if (op.intensity != null) _intensity = op.intensity!;
+    if (op.cropState != null) {
+      final cs = op.cropState!;
+      _cropRatio = cs.ratio;
+      _cropCenterX = cs.centerX;
+      _cropCenterY = cs.centerY;
+      _cropLeft = cs.cropLeft;
+      _cropTop = cs.cropTop;
+      _cropRight = cs.cropRight;
+      _cropBottom = cs.cropBottom;
+      _rotation = cs.rotation;
+      _flipH = cs.flipH;
+      _flipV = cs.flipV;
+      _perspH = cs.perspH;
+      _perspV = cs.perspV;
+      _expandTop = cs.expandTop;
+      _expandBottom = cs.expandBottom;
+      _expandLeft = cs.expandLeft;
+      _expandRight = cs.expandRight;
+      _expandMode = cs.expandMode;
+    }
+    if (op.portrait != null) {
+      final portrait = op.portrait!;
+      _portraitSmooth = portrait.smooth;
+      _portraitSpotlight = portrait.spotlight;
+      _skinTone = portrait.skinTone;
+      _skinToneStrength = portrait.skinToneStrength;
+    }
+    if (op.creative != null) {
+      final creative = op.creative!;
+      _blendImagePath = creative.blendImagePath;
+      _blendMode = creative.blendMode;
+      _blendOpacity = creative.blendOpacity;
+      _frameIndex = creative.frameIndex;
+      _overlayText = creative.overlayText;
+      _textSize = creative.textSize;
+      _textColor = Color(creative.textColorValue);
+      _textX = creative.textX;
+      _textY = creative.textY;
+      _textRotation = creative.textRotation;
+      _textFontFamily = creative.fontFamily;
+    }
+    _restoreEffectState(op.effectState ?? EditorEffectState.defaults);
+  }
+
+  void _restoreEffectState(EditorEffectState state) {
+    _effect = ArtisticEffect.values.firstWhere(
+      (effect) => effect.name == state.artisticEffect,
+      orElse: () => ArtisticEffect.none,
+    );
+    _effectStrength = state.effectStrength;
+    _grainVariant = state.grainVariant;
+    _selActive = state.selectiveActive;
+    _selX = state.selectiveX;
+    _selY = state.selectiveY;
+    _selBright = state.selectiveBrightness;
+    _selContrast = state.selectiveContrast;
+    _selSat = state.selectiveSaturation;
+    _selRadius = state.selectiveRadius;
+    _dbActive = state.dodgeBurnActive;
+    _brushMode = state.brushMode;
+    _dodgeY = state.dodgeY;
+    _dodgeRadius = state.dodgeRadius;
+    _dodgeStrength = state.dodgeStrength;
+    _burnY = state.burnY;
+    _burnRadius = state.burnRadius;
+    _burnStrength = state.burnStrength;
+    _brushStrokes
+      ..clear()
+      ..addAll(
+        state.brushStrokes.map(
+          (stroke) => DodgeBurnStroke(
+            x: stroke.x,
+            y: stroke.y,
+            radius: stroke.radius,
+            strength: stroke.strength,
+            isDodge: stroke.isDodge,
+          ),
+        ),
+      );
+    _tiltActive = state.tiltActive;
+    _tiltFocusCenter = state.tiltFocusCenter;
+    _tiltBandWidth = state.tiltBandWidth;
+    _tiltMaxBlur = state.tiltMaxBlur;
+    _lensActive = state.lensActive;
+    _lensFocusDepth = state.lensFocusDepth;
+    _lensMaxRadius = state.lensMaxRadius;
+  }
+
+  void _resetCommittedState() {
+    _params = AdjustParams.zero;
+    _syncCurvesFromParams();
+    _selectedPreset = null;
+    _lutBytes = null;
+    _intensity = 1.0;
+    _cropRatio = CropRatioPreset.free;
+    _cropCenterX = 0.5;
+    _cropCenterY = 0.5;
+    _cropLeft = 0.0;
+    _cropTop = 0.0;
+    _cropRight = 1.0;
+    _cropBottom = 1.0;
+    _rotation = 0.0;
+    _flipH = false;
+    _flipV = false;
+    _perspH = 0.0;
+    _perspV = 0.0;
+    _expandTop = 0.0;
+    _expandBottom = 0.0;
+    _expandLeft = 0.0;
+    _expandRight = 0.0;
+    _expandMode = 'black';
+    _portraitSmooth = 0;
+    _portraitSpotlight = 0;
+    _skinTone = SkinTone.none;
+    _skinToneStrength = 50;
+    _blendImagePath = null;
+    _blendMode = bm.BlendMode.lighten;
+    _blendOpacity = 0.5;
+    _frameIndex = -1;
+    _overlayText = '';
+    _textSize = 32;
+    _textColor = Colors.white;
+    _textFontFamily = 'Montserrat';
+    _textX = 0.5;
+    _textY = 0.82;
+    _textRotation = 0;
+    _restoreEffectState(EditorEffectState.defaults);
+  }
+
+  void _reloadSelectedPresetLut() {
+    final preset = _selectedPreset;
+    final token = ++_presetSelectToken;
+    if (preset == null) return;
+    unawaited(() async {
+      final bytes = await _loadLutBytesCached(preset.lutPath);
+      if (!mounted ||
+          token != _presetSelectToken ||
+          _selectedPreset != preset) {
+        return;
+      }
+      setState(() => _lutBytes = bytes);
+      await _renderPreview();
+    }());
   }
 
   void _applyStateJson(Map<String, dynamic> json) {
     setState(() {
-      _params = AdjustParams.fromJson(json['adjustParams'] as Map<String, dynamic>);
+      _params =
+          AdjustParams.fromJson(json['adjustParams'] as Map<String, dynamic>);
       _syncCurvesFromParams();
       _intensity = _doubleFromJson(json['intensity'], 1.0);
-      _effect = _enumByName(ArtisticEffect.values, json['effect'] as String?, ArtisticEffect.none);
+      _effect = _enumByName(ArtisticEffect.values, json['effect'] as String?,
+          ArtisticEffect.none);
       _effectStrength = _doubleFromJson(json['effectStrength'], 1.0);
-      _toolsSubTab = _enumByName(_ToolsSubTab.values, json['toolsSubTab'] as String?, _ToolsSubTab.crop);
-      _cropRatio = _enumByName(CropRatioPreset.values, json['cropRatio'] as String?, CropRatioPreset.free);
+      _toolsSubTab = _enumByName(_ToolsSubTab.values,
+          json['toolsSubTab'] as String?, _ToolsSubTab.crop);
+      _cropRatio = _enumByName(CropRatioPreset.values,
+          json['cropRatio'] as String?, CropRatioPreset.free);
       _cropCenterX = _doubleFromJson(json['cropCenterX'], 0.5);
       _cropCenterY = _doubleFromJson(json['cropCenterY'], 0.5);
       _rotation = _doubleFromJson(json['rotation'], 0.0);
@@ -469,8 +901,9 @@ class _EditorPageState extends State<EditorPage> {
       _expandBottom = _doubleFromJson(json['expandBottom'], 0.0);
       _expandLeft = _doubleFromJson(json['expandLeft'], 0.0);
       _expandRight = _doubleFromJson(json['expandRight'], 0.0);
-      _expandMode = json['expandMode'] as String? ?? 'smart';
-      _localSubTab = _enumByName(_LocalSubTab.values, json['localSubTab'] as String?, _LocalSubTab.tiltShift);
+      _expandMode = json['expandMode'] as String? ?? 'black';
+      _localSubTab = _enumByName(_LocalSubTab.values,
+          json['localSubTab'] as String?, _LocalSubTab.tiltShift);
       _selActive = json['selActive'] as bool? ?? false;
       _selX = _doubleFromJson(json['selX'], 0.5);
       _selY = _doubleFromJson(json['selY'], 0.5);
@@ -494,16 +927,22 @@ class _EditorPageState extends State<EditorPage> {
       _lensMaxRadius = _doubleFromJson(json['lensMaxRadius'], 8.0);
       _portraitSmooth = _doubleFromJson(json['portraitSmooth'], 0.0);
       _portraitSpotlight = _doubleFromJson(json['portraitSpotlight'], 0.0);
-      _skinTone = _enumByName(SkinTone.values, json['skinTone'] as String?, SkinTone.none);
+      _skinTone = _enumByName(
+          SkinTone.values, json['skinTone'] as String?, SkinTone.none);
       _skinToneStrength = _doubleFromJson(json['skinToneStrength'], 50.0);
       _blendImagePath = json['blendImagePath'] as String?;
-      _blendMode = _enumByName(bm.BlendMode.values, json['blendMode'] as String?, bm.BlendMode.lighten);
+      _blendMode = _enumByName(bm.BlendMode.values,
+          json['blendMode'] as String?, bm.BlendMode.lighten);
       _blendOpacity = _doubleFromJson(json['blendOpacity'], 0.5);
       _frameIndex = (json['frameIndex'] as num?)?.toInt() ?? -1;
       _overlayText = json['overlayText'] as String? ?? '';
       _textFontFamily = json['textFontFamily'] as String? ?? 'Montserrat';
       _textSize = _doubleFromJson(json['textSize'], 32.0);
-      _textColor = Color((json['textColor'] as num?)?.toInt() ?? Colors.white.value);
+      _textColor =
+          Color((json['textColor'] as num?)?.toInt() ?? Colors.white.value);
+      _textX = _doubleFromJson(json['textX'], 0.5).clamp(0.0, 1.0);
+      _textY = _doubleFromJson(json['textY'], 0.82).clamp(0.0, 1.0);
+      _textRotation = _doubleFromJson(json['textRotation'], 0.0);
     });
   }
 
@@ -523,7 +962,7 @@ class _EditorPageState extends State<EditorPage> {
   // Phase 4: 아티스틱 이펙트
   ArtisticEffect _effect = ArtisticEffect.none;
   double _effectStrength = 1.0;
-  final int _grainVariant = 3;
+  int _grainVariant = 3;
 
   // Phase 5: 기하학 변환
   _ToolsSubTab _toolsSubTab = _ToolsSubTab.crop;
@@ -550,6 +989,11 @@ class _EditorPageState extends State<EditorPage> {
   double _textSize = 32.0;
   Color _textColor = Colors.white;
   String _textFontFamily = 'Montserrat';
+  double _textX = 0.5;
+  double _textY = 0.82;
+  double _textRotation = 0.0;
+  double _textGestureStartSize = 32.0;
+  double _textGestureStartRotation = 0.0;
 
   // Phase 6: 로컬 조정
   _LocalSubTab _localSubTab = _LocalSubTab.tiltShift;
@@ -575,8 +1019,10 @@ class _EditorPageState extends State<EditorPage> {
   Uint8List? _lutBytes;
   Uint8List? _previewBytes;
   Uint8List? _spatialBaseBytes;
+  Uint8List? _comparePreviewBytes;
   bool _processingPreview = false;
   bool _previewPending = false;
+  bool _showComparePreview = false;
   bool _pickingEmptyImage = false;
   bool _pickingBlendImage = false;
   Timer? _previewDebounce;
@@ -607,15 +1053,22 @@ class _EditorPageState extends State<EditorPage> {
 
   /// 크롭 비율에 따라 이미지 중앙 크롭.
   img.Image _applyCropToImage(img.Image image) {
-    if (_cropLeft > 0.0 || _cropTop > 0.0 || _cropRight < 1.0 || _cropBottom < 1.0) {
+    if (_cropLeft > 0.0 ||
+        _cropTop > 0.0 ||
+        _cropRight < 1.0 ||
+        _cropBottom < 1.0) {
       final x = (image.width * _cropLeft).round().clamp(0, image.width - 1);
       final y = (image.height * _cropTop).round().clamp(0, image.height - 1);
-      final w = (image.width * (_cropRight - _cropLeft)).round().clamp(1, image.width - x);
-      final h = (image.height * (_cropBottom - _cropTop)).round().clamp(1, image.height - y);
+      final w = (image.width * (_cropRight - _cropLeft))
+          .round()
+          .clamp(1, image.width - x);
+      final h = (image.height * (_cropBottom - _cropTop))
+          .round()
+          .clamp(1, image.height - y);
       return img.copyCrop(image, x: x, y: y, width: w, height: h);
     }
     if (_cropRatio == CropRatioPreset.free) return image;
-    final ratio = _cropRatio.ratio;
+    final ratio = _resolvedCropAspectRatio(imageSize: image);
     if (ratio == null) return image;
     final W = image.width.toDouble();
     final H = image.height.toDouble();
@@ -633,7 +1086,23 @@ class _EditorPageState extends State<EditorPage> {
   }
 
   /// Isolate 전달용: 크롭 비율을 double?으로 변환.
-  double? _currentCropRect() => _cropRatio.ratio;
+  double? _currentCropRect() => _resolvedCropAspectRatio();
+
+  /// `원본` is a ratio lock to the source image, not the old -1 sentinel.
+  /// Keeping the resolved value here prevents invalid negative crop sizes in
+  /// the interactive overlay and in the editor preview path.
+  double? _resolvedCropAspectRatio({img.Image? imageSize}) {
+    if (_cropRatio == CropRatioPreset.free) return null;
+    if (_cropRatio == CropRatioPreset.original) {
+      final image = imageSize ?? _decodedCache;
+      if (image != null && image.height > 0) {
+        return image.width / image.height;
+      }
+      final size = _currentImageSize;
+      return size.height > 0 ? size.width / size.height : null;
+    }
+    return _cropRatio.ratio;
+  }
 
   late List<FilterPreset> _allPresets;
   FullScreenAdService? _adService;
@@ -643,6 +1112,7 @@ class _EditorPageState extends State<EditorPage> {
     super.initState();
     _liveParamsNotifier = ValueNotifier(AdjustParams.zero);
     _liveIntensityNotifier = ValueNotifier(1.0);
+    _editSession = EditSession.forImage(widget.imagePath ?? '');
     _allPresets = BuiltinPresets.all;
     _loadEditorState();
     setStatusBarForDark();
@@ -657,6 +1127,7 @@ class _EditorPageState extends State<EditorPage> {
     _transformationController.dispose();
     _liveParamsNotifier.dispose();
     _liveIntensityNotifier.dispose();
+    _disposeLiveImages();
     // Native/GPU disposes verified by regression tests:
     // _segmenter?.dispose()
     // _depthEstimator?.dispose()
@@ -716,12 +1187,10 @@ class _EditorPageState extends State<EditorPage> {
         ...customPresets,
         ...BuiltinPresets.all,
       ];
-      final favIds = await _favRepo
-          .getFavoriteIds()
-          .catchError((_) => <String>{});
-      final customAdjs = await _adjRepo
-          .getAll()
-          .catchError((_) => <CustomAdjustment>[]);
+      final favIds =
+          await _favRepo.getFavoriteIds().catchError((_) => <String>{});
+      final customAdjs =
+          await _adjRepo.getAll().catchError((_) => <CustomAdjustment>[]);
 
       FilterPreset? initialPreset;
       if (widget.initialPresetId != null) {
@@ -750,6 +1219,8 @@ class _EditorPageState extends State<EditorPage> {
         _editSession = EditSession.forImage(widget.imagePath ?? '');
         _syncCurvesFromParams();
       });
+      _liveParamsNotifier.value = _params;
+      _liveIntensityNotifier.value = _intensity;
       _preloadPresetLuts(presets);
       await _restoreDraft(presets);
     } catch (_) {
@@ -765,23 +1236,48 @@ class _EditorPageState extends State<EditorPage> {
   }
 
   Future<void> _selectPreset(FilterPreset? preset) async {
+    _captureComparePreview();
     final token = ++_presetSelectToken;
-    final lutBytes =
-        preset == null ? null : await _loadLutBytesCached(preset.lutPath);
-    if (!mounted || token != _presetSelectToken) return;
     setState(() {
       _selectedPreset = preset;
       _params = preset?.params ?? AdjustParams.zero;
       _intensity = preset?.defaultIntensity ?? 1.0;
-      _lutBytes = lutBytes;
+      _lutBytes = null;
       _syncCurvesFromParams();
+    });
+    _liveParamsNotifier.value = _params;
+    _liveIntensityNotifier.value = _intensity;
+
+    final lutBytes =
+        preset == null ? null : await _loadLutBytesCached(preset.lutPath);
+    if (!mounted || token != _presetSelectToken) return;
+    setState(() {
+      _lutBytes = lutBytes;
     });
     await _renderPreview();
   }
 
+  Future<void> _selectPresetForPreview(FilterPreset? preset) async {
+    // Filters are transactional like every other editing tool. Selecting one
+    // only changes the preview; the top-right check commits it to history.
+    if (!_isToolActive) {
+      _activateTool('filter', '필터');
+    }
+    await _selectPreset(preset);
+  }
+
   void _debouncedPreview() {
     _previewDebounce?.cancel();
-    _previewDebounce = Timer(const Duration(milliseconds: 250), _renderPreview);
+    _previewDebounce = Timer(const Duration(milliseconds: 32), _renderPreview);
+  }
+
+  void _captureComparePreview() {
+    _comparePreviewBytes = _previewBytes;
+  }
+
+  void _setComparePreviewVisible(bool visible) {
+    if (_showComparePreview == visible) return;
+    setState(() => _showComparePreview = visible);
   }
 
   Future<ui.Image> _imgToUiImage(img.Image image) async {
@@ -797,8 +1293,14 @@ class _EditorPageState extends State<EditorPage> {
   }
 
   Future<void> _startLiveSliding() async {
-    if (_isSliding) return;
-    _isSliding = true;
+    if (_slideGestureActive) return;
+    _slideGestureActive = true;
+    final prepareToken = ++_livePrepareToken;
+
+    if (_liveBaseCacheImage != null) {
+      if (mounted) setState(() => _isSliding = true);
+      return;
+    }
 
     try {
       final decoded = await _decodedSourceImage();
@@ -813,18 +1315,45 @@ class _EditorPageState extends State<EditorPage> {
         segmentMask = await _getSegmentMask(preview, _previewBaseKey());
       }
 
-      // CPU-based modifications only (resetting GPU features so shader can apply them dynamically)
-      final onlyCpuParams = _params.copyWith(
-        exposure: 0,
-        contrast: 0,
-        saturation: 0,
-        temperature: 0,
-        tint: 0,
-        highlights: 0,
-        shadows: 0,
-        vignette: 0,
-        grainStrength: 0,
-        bnwEnabled: false,
+      // The live GPU path still needs a pre-rasterized text layer because the
+      // worker isolate cannot use Flutter's font rasterizer. Keep this in sync
+      // with the full preview/export path so another adjustment never snaps
+      // already-applied text back to the default location.
+      Uint8List? textOverlayBytes;
+      if (_overlayText.trim().isNotEmpty) {
+        textOverlayBytes = await TextRasterizer.rasterize(
+          text: _overlayText,
+          fontFamily: _textFontFamily,
+          textSize: _textSize,
+          color: _textColor,
+          textX: _textX,
+          textY: _textY,
+          rotationDegrees: _textRotation,
+          imageWidth: preview.width,
+          imageHeight: preview.height,
+        );
+      }
+
+      // Keep only effects that require neighbour samples or multiple passes.
+      // Everything else is applied exactly once by the live GPU shader.
+      final onlyCpuParams = AdjustParams(
+        sharpen: _params.sharpen,
+        structure: _params.structure,
+        clarity: _params.clarity,
+        luminanceNR: _params.luminanceNR,
+        colourNR: _params.colourNR,
+        nrDetail: _params.nrDetail,
+        glowStrength: _params.glowStrength,
+        glowSaturation: _params.glowSaturation,
+        glowWarmth: _params.glowWarmth,
+        hdrStrength: _params.hdrStrength,
+        hdrSaturation: _params.hdrSaturation,
+        lightLeakStrength: _params.lightLeakStrength,
+        lightLeakAngle: _params.lightLeakAngle,
+        lightLeakWarmth: _params.lightLeakWarmth,
+        halationStrength: _params.halationStrength,
+        halationThreshold: _params.halationThreshold,
+        halationWarmth: _params.halationWarmth,
       );
 
       final workerParams = _PreviewParams(
@@ -832,8 +1361,8 @@ class _EditorPageState extends State<EditorPage> {
         height: preview.height,
         imageBytes: preview.getBytes(order: img.ChannelOrder.rgba),
         adjustParams: onlyCpuParams,
-        lutBytes: _lutBytes,
-        intensity: _intensity,
+        lutBytes: null,
+        intensity: 0,
         effect: _effect,
         effectStrength: _effectStrength,
         grainVariant: _grainVariant,
@@ -871,6 +1400,7 @@ class _EditorPageState extends State<EditorPage> {
         overlayText: _overlayText,
         textSize: _textSize,
         textColorValue: _textColor.value,
+        textOverlayBytes: textOverlayBytes,
         brushStrokes: _brushStrokes,
       );
 
@@ -881,14 +1411,27 @@ class _EditorPageState extends State<EditorPage> {
         final lutAtlas = await buildLutAtlas(_lutBytes);
         final curve1D = await buildCurve1DTexture(_params);
         final lumCurve = await buildLumCurveTexture(_params);
+        if (!mounted ||
+            !_slideGestureActive ||
+            prepareToken != _livePrepareToken) {
+          uiImg.dispose();
+          lutAtlas?.dispose();
+          curve1D.dispose();
+          lumCurve.dispose();
+          return;
+        }
         setState(() {
+          _disposeLiveImages(afterFrame: true);
           _liveBaseCacheImage = uiImg;
           _liveLutAtlas = lutAtlas;
           _liveCurve1D = curve1D;
           _liveLumCurve = lumCurve;
+          _isSliding = true;
         });
       }
-    } catch (_) {}
+    } catch (_) {
+      // CPU preview updates continue while the live GPU path is unavailable.
+    }
   }
 
   void _updateLiveSliding(AdjustParams newParams) {
@@ -896,14 +1439,39 @@ class _EditorPageState extends State<EditorPage> {
   }
 
   void _endLiveSliding() {
+    _slideGestureActive = false;
+    _livePrepareToken++;
     setState(() {
       _isSliding = false;
-      _liveBaseCacheImage = null;
-      _liveLutAtlas = null;
-      _liveCurve1D = null;
-      _liveLumCurve = null;
+      _disposeLiveImages(afterFrame: true);
     });
-    _debouncedPreview();
+    _liveParamsNotifier.value = _params;
+    unawaited(_renderPreview());
+  }
+
+  void _disposeLiveImages({bool afterFrame = false}) {
+    final images = <ui.Image?>[
+      _liveBaseCacheImage,
+      _liveLutAtlas,
+      _liveCurve1D,
+      _liveLumCurve,
+    ];
+    _liveBaseCacheImage = null;
+    _liveLutAtlas = null;
+    _liveCurve1D = null;
+    _liveLumCurve = null;
+
+    void disposeImages() {
+      for (final image in images) {
+        image?.dispose();
+      }
+    }
+
+    if (afterFrame) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => disposeImages());
+    } else {
+      disposeImages();
+    }
   }
 
   Future<Uint8List?> _loadLutBytesCached(String? lutPath) async {
@@ -923,7 +1491,10 @@ class _EditorPageState extends State<EditorPage> {
   }
 
   void _preloadPresetLuts(List<FilterPreset> presets) {
-    for (final preset in presets) {
+    // Avoid saturating startup I/O with every large LUT. The small warm cache
+    // covers the first interactions; all remaining LUTs load on demand.
+    for (final preset
+        in presets.where((preset) => preset.lutPath.isNotEmpty).take(4)) {
       if (preset.lutPath.isEmpty) continue;
       unawaited(_loadLutBytesCached(preset.lutPath));
     }
@@ -995,6 +1566,13 @@ class _EditorPageState extends State<EditorPage> {
       }
       final lutBytes =
           preset == null ? null : await _loadLutBytesCached(preset.lutPath);
+      EditSession? restoredSession;
+      if (json['editSession'] is Map<String, dynamic>) {
+        final session = EditSession.fromJson(
+          json['editSession'] as Map<String, dynamic>,
+        );
+        if (session.imageUri == widget.imagePath) restoredSession = session;
+      }
 
       if (!mounted) return;
       setState(() {
@@ -1006,6 +1584,7 @@ class _EditorPageState extends State<EditorPage> {
         _effect = _enumByName(ArtisticEffect.values, json['effect'] as String?,
             ArtisticEffect.none);
         _effectStrength = _doubleFromJson(json['effectStrength'], 1.0);
+        _grainVariant = (json['grainVariant'] as num?)?.toInt() ?? 3;
         _toolsSubTab = _enumByName(_ToolsSubTab.values,
             json['toolsSubTab'] as String?, _ToolsSubTab.crop);
         _cropRatio = _enumByName(CropRatioPreset.values,
@@ -1017,6 +1596,15 @@ class _EditorPageState extends State<EditorPage> {
         _flipV = json['flipV'] as bool? ?? false;
         _perspH = _doubleFromJson(json['perspH'], 0.0);
         _perspV = _doubleFromJson(json['perspV'], 0.0);
+        _cropLeft = _doubleFromJson(json['cropLeft'], 0.0);
+        _cropTop = _doubleFromJson(json['cropTop'], 0.0);
+        _cropRight = _doubleFromJson(json['cropRight'], 1.0);
+        _cropBottom = _doubleFromJson(json['cropBottom'], 1.0);
+        _expandTop = _doubleFromJson(json['expandTop'], 0.0);
+        _expandBottom = _doubleFromJson(json['expandBottom'], 0.0);
+        _expandLeft = _doubleFromJson(json['expandLeft'], 0.0);
+        _expandRight = _doubleFromJson(json['expandRight'], 0.0);
+        _expandMode = json['expandMode'] as String? ?? 'black';
         _localSubTab = _enumByName(_LocalSubTab.values,
             json['localSubTab'] as String?, _LocalSubTab.tiltShift);
         _selActive = json['selActive'] as bool? ?? false;
@@ -1027,12 +1615,29 @@ class _EditorPageState extends State<EditorPage> {
         _selSat = _doubleFromJson(json['selSat'], 0.0);
         _selRadius = _doubleFromJson(json['selRadius'], 0.3);
         _dbActive = json['dbActive'] as bool? ?? false;
+        _brushMode = json['brushMode'] as String? ?? 'dodge';
         _dodgeY = _doubleFromJson(json['dodgeY'], 0.25);
         _dodgeRadius = _doubleFromJson(json['dodgeRadius'], 0.25);
         _dodgeStrength = _doubleFromJson(json['dodgeStrength'], 0.3);
         _burnY = _doubleFromJson(json['burnY'], 0.75);
         _burnRadius = _doubleFromJson(json['burnRadius'], 0.25);
         _burnStrength = _doubleFromJson(json['burnStrength'], 0.3);
+        _brushStrokes
+          ..clear()
+          ..addAll(
+            (json['brushStrokes'] as List<dynamic>? ?? const []).map(
+              (rawStroke) {
+                final stroke = rawStroke as Map<String, dynamic>;
+                return DodgeBurnStroke(
+                  x: _doubleFromJson(stroke['x'], 0.5),
+                  y: _doubleFromJson(stroke['y'], 0.5),
+                  radius: _doubleFromJson(stroke['radius'], 0.1),
+                  strength: _doubleFromJson(stroke['strength'], 0.3),
+                  isDodge: stroke['isDodge'] as bool? ?? true,
+                );
+              },
+            ),
+          );
         _tiltActive = json['tiltActive'] as bool? ?? false;
         _tiltFocusCenter = _doubleFromJson(json['tiltFocusCenter'], 0.5);
         _tiltBandWidth = _doubleFromJson(json['tiltBandWidth'], 0.3);
@@ -1051,18 +1656,25 @@ class _EditorPageState extends State<EditorPage> {
         _blendOpacity = _doubleFromJson(json['blendOpacity'], 0.5);
         _frameIndex = (json['frameIndex'] as num?)?.toInt() ?? -1;
         _overlayText = json['overlayText'] as String? ?? '';
+        _textFontFamily = json['textFontFamily'] as String? ?? 'Montserrat';
         _textSize = _doubleFromJson(json['textSize'], 32.0);
-        _textColor = Color(
-          (json['textColor'] as num?)?.toInt() ?? Colors.white.value);
+        _textColor =
+            Color((json['textColor'] as num?)?.toInt() ?? Colors.white.value);
+        _textX = _doubleFromJson(json['textX'], 0.5).clamp(0.0, 1.0);
+        _textY = _doubleFromJson(json['textY'], 0.82).clamp(0.0, 1.0);
+        _textRotation = _doubleFromJson(json['textRotation'], 0.0);
         _lutBytes = lutBytes;
+        if (restoredSession != null) _editSession = restoredSession;
       });
+      _liveParamsNotifier.value = _params;
+      _liveIntensityNotifier.value = _intensity;
     } catch (_) {
       // Corrupt or stale drafts are ignored; the editor falls back to defaults.
     }
   }
 
   Map<String, dynamic> _draftJson() => {
-        'version': 1,
+        'version': 2,
         'savedAt': DateTime.now().toIso8601String(),
         'imagePath': widget.imagePath,
         'initialPresetId': widget.initialPresetId,
@@ -1071,6 +1683,7 @@ class _EditorPageState extends State<EditorPage> {
         'intensity': _intensity,
         'effect': _effect.name,
         'effectStrength': _effectStrength,
+        'grainVariant': _grainVariant,
         'toolsSubTab': _toolsSubTab.name,
         'cropRatio': _cropRatio.name,
         'cropCenterX': _cropCenterX,
@@ -1080,6 +1693,15 @@ class _EditorPageState extends State<EditorPage> {
         'flipV': _flipV,
         'perspH': _perspH,
         'perspV': _perspV,
+        'cropLeft': _cropLeft,
+        'cropTop': _cropTop,
+        'cropRight': _cropRight,
+        'cropBottom': _cropBottom,
+        'expandTop': _expandTop,
+        'expandBottom': _expandBottom,
+        'expandLeft': _expandLeft,
+        'expandRight': _expandRight,
+        'expandMode': _expandMode,
         'localSubTab': _localSubTab.name,
         'selActive': _selActive,
         'selX': _selX,
@@ -1089,12 +1711,24 @@ class _EditorPageState extends State<EditorPage> {
         'selSat': _selSat,
         'selRadius': _selRadius,
         'dbActive': _dbActive,
+        'brushMode': _brushMode,
         'dodgeY': _dodgeY,
         'dodgeRadius': _dodgeRadius,
         'dodgeStrength': _dodgeStrength,
         'burnY': _burnY,
         'burnRadius': _burnRadius,
         'burnStrength': _burnStrength,
+        'brushStrokes': _brushStrokes
+            .map(
+              (stroke) => {
+                'x': stroke.x,
+                'y': stroke.y,
+                'radius': stroke.radius,
+                'strength': stroke.strength,
+                'isDodge': stroke.isDodge,
+              },
+            )
+            .toList(growable: false),
         'tiltActive': _tiltActive,
         'tiltFocusCenter': _tiltFocusCenter,
         'tiltBandWidth': _tiltBandWidth,
@@ -1114,6 +1748,10 @@ class _EditorPageState extends State<EditorPage> {
         'textFontFamily': _textFontFamily,
         'textSize': _textSize,
         'textColor': _textColor.value,
+        'textX': _textX,
+        'textY': _textY,
+        'textRotation': _textRotation,
+        'editSession': _editSession.toJson(),
       };
 
   T _enumByName<T extends Enum>(List<T> values, String? name, T fallback) {
@@ -1183,9 +1821,16 @@ class _EditorPageState extends State<EditorPage> {
         _blendImagePath ?? '', _blendMode.name,
         _blendOpacity.toStringAsFixed(2),
         _frameIndex,
-        _overlayText, _textSize.toStringAsFixed(1), _textColor.value, _textFontFamily,
+        _overlayText, _textSize.toStringAsFixed(1), _textColor.value,
+        _textX.toStringAsFixed(4), _textY.toStringAsFixed(4),
+        _textRotation.toStringAsFixed(2),
+        _textFontFamily,
+        _isToolActive && _activeToolId == 'text',
         // Brush strokes
-        _brushStrokes.map((s) => '${s.x.toStringAsFixed(3)},${s.y.toStringAsFixed(3)},${s.radius.toStringAsFixed(3)},${s.strength.toStringAsFixed(2)},${s.isDodge}').join(';'),
+        _brushStrokes
+            .map((s) =>
+                '${s.x.toStringAsFixed(3)},${s.y.toStringAsFixed(3)},${s.radius.toStringAsFixed(3)},${s.strength.toStringAsFixed(2)},${s.isDodge}')
+            .join(';'),
       ].join('|');
 
   Future<img.Image?> _decodedSourceImage() async {
@@ -1212,13 +1857,22 @@ class _EditorPageState extends State<EditorPage> {
     }
 
     var image = decoded;
-    if (_expandTop > 0 || _expandBottom > 0 || _expandLeft > 0 || _expandRight > 0) {
-      image = _applyExpandHelper(image, _expandTop, _expandBottom, _expandLeft, _expandRight, _expandMode);
+    if (_expandTop > 0 ||
+        _expandBottom > 0 ||
+        _expandLeft > 0 ||
+        _expandRight > 0) {
+      image = _applyExpandHelper(image, _expandTop, _expandBottom, _expandLeft,
+          _expandRight, _expandMode);
     }
     if (!(_isToolActive && _activeToolId == 'crop')) {
       image = _applyCropToImage(image);
     }
-    if (_flipH || _flipV) {
+    // While rotate is open flips are rendered by Transform in the widget tree.
+    // Re-encoding and re-running the CPU pipeline for each tap made the two
+    // flip controls noticeably slow on real devices.
+    final previewingSpatialTransform =
+        _isToolActive && _activeToolId == 'rotate';
+    if (!previewingSpatialTransform && (_flipH || _flipV)) {
       final dir = _flipH && _flipV
           ? img.FlipDirection.both
           : _flipH
@@ -1226,16 +1880,16 @@ class _EditorPageState extends State<EditorPage> {
               : img.FlipDirection.vertical;
       image = img.copyFlip(image, direction: dir);
     }
-    if (_rotation != 0) {
+    if (!previewingSpatialTransform && _rotation != 0) {
       image = img.copyRotate(image, angle: _rotation);
     }
-    if (_perspH != 0 || _perspV != 0) {
+    if (!previewingSpatialTransform && (_perspH != 0 || _perspV != 0)) {
       image = _applyPerspectiveSkew(image, _perspH, _perspV);
     }
 
-    // Scale down only when the image is very large to keep preview fast,
-    // but preserve enough resolution (long edge ≤ 1920) for quality.
-    const previewMaxLongEdge = 1920;
+    // Keep the interactive preview small enough to update within a frame or two
+    // on device. Full-resolution quality is preserved by the export pipeline.
+    const previewMaxLongEdge = 720;
     final maxDim = image.width > image.height ? image.width : image.height;
     final scale =
         maxDim > previewMaxLongEdge ? previewMaxLongEdge / maxDim : 1.0;
@@ -1252,7 +1906,7 @@ class _EditorPageState extends State<EditorPage> {
   }
 
   void _moveCropCenter(Offset delta, Size bounds) {
-    final ratio = _cropRatio.ratio;
+    final ratio = _resolvedCropAspectRatio();
     if (ratio == null || bounds.width <= 0 || bounds.height <= 0) return;
     setState(() {
       _cropCenterX = (_cropCenterX + delta.dx / bounds.width).clamp(0.0, 1.0);
@@ -1282,8 +1936,9 @@ class _EditorPageState extends State<EditorPage> {
   }
 
   /// Returns a segmentation mask for [preview], using a cached result when the
-  /// base image hasn't changed. Falls back to the fixed oval mask when the
-  /// segmenter is unavailable.
+  /// base image hasn't changed. If the on-device model is unavailable, return
+  /// an empty mask rather than guessing a face-shaped area in the middle of
+  /// every photo.
   Future<Float32List> _getSegmentMask(img.Image preview, String baseKey) async {
     if (_segmentMaskBaseKey == baseKey && _segmentMask != null) {
       return _segmentMask!;
@@ -1295,7 +1950,7 @@ class _EditorPageState extends State<EditorPage> {
     // Float32List is then passed as plain data into compute().
     final mask = seg != null
         ? seg.segment(preview).data
-        : _ovalFaceMask(preview.width, preview.height);
+        : Float32List(preview.width * preview.height);
     _segmentMask = mask;
     _segmentMaskBaseKey = baseKey;
     return mask;
@@ -1368,15 +2023,17 @@ class _EditorPageState extends State<EditorPage> {
         segmentMask = await _getSegmentMask(preview, _previewBaseKey());
       }
 
+      final useLiveTextOverlay = _isToolActive && _activeToolId == 'text';
       Uint8List? textOverlayBytes;
-      if (_overlayText.trim().isNotEmpty) {
+      if (!useLiveTextOverlay && _overlayText.trim().isNotEmpty) {
         textOverlayBytes = await TextRasterizer.rasterize(
           text: _overlayText,
           fontFamily: _textFontFamily,
           textSize: _textSize,
           color: _textColor,
-          textX: 0.5,
-          textY: 0.82,
+          textX: _textX,
+          textY: _textY,
+          rotationDegrees: _textRotation,
           imageWidth: preview.width,
           imageHeight: preview.height,
         );
@@ -1424,7 +2081,7 @@ class _EditorPageState extends State<EditorPage> {
         blendMode: _blendMode,
         blendOpacity: _blendOpacity,
         frameBytes: frameBytes,
-        overlayText: _overlayText,
+        overlayText: useLiveTextOverlay ? '' : _overlayText,
         textSize: _textSize,
         textColorValue: _textColor.value,
         textOverlayBytes: textOverlayBytes,
@@ -1439,6 +2096,7 @@ class _EditorPageState extends State<EditorPage> {
         _previewRenderCache.remove(_previewRenderCache.keys.first);
       }
       _previewRenderCache[previewKey] = bytes;
+      setState(() => _previewBytes = bytes);
     } catch (e, stackTrace) {
       ErrorLogger.log('Preview rendering failed', e, stackTrace);
       if (mounted) {
@@ -1481,10 +2139,13 @@ class _EditorPageState extends State<EditorPage> {
       _exportForShare = share;
     });
 
-    final prefs = await SharedPreferences.getInstance();
-    final exportFormat = prefs.getString('settings_export_format') ?? 'jpeg';
+    final exportSettings =
+        await ExportPreferences.load(allowWebp: Platform.isIOS);
+    final exportFormat = exportSettings.format;
+    final exportQuality = exportSettings.quality;
     final List<int?> resolutionAttempts = [null, 4096, 2048];
     String? tempPath;
+    String? intermediatePath;
     var currentAttemptIndex = 0;
 
     while (currentAttemptIndex < resolutionAttempts.length) {
@@ -1493,9 +2154,14 @@ class _EditorPageState extends State<EditorPage> {
 
       try {
         final tempDir = await getTemporaryDirectory();
-        final ext = exportFormat == 'jpeg' ? 'jpg' : (exportFormat == 'raw' ? 'dng' : exportFormat);
-        tempPath =
-            '${tempDir.path}/memoria_${DateTime.now().microsecondsSinceEpoch}.$ext';
+        final exportBase =
+            '${tempDir.path}/memoria_${DateTime.now().microsecondsSinceEpoch}';
+        tempPath = '$exportBase.${exportFormat.extension}';
+        // The image worker has no platform channel. It renders a lossless PNG
+        // first, then ImageIO creates the final WebP on the main isolate.
+        intermediatePath =
+            exportFormat == ExportFormat.webp ? '$exportBase.render.png' : null;
+        final workerOutputPath = intermediatePath ?? tempPath;
         final frameBytes = await _loadFrameBytes(_frameIndex);
 
         // Compute segmentation mask for full-resolution export image.
@@ -1530,15 +2196,29 @@ class _EditorPageState extends State<EditorPage> {
           targetH = (targetH * scale).round();
         }
 
-        if (_expandTop > 0 || _expandBottom > 0 || _expandLeft > 0 || _expandRight > 0) {
-          targetW = targetW + (targetW * _expandLeft).round() + (targetW * _expandRight).round();
-          targetH = targetH + (targetH * _expandTop).round() + (targetH * _expandBottom).round();
+        if (_expandTop > 0 ||
+            _expandBottom > 0 ||
+            _expandLeft > 0 ||
+            _expandRight > 0) {
+          targetW = targetW +
+              (targetW * _expandLeft).round() +
+              (targetW * _expandRight).round();
+          targetH = targetH +
+              (targetH * _expandTop).round() +
+              (targetH * _expandBottom).round();
         }
-        if (_cropLeft > 0.0 || _cropTop > 0.0 || _cropRight < 1.0 || _cropBottom < 1.0) {
+        if (_cropLeft > 0.0 ||
+            _cropTop > 0.0 ||
+            _cropRight < 1.0 ||
+            _cropBottom < 1.0) {
           final x = (targetW * _cropLeft).round().clamp(0, targetW - 1);
           final y = (targetH * _cropTop).round().clamp(0, targetH - 1);
-          targetW = (targetW * (_cropRight - _cropLeft)).round().clamp(1, targetW - x);
-          targetH = (targetH * (_cropBottom - _cropTop)).round().clamp(1, targetH - y);
+          targetW = (targetW * (_cropRight - _cropLeft))
+              .round()
+              .clamp(1, targetW - x);
+          targetH = (targetH * (_cropBottom - _cropTop))
+              .round()
+              .clamp(1, targetH - y);
         } else if (_currentCropRect() != null) {
           final ratio = _currentCropRect()!;
           final W = targetW.toDouble(), H = targetH.toDouble();
@@ -1550,7 +2230,10 @@ class _EditorPageState extends State<EditorPage> {
             targetH = (W / ratio).round();
           }
         }
-        if (_rotation == 90 || _rotation == 270 || _rotation == -90 || _rotation == -270) {
+        if (_rotation == 90 ||
+            _rotation == 270 ||
+            _rotation == -90 ||
+            _rotation == -270) {
           final tmp = targetW;
           targetW = targetH;
           targetH = tmp;
@@ -1563,8 +2246,9 @@ class _EditorPageState extends State<EditorPage> {
             fontFamily: _textFontFamily,
             textSize: _textSize,
             color: _textColor,
-            textX: 0.5,
-            textY: 0.82,
+            textX: _textX,
+            textY: _textY,
+            rotationDegrees: _textRotation,
             imageWidth: targetW,
             imageHeight: targetH,
           );
@@ -1572,8 +2256,11 @@ class _EditorPageState extends State<EditorPage> {
 
         final params = _ExportParams(
           imagePath: widget.imagePath!,
-          outPath: tempPath,
-          exportFormat: exportFormat,
+          outPath: workerOutputPath,
+          exportFormat: exportFormat == ExportFormat.webp
+              ? ExportFormat.png
+              : exportFormat,
+          exportQuality: exportQuality,
           maxDimension: targetDim,
           adjustParams: _params,
           lutBytes: _lutBytes,
@@ -1656,6 +2343,26 @@ class _EditorPageState extends State<EditorPage> {
           break;
         }
 
+        if (exportFormat == ExportFormat.webp) {
+          final converted = await EngineChannel.encodeWebP(
+            inputPath: workerOutputPath,
+            outputPath: tempPath,
+            quality: exportQuality,
+          );
+          if (!converted) {
+            throw Exception('이 기기에서는 WebP 내보내기를 지원하지 않습니다.');
+          }
+          final renderedFile = File(workerOutputPath);
+          if (await renderedFile.exists()) await renderedFile.delete();
+          intermediatePath = null;
+        }
+
+        final completedBytes = await File(tempPath).readAsBytes();
+        if (!ExportEncoder.matchesSignature(exportFormat, completedBytes)) {
+          throw Exception(
+              '${exportFormat.name.toUpperCase()} 파일 형식 검증에 실패했습니다.');
+        }
+
         if (share) {
           if (mounted) setState(() => _exportProgress = 1.0);
           hapticMedium();
@@ -1679,7 +2386,8 @@ class _EditorPageState extends State<EditorPage> {
         _exportIsolateRef?.kill(priority: Isolate.immediate);
         _exportIsolateRef = null;
 
-        ErrorLogger.log('Export attempt failed (resolution: $targetDim)', e, stackTrace);
+        ErrorLogger.log(
+            'Export attempt failed (resolution: $targetDim)', e, stackTrace);
 
         final isOom = e.toString().toLowerCase().contains('out of memory') ||
             e.toString().toLowerCase().contains('oom') ||
@@ -1691,7 +2399,8 @@ class _EditorPageState extends State<EditorPage> {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text('메모리 부족으로 인해 해상도를 조절하여 재시도합니다... (${resolutionAttempts[currentAttemptIndex]}px)'),
+                content: Text(
+                    '메모리 부족으로 인해 해상도를 조절하여 재시도합니다... (${resolutionAttempts[currentAttemptIndex]}px)'),
                 duration: const Duration(seconds: 2),
                 behavior: SnackBarBehavior.floating,
               ),
@@ -1726,6 +2435,10 @@ class _EditorPageState extends State<EditorPage> {
               await f.delete();
             }
           }
+        }
+        if (intermediatePath != null) {
+          final intermediate = File(intermediatePath);
+          if (await intermediate.exists()) await intermediate.delete();
         }
       }
     }
@@ -1786,7 +2499,8 @@ class _EditorPageState extends State<EditorPage> {
   void _applyCustomAdjustment(CustomAdjustment adj) {
     setState(() {
       _params = adj.params;
-      _selectedPreset = null; // clear filter highlight — params now come from custom adj
+      _selectedPreset =
+          null; // clear filter highlight — params now come from custom adj
       _lutBytes = null;
       _intensity = 1.0;
       _syncCurvesFromParams();
@@ -1834,8 +2548,7 @@ class _EditorPageState extends State<EditorPage> {
                 style: TextStyle(color: AppColors.textOnDarkSub)),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(
-                backgroundColor: AppColors.oceanTeal),
+            style: FilledButton.styleFrom(backgroundColor: AppColors.oceanTeal),
             onPressed: () {
               final name = ctrl.text.trim();
               if (name.isNotEmpty) {
@@ -1965,10 +2678,15 @@ class _EditorPageState extends State<EditorPage> {
 
   String _formatAdjSummary(AdjustParams p) {
     final parts = <String>[];
-    if (p.exposure.abs() >= 0.05) parts.add('노출 ${p.exposure > 0 ? '+' : ''}${p.exposure.toStringAsFixed(1)}');
-    if (p.contrast.abs() >= 1) parts.add('명암 ${p.contrast > 0 ? '+' : ''}${p.contrast.toInt()}');
-    if (p.saturation.abs() >= 1) parts.add('채도 ${p.saturation > 0 ? '+' : ''}${p.saturation.toInt()}');
-    if (p.temperature.abs() >= 1) parts.add('색온도 ${p.temperature > 0 ? '+' : ''}${p.temperature.toInt()}');
+    if (p.exposure.abs() >= 0.05)
+      parts.add(
+          '노출 ${p.exposure > 0 ? '+' : ''}${p.exposure.toStringAsFixed(1)}');
+    if (p.contrast.abs() >= 1)
+      parts.add('명암 ${p.contrast > 0 ? '+' : ''}${p.contrast.toInt()}');
+    if (p.saturation.abs() >= 1)
+      parts.add('채도 ${p.saturation > 0 ? '+' : ''}${p.saturation.toInt()}');
+    if (p.temperature.abs() >= 1)
+      parts.add('색온도 ${p.temperature > 0 ? '+' : ''}${p.temperature.toInt()}');
     if (parts.isEmpty) return '기본값';
     return parts.take(3).join(' · ');
   }
@@ -2201,183 +2919,235 @@ class _EditorPageState extends State<EditorPage> {
   List<AdjustSliderItem> get _sliderItems => [
         AdjustSliderItem(
           label: '노출',
-          icon: '☀️',
+          icon: '',
           value: _params.exposure,
           min: -2.0,
           max: 2.0,
+          onChangeStart: (_) {
+            _captureComparePreview();
+            unawaited(_startLiveSliding());
+          },
           onChanged: (v) {
             if (!_isSliding) _startLiveSliding();
             setState(() => _params = _params.copyWith(exposure: v));
             _updateLiveSliding(_params);
+            if (!_isSliding) _debouncedPreview();
           },
           onChangeEnd: (_) => _endLiveSliding(),
         ),
         AdjustSliderItem(
           label: '명암',
-          icon: '◑',
+          icon: '',
           value: _params.contrast,
           min: -100,
           max: 100,
+          onChangeStart: (_) {
+            _captureComparePreview();
+            unawaited(_startLiveSliding());
+          },
           onChanged: (v) {
             if (!_isSliding) _startLiveSliding();
             setState(() => _params = _params.copyWith(contrast: v));
             _updateLiveSliding(_params);
+            if (!_isSliding) _debouncedPreview();
           },
           onChangeEnd: (_) => _endLiveSliding(),
         ),
         AdjustSliderItem(
           label: '채도',
-          icon: '🌈',
+          icon: '',
           value: _params.saturation,
           min: -100,
           max: 100,
+          onChangeStart: (_) {
+            _captureComparePreview();
+            unawaited(_startLiveSliding());
+          },
           onChanged: (v) {
             if (!_isSliding) _startLiveSliding();
             setState(() => _params = _params.copyWith(saturation: v));
             _updateLiveSliding(_params);
+            if (!_isSliding) _debouncedPreview();
           },
           onChangeEnd: (_) => _endLiveSliding(),
         ),
         AdjustSliderItem(
           label: '색온도',
-          icon: '🌡',
+          icon: '',
           value: _params.temperature,
           min: -100,
           max: 100,
+          onChangeStart: (_) {
+            _captureComparePreview();
+            unawaited(_startLiveSliding());
+          },
           onChanged: (v) {
             if (!_isSliding) _startLiveSliding();
             setState(() => _params = _params.copyWith(temperature: v));
             _updateLiveSliding(_params);
+            if (!_isSliding) _debouncedPreview();
           },
           onChangeEnd: (_) => _endLiveSliding(),
         ),
         AdjustSliderItem(
           label: '틴트',
-          icon: '💜',
+          icon: '',
           value: _params.tint,
           min: -100,
           max: 100,
+          onChangeStart: (_) {
+            _captureComparePreview();
+            unawaited(_startLiveSliding());
+          },
           onChanged: (v) {
             if (!_isSliding) _startLiveSliding();
             setState(() => _params = _params.copyWith(tint: v));
             _updateLiveSliding(_params);
+            if (!_isSliding) _debouncedPreview();
           },
           onChangeEnd: (_) => _endLiveSliding(),
         ),
         AdjustSliderItem(
           label: '하이라이트',
-          icon: '✦',
+          icon: '',
           value: _params.highlights,
           min: -100,
           max: 100,
+          onChangeStart: (_) {
+            _captureComparePreview();
+            unawaited(_startLiveSliding());
+          },
           onChanged: (v) {
             if (!_isSliding) _startLiveSliding();
             setState(() => _params = _params.copyWith(highlights: v));
             _updateLiveSliding(_params);
+            if (!_isSliding) _debouncedPreview();
           },
           onChangeEnd: (_) => _endLiveSliding(),
         ),
         AdjustSliderItem(
           label: '쉐도우',
-          icon: '🌑',
+          icon: '',
           value: _params.shadows,
           min: -100,
           max: 100,
+          onChangeStart: (_) {
+            _captureComparePreview();
+            unawaited(_startLiveSliding());
+          },
           onChanged: (v) {
             if (!_isSliding) _startLiveSliding();
             setState(() => _params = _params.copyWith(shadows: v));
             _updateLiveSliding(_params);
+            if (!_isSliding) _debouncedPreview();
           },
           onChangeEnd: (_) => _endLiveSliding(),
         ),
         AdjustSliderItem(
           label: '선명도',
-          icon: '🔍',
+          icon: '',
           value: _params.sharpen,
           min: 0,
           max: 100,
           onChanged: (v) {
-            if (!_isSliding) _startLiveSliding();
             setState(() => _params = _params.copyWith(sharpen: v));
-            _updateLiveSliding(_params);
+            _debouncedPreview();
           },
-          onChangeEnd: (_) => _endLiveSliding(),
+          onChangeEnd: (_) => _renderPreview(),
         ),
         AdjustSliderItem(
           label: '비네팅',
-          icon: '⬛',
+          icon: '',
           value: _params.vignette,
           min: 0,
           max: 100,
+          onChangeStart: (_) {
+            _captureComparePreview();
+            unawaited(_startLiveSliding());
+          },
           onChanged: (v) {
             if (!_isSliding) _startLiveSliding();
             setState(() => _params = _params.copyWith(vignette: v));
             _updateLiveSliding(_params);
+            if (!_isSliding) _debouncedPreview();
           },
           onChangeEnd: (_) => _endLiveSliding(),
         ),
         AdjustSliderItem(
           label: '구조감',
-          icon: '◈',
+          icon: '',
           value: _params.structure,
           min: -100,
           max: 100,
           onChanged: (v) {
-            if (!_isSliding) _startLiveSliding();
             setState(() => _params = _params.copyWith(structure: v));
-            _updateLiveSliding(_params);
+            _debouncedPreview();
           },
-          onChangeEnd: (_) => _endLiveSliding(),
+          onChangeEnd: (_) => _renderPreview(),
         ),
         AdjustSliderItem(
           label: '명료도',
-          icon: '◎',
+          icon: '',
           value: _params.clarity,
           min: -100,
           max: 100,
           onChanged: (v) {
-            if (!_isSliding) _startLiveSliding();
             setState(() => _params = _params.copyWith(clarity: v));
-            _updateLiveSliding(_params);
+            _debouncedPreview();
           },
-          onChangeEnd: (_) => _endLiveSliding(),
+          onChangeEnd: (_) => _renderPreview(),
         ),
         AdjustSliderItem(
           label: '톤 그늘',
-          icon: '▼',
+          icon: '',
           value: _params.tonalShadows,
           min: -100,
           max: 100,
+          onChangeStart: (_) {
+            _captureComparePreview();
+            unawaited(_startLiveSliding());
+          },
           onChanged: (v) {
             if (!_isSliding) _startLiveSliding();
             setState(() => _params = _params.copyWith(tonalShadows: v));
             _updateLiveSliding(_params);
+            if (!_isSliding) _debouncedPreview();
           },
           onChangeEnd: (_) => _endLiveSliding(),
         ),
         AdjustSliderItem(
           label: '톤 미드',
-          icon: '◆',
+          icon: '',
           value: _params.tonalMidtones,
           min: -100,
           max: 100,
+          onChangeStart: (_) {
+            _captureComparePreview();
+            unawaited(_startLiveSliding());
+          },
           onChanged: (v) {
             if (!_isSliding) _startLiveSliding();
             setState(() => _params = _params.copyWith(tonalMidtones: v));
             _updateLiveSliding(_params);
+            if (!_isSliding) _debouncedPreview();
           },
           onChangeEnd: (_) => _endLiveSliding(),
         ),
         AdjustSliderItem(
           label: '톤 밝음',
-          icon: '▲',
+          icon: '',
           value: _params.tonalHighlights,
           min: -100,
           max: 100,
+          onChangeStart: (_) {
+            _captureComparePreview();
+            unawaited(_startLiveSliding());
+          },
           onChanged: (v) {
             if (!_isSliding) _startLiveSliding();
             setState(() => _params = _params.copyWith(tonalHighlights: v));
             _updateLiveSliding(_params);
+            if (!_isSliding) _debouncedPreview();
           },
           onChangeEnd: (_) => _endLiveSliding(),
         ),
@@ -2392,21 +3162,214 @@ class _EditorPageState extends State<EditorPage> {
   }
 
   Widget _buildScaffold(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.oceanAbyss,
-      body: Stack(
-        children: [
-          Column(
+    if (widget.imagePath == null) {
+      return Scaffold(
+        backgroundColor: const Color(0xFF111411),
+        body: SafeArea(
+          child: Column(
             children: [
-              _buildTopBar(),
+              Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                child: Row(
+                  children: [
+                    IconButton(
+                      onPressed: () => context.pop(),
+                      icon: Icon(backIcon(), color: AppColors.oceanFoam),
+                    ),
+                    const Expanded(
+                      child: Text(
+                        '편집',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontFamily: 'NotoSerif',
+                          fontSize: 17,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.oceanFoam,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 48),
+                  ],
+                ),
+              ),
               Expanded(child: _buildPreviewArea()),
-              _buildBottomPanel(),
             ],
           ),
-          if (_exporting) _buildExportOverlay(),
-        ],
+        ),
+      );
+    }
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (_, __) => _handleEditorBack(),
+      child: Scaffold(
+        backgroundColor: const Color(0xFF111411),
+        body: Stack(
+          children: [
+            Column(
+              children: [
+                _buildTopBar(),
+                Expanded(child: _buildPreviewArea()),
+                _buildBottomPanel(),
+              ],
+            ),
+            if (_exporting) _buildExportOverlay(),
+          ],
+        ),
       ),
     );
+  }
+
+  Future<void> _handleEditorBack() async {
+    // First back is always tool cancel. Leaving the editor is explicitly
+    // confirmed so accidental navigation never silently drops edits.
+    if (_isToolActive) {
+      _cancelActiveTool();
+      return;
+    }
+    final discard = await showGeneralDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: '계속 편집',
+      barrierColor: Colors.black.withValues(alpha: 0.62),
+      transitionDuration: const Duration(milliseconds: 260),
+      transitionBuilder: (_, animation, __, child) => FadeTransition(
+        opacity: CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
+        child: ScaleTransition(
+          scale: Tween(begin: 0.92, end: 1.0).animate(
+            CurvedAnimation(parent: animation, curve: Curves.easeOutBack),
+          ),
+          child: child,
+        ),
+      ),
+      pageBuilder: (dialogContext, _, __) => Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 28),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(30),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
+              child: Container(
+                constraints: const BoxConstraints(maxWidth: 390),
+                padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      const Color(0xFF294737).withValues(alpha: 0.96),
+                      const Color(0xFF101B15).withValues(alpha: 0.97),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(30),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.16),
+                  ),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x66000000),
+                      blurRadius: 40,
+                      offset: Offset(0, 18),
+                    ),
+                  ],
+                ),
+                child: Material(
+                  color: Colors.transparent,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 58,
+                        height: 58,
+                        decoration: BoxDecoration(
+                          color:
+                              const Color(0xFFFFDAD6).withValues(alpha: 0.13),
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color:
+                                const Color(0xFFFFB4AB).withValues(alpha: 0.35),
+                          ),
+                        ),
+                        child: const Icon(
+                          Icons.undo_rounded,
+                          color: Color(0xFFFFB4AB),
+                          size: 29,
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      const Text(
+                        '편집을 취소할까요?',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 22,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.4,
+                        ),
+                      ),
+                      const SizedBox(height: 9),
+                      Text(
+                        '지금까지 적용한 편집 내용은\n저장되지 않고 사라집니다.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.68),
+                          fontSize: 14,
+                          height: 1.5,
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () =>
+                                  Navigator.of(dialogContext).pop(false),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.white,
+                                side: BorderSide(
+                                  color: Colors.white.withValues(alpha: 0.22),
+                                ),
+                                backgroundColor:
+                                    Colors.white.withValues(alpha: 0.07),
+                                minimumSize: const Size.fromHeight(52),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(18),
+                                ),
+                              ),
+                              child: const Text('계속 편집'),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: FilledButton(
+                              onPressed: () =>
+                                  Navigator.of(dialogContext).pop(true),
+                              style: FilledButton.styleFrom(
+                                foregroundColor: const Color(0xFF3B0906),
+                                backgroundColor: const Color(0xFFFFB4AB),
+                                minimumSize: const Size.fromHeight(52),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(18),
+                                ),
+                              ),
+                              child: const Text(
+                                '편집 취소',
+                                style: TextStyle(fontWeight: FontWeight.w800),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    if (discard == true && mounted) context.pop();
   }
 
   Widget _buildTopBar() {
@@ -2415,21 +3378,25 @@ class _EditorPageState extends State<EditorPage> {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         child: Row(
           children: [
-            _IconBtn(
+            _EditorOverlayIconButton(
               icon: backIcon(),
-              onTap: () => context.pop(),
+              tooltip: '뒤로가기',
+              onTap: _handleEditorBack,
             ),
             if (!_isToolActive) ...[
               const SizedBox(width: 8),
-              IconButton(
-                icon: const Icon(Icons.undo_rounded, size: 20, color: Colors.white),
-                onPressed: _editSession.canUndo ? _undo : null,
-                disabledColor: Colors.white24,
+              _EditorOverlayIconButton(
+                icon: Icons.undo_rounded,
+                tooltip: '실행 취소',
+                enabled: _editSession.canUndo,
+                onTap: _undo,
               ),
-              IconButton(
-                icon: const Icon(Icons.redo_rounded, size: 20, color: Colors.white),
-                onPressed: _editSession.canRedo ? _redo : null,
-                disabledColor: Colors.white24,
+              const SizedBox(width: 6),
+              _EditorOverlayIconButton(
+                icon: Icons.redo_rounded,
+                tooltip: '다시 실행',
+                enabled: _editSession.canRedo,
+                onTap: _redo,
               ),
             ],
             const Spacer(),
@@ -2443,6 +3410,17 @@ class _EditorPageState extends State<EditorPage> {
               ),
             ),
             const Spacer(),
+            if (_isToolActive) ...[
+              _buildCompareHoldIcon(),
+              const SizedBox(width: 8),
+              _EditorApplyButton(
+                onTap: () {
+                  hapticLight();
+                  _applyActiveTool();
+                },
+              ),
+            ] else
+              const SizedBox(width: 48),
           ],
         ),
       ),
@@ -2453,8 +3431,7 @@ class _EditorPageState extends State<EditorPage> {
     if (_pickingEmptyImage) return;
     _pickingEmptyImage = true;
     try {
-      final status = await Permission.photos.request();
-      if (!status.isGranted) {
+      if (!await MediaPermissionService.ensurePhotoAccess()) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -2489,34 +3466,58 @@ class _EditorPageState extends State<EditorPage> {
   Widget _buildPreviewArea() {
     if (widget.imagePath == null) {
       return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              S.get('editor.no_image_selected'),
-              style: const TextStyle(color: AppColors.textOnDarkSub),
-            ),
-            const SizedBox(height: 24),
-            FilledButton.icon(
-              onPressed: _pickImageFromEmpty,
-              icon: const Icon(Icons.photo_library_outlined),
-              label: Text(S.get('editor.select_photo')),
-              style: FilledButton.styleFrom(
-                backgroundColor: AppColors.accentGlow,
-                foregroundColor: AppColors.accentPrimary,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+        child: Container(
+          width: 272,
+          padding: const EdgeInsets.fromLTRB(24, 22, 24, 24),
+          decoration: BoxDecoration(
+            color: AppColors.cloudWhite,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: AppColors.cloudVeil),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x10032111),
+                blurRadius: 24,
+                offset: Offset(0, 10),
               ),
-            ),
-            const SizedBox(height: 12),
-            TextButton.icon(
-              onPressed: () => context.pop(),
-              icon: const Icon(Icons.arrow_back,
-                  size: 16, color: AppColors.textOnDarkSub),
-              label: Text(S.get('editor.go_back'),
-                  style: const TextStyle(color: AppColors.textOnDarkSub)),
-            ),
-          ],
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('🖼️', style: TextStyle(fontSize: 44)),
+              const SizedBox(height: 12),
+              Text(
+                S.get('editor.no_image_selected'),
+                style: const TextStyle(
+                  fontFamily: 'NotoSerif',
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                S.get('editor.no_image_hint'),
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  height: 1.4,
+                  fontSize: 13,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 18),
+              FilledButton.icon(
+                onPressed: _pickImageFromEmpty,
+                icon: const Icon(Icons.add_photo_alternate_outlined, size: 19),
+                label: Text(S.get('editor.select_photo')),
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.oceanFoam,
+                  foregroundColor: AppColors.cloudWhite,
+                  minimumSize: const Size.fromHeight(44),
+                ),
+              ),
+            ],
+          ),
         ),
       );
     }
@@ -2526,7 +3527,23 @@ class _EditorPageState extends State<EditorPage> {
         return Stack(
           alignment: Alignment.center,
           children: [
-            if (_isSliding && _liveBaseCacheImage != null)
+            if (_showComparePreview)
+              _comparePreviewBytes != null
+                  ? Image.memory(
+                      _comparePreviewBytes!,
+                      fit: BoxFit.contain,
+                      width: double.infinity,
+                      filterQuality: FilterQuality.high,
+                      gaplessPlayback: true,
+                    )
+                  : Image.file(
+                      File(widget.imagePath!),
+                      fit: BoxFit.contain,
+                      width: double.infinity,
+                      filterQuality: FilterQuality.high,
+                      gaplessPlayback: true,
+                    )
+            else if (_isSliding && _liveBaseCacheImage != null)
               GpuImageView(
                 sourceImage: _liveBaseCacheImage!,
                 params: _params,
@@ -2536,8 +3553,10 @@ class _EditorPageState extends State<EditorPage> {
                 lumCurve: _liveLumCurve,
                 paramsNotifier: _liveParamsNotifier,
                 intensityNotifier: _liveIntensityNotifier,
+                onShaderError: _endLiveSliding,
               )
-            else if (_isToolActive && (_activeToolId == 'rotate' || _activeToolId == 'perspective'))
+            else if (_isToolActive &&
+                (_activeToolId == 'rotate' || _activeToolId == 'perspective'))
               Builder(
                 builder: (ctx) {
                   final bytes = _spatialBaseBytes ?? _previewBytes;
@@ -2562,12 +3581,16 @@ class _EditorPageState extends State<EditorPage> {
                   final matrix = Matrix4.identity();
                   matrix.setEntry(0, 1, math.tan(skewX));
                   matrix.setEntry(1, 0, math.tan(skewY));
-                  return Transform(
-                    transform: matrix,
-                    alignment: Alignment.center,
-                    child: Transform.rotate(
-                      angle: rotRad,
-                      child: base,
+                  return Transform.flip(
+                    flipX: _flipH,
+                    flipY: _flipV,
+                    child: Transform(
+                      transform: matrix,
+                      alignment: Alignment.center,
+                      child: Transform.rotate(
+                        angle: rotRad,
+                        child: base,
+                      ),
                     ),
                   );
                 },
@@ -2588,6 +3611,10 @@ class _EditorPageState extends State<EditorPage> {
                 filterQuality: FilterQuality.high,
                 gaplessPlayback: true,
               ),
+            if (_isToolActive &&
+                _activeToolId == 'text' &&
+                _overlayText.trim().isNotEmpty)
+              _buildLiveTextOverlay(constraints),
             if (_isToolActive && _activeToolId == 'crop')
               CropOverlayWidget(
                 imageSize: _currentImageSize,
@@ -2595,7 +3622,7 @@ class _EditorPageState extends State<EditorPage> {
                 cropTop: _cropTop,
                 cropRight: _cropRight,
                 cropBottom: _cropBottom,
-                aspectRatio: _cropRatio.ratio,
+                aspectRatio: _resolvedCropAspectRatio(),
                 gridMode: CropGridMode.thirds,
                 onCropChanged: (left, top, right, bottom) {
                   setState(() {
@@ -2603,26 +3630,34 @@ class _EditorPageState extends State<EditorPage> {
                     _cropTop = top;
                     _cropRight = right;
                     _cropBottom = bottom;
+                    _cropCenterX = (left + right) / 2;
+                    _cropCenterY = (top + bottom) / 2;
                   });
                 },
                 onDragEnd: () {
                   _debouncedPreview();
                 },
               ),
+            if (_isToolActive && _activeToolId == 'selective')
+              _buildSelectiveTouchOverlay(),
             if (_isToolActive && _activeToolId == 'brush')
               BrushOverlayWidget(
                 imageSize: _currentImageSize,
                 strokes: _brushStrokes,
-                brushSize: (_brushMode == 'dodge' ? _dodgeRadius : _burnRadius) * 200,
+                brushSize:
+                    (_brushMode == 'dodge' ? _dodgeRadius : _burnRadius) * 200,
                 hardness: 0.5,
                 transformationController: _transformationController,
                 onStroke: (stroke) {
                   setState(() {
+                    _dbActive = true;
                     final newStroke = DodgeBurnStroke(
                       x: stroke.x,
                       y: stroke.y,
                       radius: stroke.radius,
-                      strength: _brushMode == 'dodge' ? _dodgeStrength : _burnStrength,
+                      strength: _brushMode == 'dodge'
+                          ? _dodgeStrength
+                          : _burnStrength,
                       isDodge: _brushMode == 'dodge',
                     );
                     _brushStrokes.add(newStroke);
@@ -2638,28 +3673,165 @@ class _EditorPageState extends State<EditorPage> {
                 focusCenter: _tiltFocusCenter,
                 bandWidth: _tiltBandWidth,
                 onFocusCenterChanged: (v) {
-                  setState(() => _tiltFocusCenter = v);
+                  setState(() {
+                    _tiltActive = true;
+                    _tiltFocusCenter = v;
+                  });
                   _debouncedPreview();
                 },
                 onBandWidthChanged: (v) {
-                  setState(() => _tiltBandWidth = v);
+                  setState(() {
+                    _tiltActive = true;
+                    _tiltBandWidth = v;
+                  });
                   _debouncedPreview();
                 },
                 onDragEnd: () {
                   _debouncedPreview();
                 },
               ),
-            if (_processingPreview)
-              Container(
-                color: Colors.black26,
-                child: const Center(
-                  child: CircularProgressIndicator(
-                    color: AppColors.oceanFoam,
-                    strokeWidth: 2,
+            if (_processingPreview) const SizedBox.shrink(),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildLiveTextOverlay(BoxConstraints constraints) {
+    final source = _currentImageSize;
+    if (constraints.maxWidth <= 0 ||
+        constraints.maxHeight <= 0 ||
+        source.width <= 0 ||
+        source.height <= 0) {
+      return const SizedBox.shrink();
+    }
+
+    // Match the BoxFit.contain image rect exactly. Text coordinates are stored
+    // in normalized image space, never in the surrounding editor chrome.
+    final sourceAspect = source.width / source.height;
+    final viewportAspect = constraints.maxWidth / constraints.maxHeight;
+    final imageWidth = viewportAspect > sourceAspect
+        ? constraints.maxHeight * sourceAspect
+        : constraints.maxWidth;
+    final imageHeight = imageWidth / sourceAspect;
+    final imageLeft = (constraints.maxWidth - imageWidth) / 2;
+    final imageTop = (constraints.maxHeight - imageHeight) / 2;
+    final visualSize = (_textSize * (imageHeight / 1080.0)).clamp(14.0, 96.0);
+    return Positioned(
+      left: imageLeft,
+      top: imageTop,
+      width: imageWidth,
+      height: imageHeight,
+      child: Align(
+        alignment: Alignment(_textX * 2 - 1, _textY * 2 - 1),
+        child: Semantics(
+          label: '텍스트 위치와 회전 조절',
+          hint: '드래그하여 이동하고 두 손가락으로 크기와 회전을 조절합니다',
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onScaleStart: (_) {
+              _textGestureStartSize = _textSize;
+              _textGestureStartRotation = _textRotation;
+            },
+            onScaleUpdate: (details) {
+              setState(() {
+                _textX = (_textX + details.focalPointDelta.dx / imageWidth)
+                    .clamp(0.02, 0.98);
+                _textY = (_textY + details.focalPointDelta.dy / imageHeight)
+                    .clamp(0.02, 0.98);
+                _textSize =
+                    (_textGestureStartSize * details.scale).clamp(12.0, 96.0);
+                _textRotation = (_textGestureStartRotation +
+                        details.rotation * 180 / math.pi)
+                    .clamp(-180.0, 180.0);
+              });
+            },
+            onScaleEnd: (_) {
+              _scheduleDraftSave();
+            },
+            child: Transform.rotate(
+              angle: _textRotation * math.pi / 180,
+              child: Container(
+                key: const ValueKey('live-text-overlay'),
+                constraints: BoxConstraints(maxWidth: imageWidth * 0.8),
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.26),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.86),
+                    width: 1.2,
+                  ),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x99000000),
+                      blurRadius: 8,
+                      offset: Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Text(
+                  _overlayText,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontFamily: _textFontFamily,
+                    fontSize: visualSize,
+                    height: 1.05,
+                    color: _textColor,
+                    shadows: const [
+                      Shadow(color: Colors.black87, blurRadius: 4),
+                    ],
                   ),
                 ),
               ),
-          ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSelectiveTouchOverlay() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        void updatePoint(Offset localPosition) {
+          if (constraints.maxWidth <= 0 || constraints.maxHeight <= 0) return;
+          setState(() {
+            _selX = (localPosition.dx / constraints.maxWidth).clamp(0.0, 1.0);
+            _selY = (localPosition.dy / constraints.maxHeight).clamp(0.0, 1.0);
+            _selActive = true;
+          });
+          _debouncedPreview();
+        }
+
+        return GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onTapDown: (details) => updatePoint(details.localPosition),
+          onPanUpdate: (details) => updatePoint(details.localPosition),
+          child: Stack(
+            children: [
+              if (_selActive)
+                Positioned(
+                  left: _selX * constraints.maxWidth - 18,
+                  top: _selY * constraints.maxHeight - 18,
+                  child: IgnorePointer(
+                    child: Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 2),
+                        boxShadow: const [
+                          BoxShadow(color: Colors.black38, blurRadius: 4),
+                        ],
+                      ),
+                      child: const Icon(Icons.adjust_rounded,
+                          color: Colors.white, size: 18),
+                    ),
+                  ),
+                ),
+            ],
+          ),
         );
       },
     );
@@ -2676,27 +3848,35 @@ class _EditorPageState extends State<EditorPage> {
     _ToolItem(id: 'tune', label: '기본 보정', icon: Icons.tune_rounded),
     _ToolItem(id: 'details', label: '세부 정보', icon: Icons.details_rounded),
     _ToolItem(id: 'curves', label: '커브', icon: Icons.waves_rounded),
-    _ToolItem(id: 'white_balance', label: '화이트 밸런스', icon: Icons.wb_sunny_rounded),
+    _ToolItem(
+        id: 'white_balance', label: '화이트 밸런스', icon: Icons.wb_sunny_rounded),
     _ToolItem(id: 'crop', label: '크롭', icon: Icons.crop_rounded),
     _ToolItem(id: 'rotate', label: '회전', icon: Icons.rotate_right_rounded),
     _ToolItem(id: 'perspective', label: '원근', icon: Icons.transform_rounded),
     _ToolItem(id: 'expand', label: '확장', icon: Icons.aspect_ratio_rounded),
     _ToolItem(id: 'hsl', label: '색상 HSL', icon: Icons.color_lens_rounded),
-    _ToolItem(id: 'selective', label: '부분 보정', icon: Icons.filter_center_focus_rounded),
+    _ToolItem(
+        id: 'selective',
+        label: '부분 보정',
+        icon: Icons.filter_center_focus_rounded),
     _ToolItem(id: 'brush', label: '브러시', icon: Icons.brush_rounded),
-    _ToolItem(id: 'tilt_shift', label: '아웃포커스', icon: Icons.blur_linear_rounded),
-    _ToolItem(id: 'lens_blur', label: '렌즈 흐림효과', icon: Icons.blur_circular_rounded),
+    _ToolItem(
+        id: 'tilt_shift', label: '틸트 시프트', icon: Icons.blur_linear_rounded),
+    _ToolItem(
+        id: 'lens_blur', label: '원형 초점 흐림', icon: Icons.blur_circular_rounded),
     _ToolItem(id: 'vignette', label: '비네팅', icon: Icons.vignette_rounded),
     _ToolItem(id: 'grain', label: '그레인', icon: Icons.grain_rounded),
     _ToolItem(id: 'split_toning', label: '스플릿 톤', icon: Icons.looks_rounded),
     _ToolItem(id: 'noise', label: '노이즈', icon: Icons.texture_rounded),
     _ToolItem(id: 'glow', label: '글로우', icon: Icons.wb_twilight_rounded),
-    _ToolItem(id: 'portrait', label: '인물 사진', icon: Icons.face_rounded),
-    _ToolItem(id: 'double_exposure', label: '이중 노출', icon: Icons.layers_rounded),
+    _ToolItem(id: 'portrait', label: '인물 영역', icon: Icons.face_rounded),
+    _ToolItem(
+        id: 'double_exposure', label: '이중 노출', icon: Icons.layers_rounded),
     _ToolItem(id: 'frame', label: '프레임', icon: Icons.crop_original_rounded),
     _ToolItem(id: 'text', label: '텍스트', icon: Icons.text_fields_rounded),
     _ToolItem(id: 'light_leak', label: '광학 유출', icon: Icons.flare_rounded),
-    _ToolItem(id: 'halation', label: '헐레이션', icon: Icons.wb_incandescent_rounded),
+    _ToolItem(
+        id: 'halation', label: '헐레이션', icon: Icons.wb_incandescent_rounded),
     _ToolItem(id: 'drama', label: '드라마', icon: Icons.theater_comedy_rounded),
     _ToolItem(id: 'hdr_scape', label: 'HDR 스케이프', icon: Icons.hdr_on_rounded),
   ];
@@ -2715,7 +3895,9 @@ class _EditorPageState extends State<EditorPage> {
     }
   }
 
-  Widget _sliderRow(String label, double value, double min, double max, ValueChanged<double> onChanged, {ValueChanged<double>? onChangeEnd}) {
+  Widget _sliderRow(String label, double value, double min, double max,
+      ValueChanged<double> onChanged,
+      {ValueChanged<double>? onChangeEnd}) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       child: Row(
@@ -2768,11 +3950,14 @@ class _EditorPageState extends State<EditorPage> {
     );
   }
 
-  Widget _actionChip(String label, IconData icon, bool active, VoidCallback onTap, {bool rotate = false}) {
+  Widget _actionChip(
+      String label, IconData icon, bool active, VoidCallback onTap,
+      {bool rotate = false}) {
     return ActionChip(
       avatar: Transform.rotate(
         angle: rotate ? math.pi / 2 : 0,
-        child: Icon(icon, size: 16, color: active ? Colors.black : AppColors.textSecondary),
+        child: Icon(icon,
+            size: 16, color: active ? Colors.black : AppColors.textSecondary),
       ),
       label: Text(label),
       onPressed: onTap,
@@ -2799,8 +3984,7 @@ class _EditorPageState extends State<EditorPage> {
           return GestureDetector(
             onTap: () {
               hapticLight();
-              setState(() => _cropRatio = preset);
-              _renderPreview();
+              _setCropRatioPreset(preset);
             },
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 180),
@@ -2809,7 +3993,9 @@ class _EditorPageState extends State<EditorPage> {
                 color: sel ? const Color(0xFFFFC400) : Colors.white,
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(
-                  color: sel ? const Color(0xFFFFC400) : AppColors.textSecondary.withOpacity(0.15),
+                  color: sel
+                      ? const Color(0xFFFFC400)
+                      : AppColors.textSecondary.withOpacity(0.15),
                 ),
               ),
               child: Text(
@@ -2828,6 +4014,37 @@ class _EditorPageState extends State<EditorPage> {
     );
   }
 
+  void _setCropRatioPreset(CropRatioPreset preset) {
+    final ratio = preset == CropRatioPreset.original
+        ? _resolvedCropAspectRatio(imageSize: _decodedCache)
+        : preset.ratio;
+    setState(() {
+      _cropRatio = preset;
+      _cropCenterX = 0.5;
+      _cropCenterY = 0.5;
+
+      // A ratio change is a fresh framing request, never a resize inside the
+      // previous crop. Reusing the old rect was what made repeated switches
+      // steadily shrink the crop window.
+      if (ratio == null) {
+        _cropLeft = 0;
+        _cropTop = 0;
+        _cropRight = 1;
+        _cropBottom = 1;
+        return;
+      }
+
+      final imageSize = _currentImageSize;
+      final imageRatio = imageSize.width / imageSize.height;
+      final width = imageRatio > ratio ? ratio / imageRatio : 1.0;
+      final height = imageRatio > ratio ? 1.0 : imageRatio / ratio;
+      _cropLeft = (1 - width) / 2;
+      _cropRight = _cropLeft + width;
+      _cropTop = (1 - height) / 2;
+      _cropBottom = _cropTop + height;
+    });
+  }
+
   Widget _buildActiveToolControls() {
     switch (_activeToolId) {
       case 'tune':
@@ -2842,21 +4059,24 @@ class _EditorPageState extends State<EditorPage> {
                     child: _BnwToggle(
                       enabled: _params.bnwEnabled,
                       onToggle: (v) {
-                        setState(() => _params = _params.copyWith(bnwEnabled: v));
+                        setState(
+                            () => _params = _params.copyWith(bnwEnabled: v));
                         _renderPreview();
                       },
                     ),
                   ),
                   const SizedBox(width: 12),
                   IconButton(
-                    icon: const Icon(Icons.bookmark_add_rounded, color: Colors.black87),
+                    icon: const Icon(Icons.bookmark_add_rounded,
+                        color: Colors.black87),
                     tooltip: '조정 저장',
                     onPressed: _showSaveAdjustmentDialog,
                   ),
                   if (_customAdjustments.isNotEmpty) ...[
                     const SizedBox(width: 8),
                     IconButton(
-                      icon: const Icon(Icons.bookmarks_rounded, color: Colors.black87),
+                      icon: const Icon(Icons.bookmarks_rounded,
+                          color: Colors.black87),
                       tooltip: '조정 불러오기',
                       onPressed: _showLoadAdjustmentSheet,
                     ),
@@ -2925,6 +4145,28 @@ class _EditorPageState extends State<EditorPage> {
         );
       case 'crop':
         return _buildCropPresetRow();
+      case 'filter':
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            FilterStrip(
+              presets: _allPresets,
+              selectedId: _selectedPreset?.id,
+              favoriteIds: _favoriteFilterIds,
+              onSelect: _selectPreset,
+              onFavoriteToggle: _toggleFavorite,
+            ),
+            if (_selectedPreset != null)
+              IntensitySlider(
+                value: _intensity,
+                onChanged: (v) {
+                  setState(() => _intensity = v);
+                  _debouncedPreview();
+                },
+                onChangeEnd: (_) => _renderPreview(),
+              ),
+          ],
+        );
       case 'rotate':
         return Column(
           children: [
@@ -2938,11 +4180,9 @@ class _EditorPageState extends State<EditorPage> {
                 children: [
                   _actionChip('좌우 반전', Icons.flip_rounded, _flipH, () {
                     setState(() => _flipH = !_flipH);
-                    _renderPreview();
                   }),
                   _actionChip('상하 반전', Icons.flip_rounded, _flipV, () {
                     setState(() => _flipV = !_flipV);
-                    _renderPreview();
                   }, rotate: true),
                 ],
               ),
@@ -2978,9 +4218,9 @@ class _EditorPageState extends State<EditorPage> {
           children: [
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
-              children: ['smart', 'black', 'white'].map((m) {
+              children: ['black', 'white'].map((m) {
                 final sel = _expandMode == m;
-                final label = m == 'smart' ? '스마트' : m == 'black' ? '블랙' : '화이트';
+                final label = m == 'black' ? '블랙' : '화이트';
                 return Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 4),
                   child: ChoiceChip(
@@ -3029,30 +4269,40 @@ class _EditorPageState extends State<EditorPage> {
       case 'selective':
         return Column(
           children: [
-            _sliderRow('밝기', _selBright, -100, 100, (v) {
-              setState(() => _selBright = v);
-              _debouncedPreview();
-            }),
-            _sliderRow('대비', _selContrast, -100, 100, (v) {
-              setState(() => _selContrast = v);
-              _debouncedPreview();
-            }),
-            _sliderRow('채도', _selSat, -100, 100, (v) {
-              setState(() => _selSat = v);
-              _debouncedPreview();
-            }),
-            _sliderRow('반경', _selRadius, 0.1, 0.8, (v) {
-              setState(() => _selRadius = v);
-              _debouncedPreview();
-            }),
-            _sliderRow('수평 위치 (X)', _selX, 0.0, 1.0, (v) {
-              setState(() => _selX = v);
-              _debouncedPreview();
-            }),
-            _sliderRow('수직 위치 (Y)', _selY, 0.0, 1.0, (v) {
-              setState(() => _selY = v);
-              _debouncedPreview();
-            }),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+              child: Text(
+                _selActive
+                    ? '표시된 지점을 드래그해 위치를 바꾸고, 아래 값으로 해당 영역만 보정합니다.'
+                    : '사진을 터치하거나 드래그해 먼저 보정할 위치를 지정하세요.',
+                style: const TextStyle(
+                    fontSize: 12, color: AppColors.textSecondary),
+              ),
+            ),
+            if (_selActive) ...[
+              _sliderRow('밝기', _selBright, -100, 100, (v) {
+                setState(() => _selBright = v);
+                _debouncedPreview();
+              }),
+              _sliderRow('대비', _selContrast, -100, 100, (v) {
+                setState(() => _selContrast = v);
+                _debouncedPreview();
+              }),
+              _sliderRow('채도', _selSat, -100, 100, (v) {
+                setState(() => _selSat = v);
+                _debouncedPreview();
+              }),
+              _sliderRow('반경', _selRadius, 0.1, 0.8, (v) {
+                setState(() => _selRadius = v);
+                _debouncedPreview();
+              }),
+            ] else
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 24),
+                child: Text('지점을 추가하면 부분 보정 조절이 활성화됩니다.',
+                    style: TextStyle(
+                        fontSize: 12, color: AppColors.textSecondary)),
+              ),
           ],
         );
       case 'brush':
@@ -3070,7 +4320,9 @@ class _EditorPageState extends State<EditorPage> {
                   selectedColor: const Color(0xFFFFC400),
                   backgroundColor: Colors.white,
                   labelStyle: TextStyle(
-                    color: _brushMode == 'dodge' ? Colors.black : AppColors.textSecondary,
+                    color: _brushMode == 'dodge'
+                        ? Colors.black
+                        : AppColors.textSecondary,
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -3083,13 +4335,16 @@ class _EditorPageState extends State<EditorPage> {
                   selectedColor: const Color(0xFFFFC400),
                   backgroundColor: Colors.white,
                   labelStyle: TextStyle(
-                    color: _brushMode == 'burn' ? Colors.black : AppColors.textSecondary,
+                    color: _brushMode == 'burn'
+                        ? Colors.black
+                        : AppColors.textSecondary,
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 8),
-            _sliderRow('반경', _brushMode == 'dodge' ? _dodgeRadius : _burnRadius, 0.05, 0.5, (v) {
+            _sliderRow('반경', _brushMode == 'dodge' ? _dodgeRadius : _burnRadius,
+                0.05, 0.5, (v) {
               setState(() {
                 if (_brushMode == 'dodge') {
                   _dodgeRadius = v;
@@ -3098,7 +4353,11 @@ class _EditorPageState extends State<EditorPage> {
                 }
               });
             }),
-            _sliderRow('강도', _brushMode == 'dodge' ? _dodgeStrength : _burnStrength, 0.0, 1.0, (v) {
+            _sliderRow(
+                '강도',
+                _brushMode == 'dodge' ? _dodgeStrength : _burnStrength,
+                0.0,
+                1.0, (v) {
               setState(() {
                 if (_brushMode == 'dodge') {
                   _dodgeStrength = v;
@@ -3123,15 +4382,24 @@ class _EditorPageState extends State<EditorPage> {
         return Column(
           children: [
             _sliderRow('초점 위치', _tiltFocusCenter, 0.0, 1.0, (v) {
-              setState(() => _tiltFocusCenter = v);
+              setState(() {
+                _tiltActive = true;
+                _tiltFocusCenter = v;
+              });
               _debouncedPreview();
             }),
             _sliderRow('범위 넓이', _tiltBandWidth, 0.1, 0.6, (v) {
-              setState(() => _tiltBandWidth = v);
+              setState(() {
+                _tiltActive = true;
+                _tiltBandWidth = v;
+              });
               _debouncedPreview();
             }),
             _sliderRow('최대 흐림', _tiltMaxBlur, 0.0, 20.0, (v) {
-              setState(() => _tiltMaxBlur = v);
+              setState(() {
+                _tiltActive = v > 0;
+                _tiltMaxBlur = v;
+              });
               _debouncedPreview();
             }),
           ],
@@ -3139,12 +4407,34 @@ class _EditorPageState extends State<EditorPage> {
       case 'lens_blur':
         return Column(
           children: [
-            _sliderRow('초점 깊이', _lensFocusDepth, 0.0, 1.0, (v) {
-              setState(() => _lensFocusDepth = v);
+            Container(
+              margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEAF2ED),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Text(
+                '사진 중심에서의 거리를 기준으로 초점 영역을 만듭니다.',
+                style: TextStyle(
+                  fontSize: 11,
+                  height: 1.35,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ),
+            _sliderRow('초점 거리', _lensFocusDepth, 0.0, 1.0, (v) {
+              setState(() {
+                _lensActive = _lensMaxRadius > 0;
+                _lensFocusDepth = v;
+              });
               _debouncedPreview();
             }),
             _sliderRow('흐림 반경', _lensMaxRadius, 0.0, 20.0, (v) {
-              setState(() => _lensMaxRadius = v);
+              setState(() {
+                _lensActive = v > 0;
+                _lensMaxRadius = v;
+              });
               _debouncedPreview();
             }),
           ],
@@ -3353,6 +4643,7 @@ class _EditorPageState extends State<EditorPage> {
         );
       case 'drama':
         return _EffectsPanel(
+          imagePath: widget.imagePath,
           selected: _effect,
           strength: _effectStrength,
           forceGroup: '드라마',
@@ -3367,6 +4658,7 @@ class _EditorPageState extends State<EditorPage> {
         );
       case 'hdr_scape':
         return _EffectsPanel(
+          imagePath: widget.imagePath,
           selected: _effect,
           strength: _effectStrength,
           forceGroup: 'HDR',
@@ -3399,27 +4691,25 @@ class _EditorPageState extends State<EditorPage> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          IconButton(
-            icon: const Icon(Icons.close_rounded, color: Colors.black54),
-            onPressed: () {
-              hapticLight();
-              _cancelActiveTool();
-            },
-          ),
-          Text(
-            _activeToolName ?? '',
-            style: const TextStyle(
-              fontFamily: 'NotoSerif',
-              fontSize: 15,
-              fontWeight: FontWeight.w700,
-              color: Colors.black87,
+          const SizedBox(width: 48),
+          Expanded(
+            child: Text(
+              _activeToolName ?? '',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontFamily: 'NotoSerif',
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                color: Colors.black87,
+              ),
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.check_rounded, color: Colors.black87),
+            tooltip: '초기화',
+            icon: const Icon(Icons.refresh_rounded, color: Colors.black87),
             onPressed: () {
               hapticLight();
-              _applyActiveTool();
+              _resetActiveTool();
             },
           ),
         ],
@@ -3427,8 +4717,64 @@ class _EditorPageState extends State<EditorPage> {
     );
   }
 
+  Widget _buildCompareHoldIcon() {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTapDown: (_) {
+        hapticLight();
+        _setComparePreviewVisible(true);
+      },
+      onTapUp: (_) => _setComparePreviewVisible(false),
+      onTapCancel: () => _setComparePreviewVisible(false),
+      child: Semantics(
+        button: true,
+        label: '적용 전 보기',
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 140),
+          height: 44,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: _showComparePreview
+                ? AppColors.oceanFoam
+                : Colors.black.withValues(alpha: 0.36),
+            borderRadius: BorderRadius.circular(15),
+            border: Border.all(
+              color: _showComparePreview
+                  ? Colors.white.withValues(alpha: 0.92)
+                  : Colors.white.withValues(alpha: 0.76),
+              width: 1.5,
+            ),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x52000000),
+                blurRadius: 12,
+                offset: Offset(0, 4),
+              ),
+            ],
+          ),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.visibility_outlined, color: Colors.white, size: 19),
+              SizedBox(width: 6),
+              Text(
+                '적용 전',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildFavoriteToolsDock() {
-    final favTools = _tools.where((t) => _favoriteToolIds.contains(t.id)).toList();
+    final favTools =
+        _tools.where((t) => _favoriteToolIds.contains(t.id)).toList();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
@@ -3450,7 +4796,8 @@ class _EditorPageState extends State<EditorPage> {
               GestureDetector(
                 onTap: _showCustomizeFavoritesSheet,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
                     color: const Color(0xFFF0F0EE),
                     borderRadius: BorderRadius.circular(20),
@@ -3458,7 +4805,8 @@ class _EditorPageState extends State<EditorPage> {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.settings_outlined, size: 12, color: Colors.black54),
+                      const Icon(Icons.settings_outlined,
+                          size: 12, color: Colors.black54),
                       const SizedBox(width: 4),
                       Text(
                         '맞춤 설정',
@@ -3482,7 +4830,10 @@ class _EditorPageState extends State<EditorPage> {
               ? const Center(
                   child: Text(
                     '자주 찾는 도구가 없습니다. 맞춤 설정을 눌러보세요.',
-                    style: TextStyle(fontFamily: 'NotoSerif', fontSize: 11, color: Colors.black54),
+                    style: TextStyle(
+                        fontFamily: 'NotoSerif',
+                        fontSize: 11,
+                        color: Colors.black54),
                   ),
                 )
               : ListView.builder(
@@ -3494,48 +4845,48 @@ class _EditorPageState extends State<EditorPage> {
                     return Padding(
                       padding: const EdgeInsets.only(right: 12),
                       child: GestureDetector(
-                         onTap: () {
-                           hapticLight();
-                           _activateTool(tool.id, tool.label);
-                         },
-                         child: Column(
-                           mainAxisSize: MainAxisSize.min,
-                           children: [
-                             Container(
-                               width: 56,
-                               height: 56,
-                               decoration: BoxDecoration(
-                                 color: Colors.white,
-                                 borderRadius: BorderRadius.circular(16),
-                                 boxShadow: [
-                                   BoxShadow(
-                                     color: Colors.black.withOpacity(0.04),
-                                     blurRadius: 6,
-                                     offset: const Offset(0, 3),
-                                   ),
-                                 ],
-                                 border: Border.all(
-                                   color: Colors.black.withOpacity(0.04),
-                                 ),
-                               ),
-                               child: Icon(
-                                 tool.icon,
-                                 size: 24,
-                                 color: Colors.black87,
-                               ),
-                             ),
-                             const SizedBox(height: 5),
-                             Text(
-                               tool.label,
-                               style: const TextStyle(
-                                 fontFamily: 'NotoSerif',
-                                 fontSize: 10,
-                                 color: Colors.black87,
-                               ),
-                             ),
-                           ],
-                         ),
-                       ),
+                        onTap: () {
+                          hapticLight();
+                          _activateTool(tool.id, tool.label);
+                        },
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 56,
+                              height: 56,
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(16),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.04),
+                                    blurRadius: 6,
+                                    offset: const Offset(0, 3),
+                                  ),
+                                ],
+                                border: Border.all(
+                                  color: Colors.black.withOpacity(0.04),
+                                ),
+                              ),
+                              child: Icon(
+                                tool.icon,
+                                size: 24,
+                                color: Colors.black87,
+                              ),
+                            ),
+                            const SizedBox(height: 5),
+                            Text(
+                              tool.label,
+                              style: const TextStyle(
+                                fontFamily: 'NotoSerif',
+                                fontSize: 10,
+                                color: Colors.black87,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     );
                   },
                 ),
@@ -3608,7 +4959,8 @@ class _EditorPageState extends State<EditorPage> {
                       ),
                     ),
                     const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+                      padding:
+                          EdgeInsets.symmetric(horizontal: 20, vertical: 4),
                       child: Text(
                         '자주 사용하는 도구를 선택하여 퀵 액세스 바에 고정하세요. 갯수 제한은 없습니다.',
                         style: TextStyle(
@@ -3623,7 +4975,8 @@ class _EditorPageState extends State<EditorPage> {
                       child: GridView.builder(
                         controller: scrollController,
                         padding: const EdgeInsets.all(16),
-                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                        gridDelegate:
+                            const SliverGridDelegateWithFixedCrossAxisCount(
                           crossAxisCount: 3,
                           mainAxisSpacing: 12,
                           crossAxisSpacing: 12,
@@ -3647,16 +5000,21 @@ class _EditorPageState extends State<EditorPage> {
                             child: AnimatedContainer(
                               duration: const Duration(milliseconds: 180),
                               decoration: BoxDecoration(
-                                color: isFav ? Colors.white : const Color(0xFFECECE9),
+                                color: isFav
+                                    ? Colors.white
+                                    : const Color(0xFFECECE9),
                                 borderRadius: BorderRadius.circular(16),
                                 border: Border.all(
-                                  color: isFav ? const Color(0xFFFFC400) : Colors.transparent,
+                                  color: isFav
+                                      ? const Color(0xFFFFC400)
+                                      : Colors.transparent,
                                   width: 2.0,
                                 ),
                                 boxShadow: isFav
                                     ? [
                                         BoxShadow(
-                                          color: const Color(0xFFFFC400).withOpacity(0.15),
+                                          color: const Color(0xFFFFC400)
+                                              .withOpacity(0.15),
                                           blurRadius: 8,
                                           offset: const Offset(0, 3),
                                         ),
@@ -3667,12 +5025,15 @@ class _EditorPageState extends State<EditorPage> {
                                 children: [
                                   Center(
                                     child: Column(
-                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
                                       children: [
                                         Icon(
                                           tool.icon,
                                           size: 24,
-                                          color: isFav ? Colors.black87 : Colors.black54,
+                                          color: isFav
+                                              ? Colors.black87
+                                              : Colors.black54,
                                         ),
                                         const SizedBox(height: 6),
                                         Text(
@@ -3681,8 +5042,12 @@ class _EditorPageState extends State<EditorPage> {
                                           style: TextStyle(
                                             fontFamily: 'NotoSerif',
                                             fontSize: 11,
-                                            fontWeight: isFav ? FontWeight.bold : FontWeight.normal,
-                                            color: isFav ? Colors.black87 : Colors.black54,
+                                            fontWeight: isFav
+                                                ? FontWeight.bold
+                                                : FontWeight.normal,
+                                            color: isFav
+                                                ? Colors.black87
+                                                : Colors.black54,
                                           ),
                                         ),
                                       ],
@@ -3849,6 +5214,8 @@ class _EditorPageState extends State<EditorPage> {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Column(
         children: [
+          _buildCompareHoldTile(),
+          const SizedBox(height: 12),
           _buildExportTile(
             title: '갤러리에 저장',
             subtitle: '현재 편집된 고해상도 이미지를 사진 라이브러리에 저장합니다.',
@@ -3869,6 +5236,57 @@ class _EditorPageState extends State<EditorPage> {
             },
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildCompareHoldTile() {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTapDown: (_) {
+        hapticLight();
+        _setComparePreviewVisible(true);
+      },
+      onTapUp: (_) => _setComparePreviewVisible(false),
+      onTapCancel: () => _setComparePreviewVisible(false),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFF111111),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.black.withOpacity(0.08)),
+        ),
+        child: const Row(
+          children: [
+            Icon(Icons.visibility_outlined, color: Colors.white, size: 20),
+            SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '적용 전 보기',
+                    style: TextStyle(
+                      fontFamily: 'NotoSerif',
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                    ),
+                  ),
+                  SizedBox(height: 2),
+                  Text(
+                    '누르고 있는 동안 현재 필터/조정 적용 전 화면을 보여줍니다.',
+                    style: TextStyle(
+                      fontFamily: 'NotoSerif',
+                      fontSize: 11,
+                      color: Colors.white70,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -3971,22 +5389,31 @@ class _EditorPageState extends State<EditorPage> {
                 presets: _allPresets,
                 selectedId: _selectedPreset?.id,
                 favoriteIds: _favoriteFilterIds,
-                onSelect: _selectPreset,
+                onSelect: _selectPresetForPreview,
                 onFavoriteToggle: _toggleFavorite,
               ),
               const SizedBox(height: 2),
               if (_selectedPreset != null)
                 IntensitySlider(
                   value: _intensity,
+                  onChangeStart: (_) {
+                    _captureComparePreview();
+                    unawaited(_startLiveSliding());
+                  },
                   onChanged: (v) {
                     setState(() => _intensity = v);
-                    _debouncedPreview();
+                    _liveIntensityNotifier.value = v;
+                    if (!_isSliding) _debouncedPreview();
                   },
+                  onChangeEnd: (_) =>
+                      _isSliding ? _endLiveSliding() : _renderPreview(),
                 ),
               if (_showFavoriteTip)
                 Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  margin:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   decoration: BoxDecoration(
                     color: const Color(0xFFFFFBE6),
                     borderRadius: BorderRadius.circular(10),
@@ -3994,7 +5421,8 @@ class _EditorPageState extends State<EditorPage> {
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.lightbulb_outline_rounded, color: Color(0xFFFAAD14), size: 16),
+                      const Icon(Icons.lightbulb_outline_rounded,
+                          color: Color(0xFFFAAD14), size: 16),
                       const SizedBox(width: 8),
                       const Expanded(
                         child: Text(
@@ -4006,12 +5434,24 @@ class _EditorPageState extends State<EditorPage> {
                           ),
                         ),
                       ),
-                      GestureDetector(
-                        onTap: () {
+                      TextButton(
+                        onPressed: () {
                           setState(() => _showFavoriteTip = false);
                           _saveFavoriteTipDismissed();
                         },
-                        child: const Icon(Icons.close_rounded, color: Colors.black54, size: 14),
+                        style: TextButton.styleFrom(
+                          minimumSize: Size.zero,
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        child: Text(
+                          S.get('editor.got_it'),
+                          style: const TextStyle(
+                            fontFamily: 'NotoSerif',
+                            fontSize: 11,
+                            color: AppColors.oceanFoam,
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -4055,7 +5495,8 @@ class _EditorPageState extends State<EditorPage> {
               margin: const EdgeInsets.symmetric(horizontal: 40),
               padding: const EdgeInsets.all(28),
               decoration: BoxDecoration(
-                color: const Color(0xE6092717), // Premium dark theme matching oceanFoam
+                color: const Color(
+                    0xE6092717), // Premium dark theme matching oceanFoam
                 borderRadius: BorderRadius.circular(24),
                 border: Border.all(
                   color: Colors.white.withOpacity(0.12),
@@ -4079,7 +5520,9 @@ class _EditorPageState extends State<EditorPage> {
                       shape: BoxShape.circle,
                     ),
                     child: Icon(
-                      _exportForShare ? Icons.ios_share_rounded : Icons.save_alt_rounded,
+                      _exportForShare
+                          ? Icons.ios_share_rounded
+                          : Icons.save_alt_rounded,
                       color: const Color(0xFFFFC400),
                       size: 28,
                     ),
@@ -4108,19 +5551,16 @@ class _EditorPageState extends State<EditorPage> {
                     ),
                   ),
                   const SizedBox(height: 24),
-                  Stack(
-                    alignment: Alignment.center,
+                  Column(
                     children: [
-                      SizedBox(
-                        width: 70,
-                        height: 70,
-                        child: CircularProgressIndicator(
-                          value: _exportProgress,
-                          backgroundColor: Colors.white.withOpacity(0.1),
-                          valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFFFC400)),
-                          strokeWidth: 4,
-                        ),
+                      LinearProgressIndicator(
+                        value: _exportProgress,
+                        minHeight: 4,
+                        backgroundColor: Colors.white.withOpacity(0.1),
+                        valueColor: const AlwaysStoppedAnimation<Color>(
+                            Color(0xFFFFC400)),
                       ),
+                      const SizedBox(height: 14),
                       Text(
                         '${(_exportProgress * 100).round()}%',
                         style: const TextStyle(
@@ -4136,7 +5576,8 @@ class _EditorPageState extends State<EditorPage> {
                   GestureDetector(
                     onTap: _cancelExport,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 24, vertical: 10),
                       decoration: BoxDecoration(
                         color: Colors.white.withOpacity(0.08),
                         borderRadius: BorderRadius.circular(20),
@@ -4213,31 +5654,119 @@ class _TabBtn extends StatelessWidget {
   }
 }
 
-class _IconBtn extends StatelessWidget {
+class _EditorOverlayIconButton extends StatelessWidget {
   final IconData icon;
+  final String tooltip;
   final VoidCallback onTap;
+  final bool enabled;
 
-  const _IconBtn({
+  const _EditorOverlayIconButton({
     required this.icon,
+    required this.tooltip,
     required this.onTap,
+    this.enabled = true,
   });
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.08),
-          shape: BoxShape.circle,
-          border: Border.all(
-            color: Colors.white.withOpacity(0.12),
-            width: 1,
+    return Tooltip(
+      message: tooltip,
+      child: Semantics(
+        button: true,
+        enabled: enabled,
+        label: tooltip,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: enabled ? onTap : null,
+            borderRadius: BorderRadius.circular(15),
+            child: Ink(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: enabled
+                    ? Colors.black.withValues(alpha: 0.36)
+                    : Colors.black.withValues(alpha: 0.18),
+                borderRadius: BorderRadius.circular(15),
+                border: Border.all(
+                  color: enabled
+                      ? Colors.white.withValues(alpha: 0.76)
+                      : Colors.white.withValues(alpha: 0.24),
+                  width: 1.5,
+                ),
+                boxShadow: enabled
+                    ? const [
+                        BoxShadow(
+                          color: Color(0x52000000),
+                          blurRadius: 12,
+                          offset: Offset(0, 4),
+                        ),
+                      ]
+                    : null,
+              ),
+              child: Icon(
+                icon,
+                color: enabled ? Colors.white : Colors.white38,
+                size: 21,
+              ),
+            ),
           ),
         ),
-        child: Icon(icon, color: Colors.white, size: 20),
+      ),
+    );
+  }
+}
+
+class _EditorApplyButton extends StatelessWidget {
+  final VoidCallback onTap;
+
+  const _EditorApplyButton({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: '적용',
+      child: Semantics(
+        button: true,
+        label: '적용',
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(15),
+            child: Ink(
+              height: 44,
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              decoration: BoxDecoration(
+                color: AppColors.oceanFoam,
+                borderRadius: BorderRadius.circular(15),
+                border: Border.all(color: Colors.white, width: 1.5),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x59032111),
+                    blurRadius: 14,
+                    offset: Offset(0, 5),
+                  ),
+                ],
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.check_rounded, size: 20, color: Colors.white),
+                  SizedBox(width: 5),
+                  Text(
+                    '적용',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -4727,6 +6256,7 @@ class _FlipBtn extends StatelessWidget {
 // ── Phase 4: 아티스틱 이펙트 패널 ────────────────────────
 
 class _EffectsPanel extends StatelessWidget {
+  final String? imagePath;
   final ArtisticEffect selected;
   final double strength;
   final String? forceGroup;
@@ -4735,6 +6265,7 @@ class _EffectsPanel extends StatelessWidget {
 
   const _EffectsPanel({
     super.key,
+    required this.imagePath,
     required this.selected,
     required this.strength,
     this.forceGroup,
@@ -4799,6 +6330,7 @@ class _EffectsPanel extends StatelessWidget {
                 for (final e in groups[g].effects) {
                   if (pos == flatIdx) {
                     return _EffectChip(
+                      imagePath: imagePath,
                       effect: e,
                       selected: e == selected,
                       onTap: () {
@@ -4903,53 +6435,156 @@ class _GroupDivider extends StatelessWidget {
   }
 }
 
-class _EffectChip extends StatelessWidget {
+class _EffectChip extends StatefulWidget {
+  final String? imagePath;
   final ArtisticEffect effect;
   final bool selected;
   final VoidCallback onTap;
 
   const _EffectChip(
-      {required this.effect, required this.selected, required this.onTap});
+      {required this.imagePath,
+      required this.effect,
+      required this.selected,
+      required this.onTap});
+
+  @override
+  State<_EffectChip> createState() => _EffectChipState();
+}
+
+class _EffectChipState extends State<_EffectChip> {
+  static final Map<String, Future<Uint8List?>> _thumbnailJobs = {};
+  static final Map<String, Future<img.Image?>> _sourceProxyJobs = {};
+
+  static Future<img.Image?> _sourceProxy(String imagePath) =>
+      _sourceProxyJobs.putIfAbsent(
+        imagePath,
+        () async {
+          try {
+            final bytes = await File(imagePath).readAsBytes();
+            final decoded = img.decodeImage(bytes);
+            if (decoded == null) return null;
+            return img.copyResize(
+              decoded,
+              width: 112,
+              height: 72,
+              interpolation: img.Interpolation.linear,
+            );
+          } catch (_) {
+            return null;
+          }
+        },
+      );
+
+  Future<Uint8List?> _thumbnail() {
+    final imagePath = widget.imagePath;
+    if (imagePath == null) return Future.value(null);
+    final key = '$imagePath|${widget.effect.name}';
+    return _thumbnailJobs.putIfAbsent(
+      key,
+      () async {
+        try {
+          final proxy = await _sourceProxy(imagePath);
+          if (proxy == null) return null;
+          final rendered = widget.effect == ArtisticEffect.none
+              ? proxy
+              : await applyArtisticEffect(proxy, widget.effect);
+          return Uint8List.fromList(img.encodeJpg(rendered, quality: 82));
+        } catch (_) {
+          return null;
+        }
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: onTap,
+      onTap: widget.onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
-        width: 64,
+        width: 84,
         decoration: BoxDecoration(
-          color: selected ? AppColors.oceanTeal : AppColors.oceanNavy,
+          color:
+              widget.selected ? AppColors.oceanTeal : const Color(0xFF0B1C14),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: selected
+            color: widget.selected
                 ? AppColors.oceanFoam
-                : AppColors.oceanFoam.withOpacity(0.15),
-            width: selected ? 1.5 : 1,
+                : Colors.white.withValues(alpha: 0.26),
+            width: widget.selected ? 2 : 1.25,
           ),
+          boxShadow: widget.selected
+              ? const [
+                  BoxShadow(
+                    color: Color(0x3D75E5B1),
+                    blurRadius: 10,
+                    spreadRadius: 1,
+                  ),
+                ]
+              : null,
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              _iconFor(effect),
-              size: 22,
-              color: selected ? Colors.white : Colors.white70,
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 4, 4, 2),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(7),
+                child: SizedBox(
+                  width: 74,
+                  height: 39,
+                  child: FutureBuilder<Uint8List?>(
+                    future: _thumbnail(),
+                    builder: (context, snapshot) {
+                      final bytes = snapshot.data;
+                      if (bytes != null) {
+                        return Image.memory(
+                          bytes,
+                          fit: BoxFit.cover,
+                          filterQuality: FilterQuality.low,
+                          gaplessPlayback: true,
+                        );
+                      }
+                      return Container(
+                        color: const Color(0xFF102B20),
+                        alignment: Alignment.center,
+                        child:
+                            snapshot.connectionState == ConnectionState.waiting
+                                ? const SizedBox(
+                                    width: 14,
+                                    height: 14,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 1.6,
+                                      color: AppColors.oceanFoam,
+                                    ),
+                                  )
+                                : Icon(
+                                    _iconFor(widget.effect),
+                                    size: 20,
+                                    color: Colors.white70,
+                                  ),
+                      );
+                    },
+                  ),
+                ),
+              ),
             ),
-            const SizedBox(height: 4),
             Text(
-              effect.label,
+              widget.effect.label,
               textAlign: TextAlign.center,
-              maxLines: 2,
+              maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 fontFamily: 'NotoSerif',
-                fontSize: 11,
+                fontSize: 10,
                 height: 1.1,
-                fontWeight: selected ? FontWeight.bold : FontWeight.w600,
-                color: selected ? Colors.white : Colors.white70,
+                fontWeight: widget.selected ? FontWeight.bold : FontWeight.w600,
+                color: widget.selected ? Colors.white : Colors.white70,
               ),
             ),
+            if (widget.selected)
+              const Icon(Icons.check_circle_rounded,
+                  size: 12, color: AppColors.oceanFoam),
           ],
         ),
       ),
@@ -5012,11 +6647,12 @@ class _PortraitPanel extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _row('피부 스무딩', smooth, 0, 100, onSmooth),
-        _row('얼굴 스포트라이트', spotlight, 0, 100, onSpotlight),
+        _portraitModelStatus(),
+        _row('인물 영역 부드럽게', smooth, 0, 100, onSmooth),
+        _row('인물 영역 밝히기', spotlight, 0, 100, onSpotlight),
         const Padding(
           padding: EdgeInsets.fromLTRB(16, 8, 16, 4),
-          child: Text('피부 색조',
+          child: Text('인물 영역 색조',
               style: TextStyle(
                   fontFamily: 'NotoSerif',
                   fontSize: 12,
@@ -5064,6 +6700,58 @@ class _PortraitPanel extends StatelessWidget {
     );
   }
 
+  Widget _portraitModelStatus() {
+    return AnimatedBuilder(
+      animation: AiManager.instance,
+      builder: (context, _) {
+        final state = AiManager.instance.stateOf(kModelSelfie.key);
+        final isReady = state.status == ModelStatus.ready;
+        final isLoading = state.status == ModelStatus.downloading;
+        final message = isReady
+            ? '기기 내 인물 분할을 사용합니다. 얼굴 피부만 따로 구분하는 보정은 아닙니다.'
+            : isLoading
+                ? '인물 영역 모델을 준비하고 있습니다. ${(state.progress * 100).round()}%'
+                : '인물 영역 모델이 준비되지 않아 현재 보정은 적용되지 않습니다.';
+        return Container(
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+          decoration: BoxDecoration(
+            color: isReady ? const Color(0xFFEAF2ED) : const Color(0xFFFFF3D6),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            children: [
+              if (isLoading) ...[
+                const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+                const SizedBox(width: 8),
+              ],
+              Expanded(
+                child: Text(
+                  message,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    height: 1.35,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ),
+              if (!isReady && !isLoading)
+                TextButton(
+                  onPressed: () =>
+                      unawaited(AiManager.instance.preload(kModelSelfie)),
+                  child: const Text('재시도'),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   Widget _row(String label, double value, double min, double max,
       ValueChanged<double> onChange) {
     return Padding(
@@ -5071,7 +6759,7 @@ class _PortraitPanel extends StatelessWidget {
       child: Row(
         children: [
           SizedBox(
-              width: 80,
+              width: 112,
               child: Text(label,
                   style: const TextStyle(
                       fontFamily: 'NotoSerif',
@@ -5108,19 +6796,19 @@ class _PortraitPanel extends StatelessWidget {
 
 // frame asset list (small thumbnails)
 const _frameAssets = [
-  'assets/frames/hp_frame_00_small.png',
-  'assets/frames/hp_frame_01_small.png',
-  'assets/frames/hp_frame_02_small.png',
-  'assets/frames/hp_frame_03_small.png',
-  'assets/frames/hp_frame_04_small.png',
-  'assets/frames/hp_frame_05_small.png',
-  'assets/frames/hp_frame_06_small.png',
-  'assets/frames/hp_frame_07_small.png',
-  'assets/frames/hp_frame_08_small.png',
-  'assets/frames/hp_frame_09_small.png',
-  'assets/frames/hp_frame_10_small.png',
-  'assets/frames/hp_frame_11_small.png',
-  'assets/frames/hp_frame_12_small.png',
+  'assets/frames/hp_frame_00_overlay.png',
+  'assets/frames/hp_frame_01_overlay.png',
+  'assets/frames/hp_frame_02_overlay.png',
+  'assets/frames/hp_frame_03_overlay.png',
+  'assets/frames/hp_frame_04_overlay.png',
+  'assets/frames/hp_frame_05_overlay.png',
+  'assets/frames/hp_frame_06_overlay.png',
+  'assets/frames/hp_frame_07_overlay.png',
+  'assets/frames/hp_frame_08_overlay.png',
+  'assets/frames/hp_frame_09_overlay.png',
+  'assets/frames/hp_frame_10_overlay.png',
+  'assets/frames/hp_frame_11_overlay.png',
+  'assets/frames/hp_frame_12_overlay.png',
 ];
 
 enum _CreativeSubTab { doubleExposure, frame, text }
@@ -5171,11 +6859,31 @@ class _CreativePanel extends StatefulWidget {
 
 class _CreativePanelState extends State<_CreativePanel> {
   late _CreativeSubTab _sub;
+  late final TextEditingController _textController;
 
   @override
   void initState() {
     super.initState();
     _sub = widget.forceTab ?? _CreativeSubTab.doubleExposure;
+    _textController = TextEditingController(text: widget.overlayText);
+  }
+
+  @override
+  void didUpdateWidget(covariant _CreativePanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.overlayText != widget.overlayText &&
+        _textController.text != widget.overlayText) {
+      _textController.value = TextEditingValue(
+        text: widget.overlayText,
+        selection: TextSelection.collapsed(offset: widget.overlayText.length),
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _textController.dispose();
+    super.dispose();
   }
 
   @override
@@ -5236,8 +6944,7 @@ class _CreativePanelState extends State<_CreativePanel> {
               decoration: BoxDecoration(
                 color: AppColors.oceanNavy,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                    color: AppColors.oceanFoam.withOpacity(0.3)),
+                border: Border.all(color: AppColors.oceanFoam.withOpacity(0.3)),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -5417,6 +7124,7 @@ class _CreativePanelState extends State<_CreativePanel> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           TextField(
+            controller: _textController,
             onChanged: widget.onText,
             style: const TextStyle(
                 fontFamily: 'NotoSerif',
@@ -5433,6 +7141,17 @@ class _CreativePanelState extends State<_CreativePanel> {
                   borderSide: BorderSide.none),
               contentPadding:
                   const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            ),
+          ),
+          const Padding(
+            padding: EdgeInsets.only(top: 7),
+            child: Text(
+              '사진 위 텍스트를 드래그해 옮기고, 두 손가락으로 크기와 회전을 조절하세요.',
+              style: TextStyle(
+                fontFamily: 'NotoSerif',
+                fontSize: 11,
+                color: AppColors.textOnDarkTert,
+              ),
             ),
           ),
           const SizedBox(height: 8),
@@ -5499,9 +7218,8 @@ class _CreativePanelState extends State<_CreativePanel> {
                           padding: const EdgeInsets.symmetric(
                               horizontal: 10, vertical: 4),
                           decoration: BoxDecoration(
-                            color: sel
-                                ? AppColors.oceanTeal
-                                : AppColors.oceanNavy,
+                            color:
+                                sel ? AppColors.oceanTeal : AppColors.oceanNavy,
                             borderRadius: BorderRadius.circular(8),
                             border: Border.all(
                               color: sel
@@ -5633,7 +7351,12 @@ img.Image _applyPortraitEffects(
   Float32List? segmentMask,
 }) {
   if (smooth <= 0 && spotlight <= 0 && skinTone == SkinTone.none) return image;
-  final mask = segmentMask ?? _ovalFaceMask(image.width, image.height);
+  // Never invent a central-face mask. Portrait processing is a no-op until a
+  // real on-device segmentation result is available for this exact image.
+  if (segmentMask == null || segmentMask.length != image.width * image.height) {
+    return image;
+  }
+  final mask = segmentMask;
   var out = image;
   if (smooth > 0) {
     out = applySkinSmoothing(out, mask, smooth);
@@ -5685,7 +7408,11 @@ Future<img.Image> _applyCreativeEffects(
   if (frameBytes != null) {
     final frame = img.decodeImage(frameBytes);
     if (frame != null) {
-      out = img.compositeImage(out, frame, dstW: out.width, dstH: out.height);
+      // The bundled frame artwork is an opaque JPEG-style PNG. Convert its
+      // centre to transparency before compositing so the photo stays visible
+      // through the frame while the painted border remains on top.
+      out = img.compositeImage(out, buildFrameOverlay(frame),
+          dstW: out.width, dstH: out.height);
     }
   }
 
@@ -5761,7 +7488,8 @@ Future<img.Image> _applyCreativeEffects(
 class _ExportParams {
   final String imagePath;
   final String outPath;
-  final String exportFormat;
+  final ExportFormat exportFormat;
+  final int exportQuality;
   final int? maxDimension;
   final AdjustParams adjustParams;
   final Uint8List? lutBytes;
@@ -5806,6 +7534,7 @@ class _ExportParams {
     required this.imagePath,
     required this.outPath,
     required this.exportFormat,
+    required this.exportQuality,
     this.maxDimension,
     required this.adjustParams,
     required this.lutBytes,
@@ -5880,7 +7609,8 @@ Future<void> _exportWorker(_ExportParams p) async {
       return;
     }
 
-    if (p.maxDimension != null && (image.width > p.maxDimension! || image.height > p.maxDimension!)) {
+    if (p.maxDimension != null &&
+        (image.width > p.maxDimension! || image.height > p.maxDimension!)) {
       final scale = p.maxDimension! / math.max(image.width, image.height);
       image = img.copyResize(
         image,
@@ -5890,15 +7620,26 @@ Future<void> _exportWorker(_ExportParams p) async {
       );
     }
 
-    if (p.expandTop > 0 || p.expandBottom > 0 || p.expandLeft > 0 || p.expandRight > 0) {
-      image = _applyExpandHelper(image, p.expandTop, p.expandBottom, p.expandLeft, p.expandRight, p.expandMode);
+    if (p.expandTop > 0 ||
+        p.expandBottom > 0 ||
+        p.expandLeft > 0 ||
+        p.expandRight > 0) {
+      image = _applyExpandHelper(image, p.expandTop, p.expandBottom,
+          p.expandLeft, p.expandRight, p.expandMode);
     }
 
-    if (p.cropLeft > 0.0 || p.cropTop > 0.0 || p.cropRight < 1.0 || p.cropBottom < 1.0) {
+    if (p.cropLeft > 0.0 ||
+        p.cropTop > 0.0 ||
+        p.cropRight < 1.0 ||
+        p.cropBottom < 1.0) {
       final x = (image.width * p.cropLeft).round().clamp(0, image.width - 1);
       final y = (image.height * p.cropTop).round().clamp(0, image.height - 1);
-      final w = (image.width * (p.cropRight - p.cropLeft)).round().clamp(1, image.width - x);
-      final h = (image.height * (p.cropBottom - p.cropTop)).round().clamp(1, image.height - y);
+      final w = (image.width * (p.cropRight - p.cropLeft))
+          .round()
+          .clamp(1, image.width - x);
+      final h = (image.height * (p.cropBottom - p.cropTop))
+          .round()
+          .clamp(1, image.height - y);
       image = img.copyCrop(image, x: x, y: y, width: w, height: h);
     } else if (p.cropRect != null) {
       final ratio = p.cropRect!;
@@ -6030,16 +7771,11 @@ Future<void> _exportWorker(_ExportParams p) async {
 
     p.sendPort.send(0.85);
 
-    Uint8List encoded;
-    if (p.exportFormat == 'png') {
-      encoded = Uint8List.fromList(img.encodePng(out));
-    } else if (p.exportFormat == 'webp') {
-      encoded = Uint8List.fromList(img.encodeJpg(out, quality: 90));
-    } else if (p.exportFormat == 'raw') {
-      encoded = Uint8List.fromList(img.encodeTiff(out));
-    } else {
-      encoded = Uint8List.fromList(img.encodeJpg(out, quality: 95));
-    }
+    final encoded = ExportEncoder.encode(
+      out,
+      format: p.exportFormat,
+      quality: p.exportQuality,
+    );
 
     await File(p.outPath).writeAsBytes(encoded);
 

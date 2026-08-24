@@ -255,11 +255,15 @@ class _CropOverlayWidgetState extends State<CropOverlayWidget> {
         case _CropHandle.bottom:
         case _CropHandle.left:
         case _CropHandle.right:
-          // In locked ratio mode, dragging an edge scales the box uniformly from center or is treated as TL/BR drag.
-          // For simplicity, lock edge handles in aspect mode, or scale from center:
+          // In locked ratio mode each edge still scales the box uniformly from
+          // its centre. Use the dragged axis (not always dy), so horizontal
+          // handles respond naturally to horizontal movement.
           {
-            // Simple approach: map edge to corner drags for consistent UX
-            final scale = (1.0 + delta.dy / H).clamp(0.2, 2.0);
+            final edgeDelta = (_activeHandle == _CropHandle.left ||
+                    _activeHandle == _CropHandle.right)
+                ? delta.dx / W
+                : delta.dy / H;
+            final scale = (1.0 + edgeDelta).clamp(0.2, 2.0);
             final currentW = startRightPx - startLeftPx;
             final center = Offset((startLeftPx + startRightPx) / 2,
                 (startTopPx + startBottomPx) / 2);

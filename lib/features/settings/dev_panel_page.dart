@@ -39,7 +39,7 @@ class _DevPanelPageState extends State<DevPanelPage> {
         ),
         title: Row(
           children: [
-                Container(
+            Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
                 color: AppColors.accentWarning.withOpacity(0.15),
@@ -71,7 +71,11 @@ class _DevPanelPageState extends State<DevPanelPage> {
       ),
       body: _flags == null
           ? const Center(
-              child: CircularProgressIndicator(color: AppColors.oceanFoam))
+              child: Text(
+                '설정을 불러오는 중입니다.',
+                style: TextStyle(color: AppColors.textOnDarkSub),
+              ),
+            )
           : ListView(
               padding: const EdgeInsets.all(20),
               children: [
@@ -121,8 +125,7 @@ class _DevPanelPageState extends State<DevPanelPage> {
       decoration: BoxDecoration(
         color: AppColors.accentWarning.withOpacity(0.1),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-            color: AppColors.accentWarning.withOpacity(0.3)),
+        border: Border.all(color: AppColors.accentWarning.withOpacity(0.3)),
       ),
       child: const Row(
         children: [
@@ -182,43 +185,46 @@ class _DevPanelPageState extends State<DevPanelPage> {
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: map.entries.map((e) => Padding(
-          padding: const EdgeInsets.symmetric(vertical: 3),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  e.key,
-                  style: const TextStyle(
-                    fontFamily: 'NotoSerif',
-                    fontSize: 12,
-                    color: AppColors.textOnDarkTert,
+        children: map.entries
+            .map((e) => Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 3),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          e.key,
+                          style: const TextStyle(
+                            fontFamily: 'NotoSerif',
+                            fontSize: 12,
+                            color: AppColors.textOnDarkTert,
+                          ),
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: e.value
+                              ? AppColors.accentSuccess.withOpacity(0.15)
+                              : AppColors.accentError.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          e.value ? 'ON' : 'OFF',
+                          style: TextStyle(
+                            fontFamily: 'NotoSerif',
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: e.value
+                                ? AppColors.accentSuccess
+                                : AppColors.accentError,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                  color: e.value
-                      ? AppColors.accentSuccess.withOpacity(0.15)
-                      : AppColors.accentError.withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(
-                  e.value ? 'ON' : 'OFF',
-                  style: TextStyle(
-                    fontFamily: 'NotoSerif',
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: e.value
-                        ? AppColors.accentSuccess
-                        : AppColors.accentError,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        )).toList(),
+                ))
+            .toList(),
       ),
     );
   }

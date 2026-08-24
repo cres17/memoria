@@ -2,7 +2,6 @@
 .dart_tool/
 .flutter-plugins
 .flutter-plugins-dependencies
-pubspec.lock
 build/
 *.g.dart
 *.freezed.dart
@@ -25,6 +24,7 @@ ios/.symlinks/
 ios/Pods/
 ios/Flutter/Flutter.framework
 ios/Flutter/Flutter.podspec
+ios/Flutter/flutter_export_environment.sh
 .ios/
 ios/Flutter/Generated.xcconfig
 
@@ -41,12 +41,20 @@ ios/Flutter/Generated.xcconfig
 .claude/
 exampleui/
 .claude/worktrees/
+/.venv-ml-tflite/
+/LUT/
+/dist/
+/coverage/
 ml/test_checkpoints/
 ml/test_data/
 ml/__pycache__/
+ml_pipeline/.venv*/
+ml_pipeline/__pycache__/
 ml_pipeline/checkpoints/
 ml_pipeline/data/
 ml_pipeline/exports/
+ml_pipeline/models/
+ml_pipeline/reports/
 snapseed/
 
 # OS

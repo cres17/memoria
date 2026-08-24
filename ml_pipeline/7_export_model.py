@@ -3,7 +3,7 @@ Stage 3 — 학습된 모델 → TFLite (Android) + ONNX (CoreML 변환용) 내�
 
 수정점 (워크트리 3_export_model.py 대비):
   - import 경로: train → 3_train
-  - forward_small() 사용 (5³ 출력, TFLite 호환)
+  - forward_small() 사용 (DECODER_DIM³ 출력, TFLite 호환)
 
 실행: python 7_export_model.py
 요구사항:
@@ -43,7 +43,7 @@ def load_model() -> ColorTransferNet:
 
 # ── ONNX 내보내기 ─────────────────────────────────────────────────────────────
 def export_onnx(model: ColorTransferNet):
-    """forward_small() 기반: 5³ LUT 출력 (TFLite 안전)."""
+    """forward_small() 기반: DECODER_DIM³ LUT 출력 (TFLite 안전)."""
     class _SmallWrapper(torch.nn.Module):
         def __init__(self, m): super().__init__(); self.m = m
         def forward(self, x): return self.m.forward_small(x)
@@ -54,7 +54,7 @@ def export_onnx(model: ColorTransferNet):
     torch.onnx.export(
         wrapper, dummy, OUTPUT_ONNX,
         input_names=["style_image"],
-        output_names=["lut_5"],          # (1, 5, 5, 5, 3)
+        output_names=["lut_small"],      # (1, D, D, D, 3), D=DECODER_DIM
         dynamic_axes={"style_image": {0: "batch"}},
         opset_version=17,
         do_constant_folding=True,
@@ -67,7 +67,7 @@ def export_onnx(model: ColorTransferNet):
                     providers=["CPUExecutionProvider"])
     dummy_np  = np.random.randn(1, 3, 256, 256).astype(np.float32)
     out       = sess.run(None, {"style_image": dummy_np})
-    print(f"ONNX 출력 shape: {out[0].shape}")  # (1, 5, 5, 5, 3)
+    print(f"ONNX 출력 shape: {out[0].shape}")  # (1, D, D, D, 3)
 
 
 # ── TFLite 변환 (Android) ────────────────────────────────────────────────────
@@ -128,7 +128,7 @@ CoreML 변환 (Mac 환경에서 실행):
   mlmodel = ct.convert(
       traced,
       inputs=[ct.TensorType(name="style_image", shape=(1,3,256,256))],
-      outputs=[ct.TensorType(name="lut_5")],
+      outputs=[ct.TensorType(name="lut_small")],
       compute_precision=ct.precision.FLOAT16,
       minimum_deployment_target=ct.target.iOS15,
   )

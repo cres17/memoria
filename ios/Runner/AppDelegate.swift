@@ -1,6 +1,5 @@
 import UIKit
 import Flutter
-import GoogleMobileAds
 
 @main
 @objc class AppDelegate: FlutterAppDelegate {
@@ -8,14 +7,12 @@ import GoogleMobileAds
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
-        // Register LUT engine plugin
-        let controller = window?.rootViewController as! FlutterViewController
-        LutEnginePlugin.register(with: controller.registrar(forPlugin: "LutEnginePlugin")!)
-
-        // Initialize Google Mobile Ads
-        GADMobileAds.sharedInstance().start(completionHandler: nil)
-
         GeneratedPluginRegistrant.register(with: self)
+
+        if let registrar = registrar(forPlugin: "LutEnginePlugin") {
+            LutEnginePlugin.register(with: registrar)
+        }
+
         return super.application(application, didFinishLaunchingWithOptions: launchOptions)
     }
 }

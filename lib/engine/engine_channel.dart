@@ -49,15 +49,37 @@ class EngineChannel {
         'export',
         {
           'imagePath': imagePath,
-          'editOps':   editOps,
-          'outPath':   outPath,
-          'format':    format,
-          'quality':   quality,
+          'editOps': editOps,
+          'outPath': outPath,
+          'format': format,
+          'quality': quality,
         },
       );
       return result ?? {};
     } on MissingPluginException {
       return {};
+    }
+  }
+
+  /// Converts a rendered PNG/JPEG into a genuine WebP file on platforms whose
+  /// native ImageIO codec advertises WebP support. Returning false means the
+  /// caller must not publish a misleading `.webp` file.
+  static Future<bool> encodeWebP({
+    required String inputPath,
+    required String outputPath,
+    required int quality,
+  }) async {
+    try {
+      return await _channel.invokeMethod<bool>('encodeWebP', {
+            'inputPath': inputPath,
+            'outputPath': outputPath,
+            'quality': quality,
+          }) ??
+          false;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException {
+      return false;
     }
   }
 }

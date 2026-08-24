@@ -150,6 +150,7 @@ void main() {
       expect(rt.updatedAt, equals(orig.updatedAt));
       expect(rt.params.exposure, closeTo(0.3, 1e-10));
       expect(rt.params.contrast, closeTo(20, 1e-10));
+      expect(rt.brand, isNull);
     });
 
     test('toJsonString is valid JSON', () {
@@ -223,28 +224,32 @@ void main() {
       expect(BuiltinPresets.original.params.isZero, isTrue);
     });
 
-    test('BuiltinPresets.all exposes all Snapseed-style presets', () {
-      expect(BuiltinPresets.all.length, equals(9));
-      final expectedIds = [
-        'original',
-        'portrait',
-        'smooth',
-        'pop',
-        'accentuate',
-        'faded_glow',
-        'morning',
-        'fine_art',
-        'structure',
-      ];
-      expect(BuiltinPresets.all.map((p) => p.id), equals(expectedIds));
+    test('catalog exposes Original plus approved Fujifilm and Leica LUTs', () {
+      expect(BuiltinPresets.all.length, equals(24));
+      expect(BuiltinPresets.all.map((p) => p.id), equals(BuiltinPresets.ids));
+      expect(BuiltinPresets.all.first.brand, isNull);
+      expect(
+        BuiltinPresets.all.skip(1).every((preset) => preset.brand != null),
+        isTrue,
+      );
+      expect(
+        BuiltinPresets.all.skip(1).every((preset) =>
+            preset.id.startsWith('fuji_') || preset.id.startsWith('leica_')),
+        isTrue,
+      );
+      expect(
+        BuiltinPresets.all.skip(1).every((preset) => preset.params.isZero),
+        isTrue,
+      );
     });
 
-    test('copyWith preserves unchanged fields', () {
-      final orig = BuiltinPresets.portrait;
-      final modified = orig.copyWith(name: 'Portrait2');
+    test('copyWith and JSON preserve brand metadata', () {
+      final orig = BuiltinPresets.fujiProvia;
+      final modified = orig.copyWith(name: 'Provia 2');
       expect(modified.id, equals(orig.id));
-      expect(modified.name, equals('Portrait2'));
-      expect(modified.params.exposure, closeTo(orig.params.exposure, 1e-10));
+      expect(modified.name, equals('Provia 2'));
+      expect(modified.brand, FilterBrand.fujifilm);
+      expect(FilterPreset.fromJson(orig.toJson()).brand, FilterBrand.fujifilm);
     });
   });
 }

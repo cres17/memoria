@@ -305,7 +305,7 @@ img.Image _makeFortressStyle() {
   final im=img.Image(width:w, height:h);
   final rng=math.Random(42);
   for(int y=0;y<h;y++) for(int x=0;x<w;x++){
-    final nx=(x/w), ny=(y/h);
+    final ny=(y/h);
     final brightness=0.1+ny*0.85+rng.nextDouble()*0.05;  // bottom=bright(sky)
     // Strong blue cast throughout, more in highlights
     final blueCast=0.15+brightness*0.35;

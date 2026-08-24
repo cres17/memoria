@@ -1,17 +1,18 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../core/l10n/app_locale.dart';
 import '../../core/l10n/strings.dart';
+import '../../core/services/media_permission_service.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/platform_utils.dart';
 import '../../data/repositories/filter_repository_impl.dart';
 import '../../domain/models/filter_preset.dart';
 import '../../monetization/banner_ad_widget.dart';
 import '../../monetization/feature_flags_service.dart';
-import '../create_filter/create_filter_page.dart' show kPhotoFilterGenerationEnabled;
+import '../create_filter/create_filter_page.dart'
+    show kPhotoFilterGenerationEnabled, kPhotoFilterGenerationIsBeta;
 
 class FiltersPage extends StatefulWidget {
   const FiltersPage({super.key});
@@ -33,7 +34,10 @@ class _FiltersPageState extends State<FiltersPage> {
   }
 
   Future<void> _load() async {
-    setState(() { _loading = true; _loadError = false; });
+    setState(() {
+      _loading = true;
+      _loadError = false;
+    });
     try {
       final repo = FilterRepositoryImpl();
       final presets = await repo.getCustomPresets();
@@ -46,14 +50,17 @@ class _FiltersPageState extends State<FiltersPage> {
         });
       }
     } catch (_) {
-      if (mounted) setState(() { _loading = false; _loadError = true; });
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _loadError = true;
+        });
+      }
     }
   }
 
-  List<FilterPreset> get _items => [
-        ..._customPresets,
-        ...BuiltinPresets.all.where((p) => p.id != 'original'),
-      ];
+  List<FilterPreset> get _builtinPresets =>
+      BuiltinPresets.all.where((p) => p.id != 'original').toList();
 
   @override
   Widget build(BuildContext context) {
@@ -73,8 +80,16 @@ class _FiltersPageState extends State<FiltersPage> {
               slivers: [
                 _buildHeader(),
                 if (_loading)
-                  const SliverFillRemaining(
-                    child: Center(child: CircularProgressIndicator()),
+                  SliverFillRemaining(
+                    child: Center(
+                      child: Text(
+                        S.get('filters.loading'),
+                        style: const TextStyle(
+                          color: AppColors.textSecondary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
                   )
                 else if (_loadError)
                   SliverFillRemaining(
@@ -82,9 +97,12 @@ class _FiltersPageState extends State<FiltersPage> {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(Icons.error_outline_rounded, size: 48, color: AppColors.textSecondary),
+                          const Icon(Icons.error_outline_rounded,
+                              size: 48, color: AppColors.textSecondary),
                           const SizedBox(height: 16),
-                          Text(S.get('filters.load_error'), style: const TextStyle(color: AppColors.textSecondary)),
+                          Text(S.get('filters.load_error'),
+                              style: const TextStyle(
+                                  color: AppColors.textSecondary)),
                           const SizedBox(height: 16),
                           OutlinedButton(
                             onPressed: _load,
@@ -94,42 +112,33 @@ class _FiltersPageState extends State<FiltersPage> {
                       ),
                     ),
                   )
-                else
-                  SliverPadding(
-                  padding: EdgeInsets.fromLTRB(28, 22, 28, safeBottom(context) + 100),
-                  sliver: SliverGrid(
-                    gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 2,
-                      mainAxisSpacing: 24,
-                      crossAxisSpacing: 22,
-                      childAspectRatio: 1,
-                    ),
-                    delegate: SliverChildBuilderDelegate(
-                      (context, index) {
-                        if (kPhotoFilterGenerationEnabled) {
-                          if (index == 0) return _CreateFilterCard(onTap: _openCreateFilter);
-                          final preset = _items[index - 1];
-                          return _FilterCard(
-                            preset: preset,
-                            index: index - 1,
-                            onTap: () => _openFilter(preset),
-                            onDelete: preset.isCustom ? () => _deletePreset(preset.id) : null,
-                          );
-                        } else {
-                          final preset = _items[index];
-                          return _FilterCard(
-                            preset: preset,
-                            index: index,
-                            onTap: () => _openFilter(preset),
-                            onDelete: preset.isCustom ? () => _deletePreset(preset.id) : null,
-                          );
-                        }
-                      },
-                      childCount: _items.length + (kPhotoFilterGenerationEnabled ? 1 : 0),
-                    ),
+                else ...[
+                  _buildSectionTitle(
+                    S.get('filters.custom'),
+                    top: 0,
                   ),
-                ),
+                  if (_customPresets.isEmpty)
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(28, 0, 28, 14),
+                        child: Text(
+                          S.get('filters.custom_empty'),
+                          style: const TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 15,
+                          ),
+                        ),
+                      ),
+                    )
+                  else
+                    _buildCustomGrid(),
+                  _buildSectionTitle(S.get('filters.builtin'), top: 16),
+                  _buildPresetGrid(
+                    presets: _builtinPresets,
+                    startIndex: 0,
+                    addBottomPadding: true,
+                  ),
+                ],
               ],
             ),
           ),
@@ -140,53 +149,200 @@ class _FiltersPageState extends State<FiltersPage> {
   }
 
   Widget _buildHeader() {
-    return SliverAppBar(
-      pinned: true,
-      expandedHeight: 204,
-      backgroundColor: AppColors.cloudPure,
-      surfaceTintColor: Colors.transparent,
-      title: const Row(
-        children: [
-          Icon(Icons.auto_awesome_rounded, color: AppColors.oceanFoam),
-          SizedBox(width: 10),
-          Text(
-            'Memoria',
-            style: TextStyle(
-              fontFamily: 'Domine',
-              fontSize: 25,
-              fontWeight: FontWeight.w700,
-              color: AppColors.oceanFoam,
+    return SliverToBoxAdapter(
+      child: SafeArea(
+        bottom: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+          child: Container(
+            key: const ValueKey('filters-hero'),
+            padding: const EdgeInsets.fromLTRB(22, 18, 22, 24),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFFE4F3E8), Color(0xFFF8F5ED)],
+              ),
+              borderRadius: BorderRadius.circular(28),
+              border: Border.all(color: Colors.white),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x16032111),
+                  blurRadius: 26,
+                  offset: Offset(0, 12),
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.auto_awesome_rounded,
+                        color: AppColors.oceanFoam, size: 19),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'Memoria',
+                      style: TextStyle(
+                        fontFamily: 'Domine',
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.oceanFoam,
+                      ),
+                    ),
+                    const Spacer(),
+                    if (kPhotoFilterGenerationEnabled)
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (kPhotoFilterGenerationIsBeta) ...[
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFDDF1E3),
+                                borderRadius: BorderRadius.circular(99),
+                              ),
+                              child: const Text(
+                                'BETA',
+                                style: TextStyle(
+                                  color: AppColors.oceanFoam,
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 0.7,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 7),
+                          ],
+                          SizedBox(
+                            key: const ValueKey('create-filter-plus'),
+                            width: 42,
+                            height: 42,
+                            child: IconButton.filled(
+                              tooltip: kPhotoFilterGenerationIsBeta
+                                  ? '${S.get('filters.new')} · BETA'
+                                  : S.get('filters.new'),
+                              onPressed: _openCreateFilter,
+                              icon: const Icon(Icons.add_rounded, size: 23),
+                              style: IconButton.styleFrom(
+                                backgroundColor: AppColors.oceanFoam,
+                                foregroundColor: Colors.white,
+                                shadowColor: const Color(0x33032111),
+                                elevation: 5,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                Text(
+                  S.get('filters.title'),
+                  key: const ValueKey('filters-collection-title'),
+                  style: const TextStyle(
+                    fontFamily: 'Domine',
+                    fontSize: 34,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.oceanFoam,
+                    height: 1.08,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _loading
+                      ? S.get('filters.loading')
+                      : S.get('filters.subtitle'),
+                  style: const TextStyle(
+                    fontSize: 14,
+                    height: 1.4,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
             ),
           ),
-        ],
+        ),
       ),
-      flexibleSpace: FlexibleSpaceBar(
-        background: Padding(
-          padding: const EdgeInsets.fromLTRB(28, 104, 28, 0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                S.get('filters.title'),
-                style: const TextStyle(
-                  fontFamily: 'Domine',
-                  fontSize: 43,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.oceanFoam,
-                  height: 1.05,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                _loading ? S.get('filters.loading') : S.get('filters.subtitle'),
-                style: const TextStyle(
-                  fontSize: 18,
-                  height: 1.5,
-                  color: AppColors.textSecondary,
-                ),
-              ),
-            ],
+    );
+  }
+
+  SliverToBoxAdapter _buildSectionTitle(String title, {double top = 2}) {
+    return SliverToBoxAdapter(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(28, top, 28, 12),
+        child: Text(
+          title,
+          style: const TextStyle(
+            fontFamily: 'Domine',
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
+            color: AppColors.textPrimary,
           ),
+        ),
+      ),
+    );
+  }
+
+  SliverPadding _buildPresetGrid({
+    required List<FilterPreset> presets,
+    required int startIndex,
+    bool addBottomPadding = false,
+  }) {
+    return SliverPadding(
+      padding: EdgeInsets.fromLTRB(
+        28,
+        0,
+        28,
+        addBottomPadding ? safeBottom(context) + 116 : 0,
+      ),
+      sliver: SliverGrid(
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 2,
+          mainAxisSpacing: 18,
+          crossAxisSpacing: 22,
+          childAspectRatio: 1,
+        ),
+        delegate: SliverChildBuilderDelegate(
+          (context, index) {
+            final preset = presets[index];
+            return _FilterCard(
+              preset: preset,
+              index: startIndex + index,
+              onTap: () => _openFilter(preset),
+              onDelete: preset.isCustom ? () => _deletePreset(preset.id) : null,
+            );
+          },
+          childCount: presets.length,
+        ),
+      ),
+    );
+  }
+
+  SliverPadding _buildCustomGrid() {
+    return SliverPadding(
+      padding: const EdgeInsets.fromLTRB(28, 0, 28, 0),
+      sliver: SliverGrid(
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 2,
+          mainAxisSpacing: 18,
+          crossAxisSpacing: 22,
+          childAspectRatio: 1,
+        ),
+        delegate: SliverChildBuilderDelegate(
+          (context, index) {
+            final preset = _customPresets[index];
+            return _FilterCard(
+              preset: preset,
+              index: _builtinPresets.length + index,
+              onTap: () => _openFilter(preset),
+              onDelete: () => _deletePreset(preset.id),
+            );
+          },
+          childCount: _customPresets.length,
         ),
       ),
     );
@@ -199,11 +355,12 @@ class _FiltersPageState extends State<FiltersPage> {
 
   Future<void> _openFilter(FilterPreset preset) async {
     hapticLight();
-    final status = await Permission.photos.request();
-    if (!status.isGranted) {
+    if (!await MediaPermissionService.ensurePhotoAccess()) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(S.get('permission.photos_denied')), behavior: SnackBarBehavior.floating),
+          SnackBar(
+              content: Text(S.get('permission.photos_denied')),
+              behavior: SnackBarBehavior.floating),
         );
       }
       return;
@@ -217,56 +374,26 @@ class _FiltersPageState extends State<FiltersPage> {
   }
 
   Future<void> _deletePreset(String id) async {
-    await FilterRepositoryImpl().deletePreset(id);
-    await _load();
-  }
-}
-
-class _CreateFilterCard extends StatelessWidget {
-  final VoidCallback onTap;
-  const _CreateFilterCard({required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        decoration: BoxDecoration(
-          color: AppColors.cloudWhite,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: AppColors.cloudVeil),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x0F032111),
-              blurRadius: 18,
-              offset: Offset(0, 8),
-            ),
-          ],
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const CircleAvatar(
-              radius: 42,
-              backgroundColor: AppColors.oceanTeal,
-              child: Icon(Icons.add_rounded,
-                  color: AppColors.accentGlow, size: 42),
-            ),
-            const SizedBox(height: 26),
-            Text(
-              S.get('filters.new'),
-              style: const TextStyle(
-                fontFamily: 'Domine',
-                fontSize: 23,
-                fontWeight: FontWeight.w700,
-                color: AppColors.oceanFoam,
-                letterSpacing: 1.8,
-              ),
-            ),
-          ],
-        ),
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(S.get('filters.delete_title')),
+        content: Text(S.get('filters.delete_message')),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text(S.get('common.cancel')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(S.get('common.delete')),
+          ),
+        ],
       ),
     );
+    if (shouldDelete != true) return;
+    await FilterRepositoryImpl().deletePreset(id);
+    await _load();
   }
 }
 
@@ -323,14 +450,16 @@ class _FilterCard extends StatelessWidget {
                     padding:
                         const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                     decoration: BoxDecoration(
-                      color: AppColors.cloudWhite.withOpacity(0.22),
+                      color: AppColors.cloudWhite.withValues(alpha: 0.22),
                       borderRadius: BorderRadius.circular(999),
                       border: Border.all(
-                        color: AppColors.cloudWhite.withOpacity(0.18),
+                        color: AppColors.cloudWhite.withValues(alpha: 0.18),
                       ),
                     ),
                     child: Text(
-                      preset.isCustom ? 'CUSTOM' : _tagFor(preset.name),
+                      preset.isCustom
+                          ? 'CUSTOM'
+                          : (preset.brand?.wordmark ?? 'TONE'),
                       style: const TextStyle(
                         color: AppColors.cloudWhite,
                         fontSize: 11,
@@ -361,7 +490,7 @@ class _FilterCard extends StatelessWidget {
                 right: 8,
                 child: IconButton.filledTonal(
                   style: IconButton.styleFrom(
-                    backgroundColor: Colors.black.withOpacity(0.28),
+                    backgroundColor: Colors.black.withValues(alpha: 0.28),
                     foregroundColor: AppColors.cloudWhite,
                   ),
                   icon: const Icon(Icons.delete_outline_rounded, size: 18),
@@ -396,22 +525,5 @@ class _FilterCard extends StatelessWidget {
       fit: BoxFit.cover,
       errorBuilder: (_, __, ___) => Container(color: AppColors.oceanNavy),
     );
-  }
-
-  String _tagFor(String name) {
-    switch (name.toLowerCase()) {
-      case 'noir':
-        return 'B&W';
-      case 'warm':
-      case 'golden':
-        return 'WARM';
-      case 'cool':
-        return 'COOL';
-      case 'fade':
-      case 'pastel':
-        return 'VINTAGE';
-      default:
-        return 'TONE';
-    }
   }
 }

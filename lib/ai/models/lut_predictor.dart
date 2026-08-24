@@ -1,30 +1,35 @@
 import 'dart:io';
 import 'dart:typed_data';
+
 import 'package:image/image.dart' as img;
 import 'package:tflite_flutter/tflite_flutter.dart';
+
 import '../ai_manager.dart';
 
-/// TFLite Neural Color Transfer 모델 래퍼.
-///
-/// 모델 출력: 5³ LUT (125 × 3 float32)
-/// 앱 내 업샘플: 5³ → 65³ (trilinear, ~50ms)
-/// 총 추론 시간: GPU delegate ~80ms (목표 200ms 이하)
-class LutPredictor {
-  static const int _inWH       = 256;
-  static const int _srcDim     = 5;   // 모델 직접 출력 해상도
-  static const int _dstDim     = 65;  // 앱 내 업샘플 목표
+enum _InputLayout { nhwc, nchw }
 
-  // ImageNet 정규화 (MobileNetV3)
+/// TFLite color-transfer wrapper.
+///
+/// The model contract is validated at load time instead of relying on a stale
+/// hard-coded decoder dimension. Supported inputs are `[1, 256, 256, 3]`
+/// (NHWC) and `[1, 3, 256, 256]` (NCHW); output must be `[1, D, D, D, 3]`.
+class LutPredictor {
+  static const int _inWH = 256;
+  static const int _dstDim = 65;
+
+  // Must match training and offline evaluation preprocessing.
   static const _mean = [0.485, 0.456, 0.406];
-  static const _std  = [0.229, 0.224, 0.225];
+  static const _std = [0.229, 0.224, 0.225];
 
   final Interpreter _interpreter;
+  final _InputLayout _inputLayout;
+  final int _srcDim;
 
-  LutPredictor._(this._interpreter);
-
-  // ── Singleton ──────────────────────────────────────────────────────────────
+  LutPredictor._(this._interpreter, this._inputLayout, this._srcDim);
 
   static LutPredictor? _instance;
+
+  int get sourceDimension => _srcDim;
 
   static Future<LutPredictor> get instance async {
     if (_instance != null) return _instance!;
@@ -35,130 +40,198 @@ class LutPredictor {
 
   static Future<LutPredictor> fromPath(String modelPath) => _load(modelPath);
 
+  static void resetForTesting() {
+    _instance?._interpreter.close();
+    _instance = null;
+  }
+
   static Future<LutPredictor> _load(String modelPath) async {
     final options = InterpreterOptions()..threads = 2;
-
-    // GPU delegate: Android NNAPI, iOS CoreML
     if (Platform.isAndroid) {
       options.useNnApiForAndroid = true;
     }
 
-    final interp = Interpreter.fromFile(File(modelPath), options: options);
-    return LutPredictor._(interp);
+    final interpreter = Interpreter.fromFile(File(modelPath), options: options);
+    try {
+      final input = interpreter.getInputTensor(0);
+      final output = interpreter.getOutputTensor(0);
+      if (input.type != TensorType.float32 ||
+          output.type != TensorType.float32) {
+        throw StateError(
+          'Color-transfer model must use float32 input and output tensors.',
+        );
+      }
+
+      final layout = _inputLayoutFor(input.shape);
+      final srcDim = _outputDimensionFor(output.shape);
+      return LutPredictor._(interpreter, layout, srcDim);
+    } catch (_) {
+      interpreter.close();
+      rethrow;
+    }
   }
 
-  // ── 추론 ──────────────────────────────────────────────────────────────────
+  static _InputLayout _inputLayoutFor(List<int> shape) {
+    if (_matchesShape(shape, [1, _inWH, _inWH, 3])) {
+      return _InputLayout.nhwc;
+    }
+    if (_matchesShape(shape, [1, 3, _inWH, _inWH])) {
+      return _InputLayout.nchw;
+    }
+    throw StateError(
+      'Unsupported color-transfer input shape $shape. Expected '
+      '[1, 256, 256, 3] or [1, 3, 256, 256].',
+    );
+  }
 
-  /// 스타일 이미지 경로 → 65³ LUT (Float32List, 길이 65³×3 = 823,875).
+  static int _outputDimensionFor(List<int> shape) {
+    final valid = shape.length == 5 &&
+        shape[0] == 1 &&
+        shape[1] >= 2 &&
+        shape[1] == shape[2] &&
+        shape[2] == shape[3] &&
+        shape[4] == 3;
+    if (!valid) {
+      throw StateError(
+        'Unsupported color-transfer output shape $shape. Expected [1, D, D, D, 3].',
+      );
+    }
+    return shape[1];
+  }
+
+  static bool _matchesShape(List<int> actual, List<int> expected) {
+    if (actual.length != expected.length) return false;
+    for (var i = 0; i < expected.length; i++) {
+      if (actual[i] != expected[i]) return false;
+    }
+    return true;
+  }
+
+  /// Flattened LUT contract used by storage, CPU sampling, and the GPU atlas:
+  /// R is the fastest-changing axis, followed by G, then B.
+  static int lutFlatIndex(int r, int g, int b, int c, int dim) =>
+      (r + g * dim + b * dim * dim) * 3 + c;
+
+  /// Style image → a 65³ LUT, stored with the shared R-fastest axis order.
   Future<Float32List> predict(String styleImagePath) async {
-    final bytes   = File(styleImagePath).readAsBytesSync();
-    final image   = img.decodeImage(bytes)!;
-    final resized = img.copyResize(image,
-        width: _inWH, height: _inWH,
-        interpolation: img.Interpolation.linear);
-
-    // 입력 텐서 [1, 256, 256, 3] — ImageNet 정규화
-    final input = List.generate(1, (_) =>
-      List.generate(_inWH, (y) =>
-        List.generate(_inWH, (x) {
-          final p = resized.getPixel(x, y);
-          return [
-            (p.rNormalized - _mean[0]) / _std[0],
-            (p.gNormalized - _mean[1]) / _std[1],
-            (p.bNormalized - _mean[2]) / _std[2],
-          ];
-        }),
-      ),
+    final bytes = File(styleImagePath).readAsBytesSync();
+    final decoded = img.decodeImage(bytes);
+    if (decoded == null) {
+      throw StateError('Could not decode style image: $styleImagePath');
+    }
+    final image = img.bakeOrientation(decoded);
+    final resized = img.copyResize(
+      image,
+      width: _inWH,
+      height: _inWH,
+      interpolation: img.Interpolation.linear,
     );
 
-    // 출력 텐서 [1, 5, 5, 5, 3]
-    final output = List.generate(1, (_) =>
-      List.generate(_srcDim, (_) =>
-        List.generate(_srcDim, (_) =>
-          List.generate(_srcDim, (_) =>
-            List.filled(3, 0.0),
-          ),
-        ),
-      ),
-    );
-
+    final input = _buildInput(resized);
+    final output = _buildOutput();
     _interpreter.run(input, output);
 
-    // 5³ → Float32List
-    final lut5 = Float32List(_srcDim * _srcDim * _srcDim * 3);
-    int i = 0;
-    for (int r = 0; r < _srcDim; r++) {
-      for (int g = 0; g < _srcDim; g++) {
-        for (int b = 0; b < _srcDim; b++) {
-          final vals = output[0][r][g][b] as List;
-          lut5[i++] = (vals[0] as double).clamp(0.0, 1.0);
-          lut5[i++] = (vals[1] as double).clamp(0.0, 1.0);
-          lut5[i++] = (vals[2] as double).clamp(0.0, 1.0);
-        }
-      }
-    }
-
-    // 5³ → 65³ trilinear upsample
-    return _upsample(lut5);
-  }
-
-  // ── 65³ 업샘플 (trilinear) ────────────────────────────────────────────────
-
-  Float32List _upsample(Float32List lut5) {
-    const src = _srcDim;
-    const dst = _dstDim;
-    final out  = Float32List(dst * dst * dst * 3);
-
-    for (int dr = 0; dr < dst; dr++) {
-      for (int dg = 0; dg < dst; dg++) {
-        for (int db = 0; db < dst; db++) {
-          final sr = dr / (dst - 1) * (src - 1);
-          final sg = dg / (dst - 1) * (src - 1);
-          final sb = db / (dst - 1) * (src - 1);
-
-          final r0 = sr.floor().clamp(0, src - 2);
-          final g0 = sg.floor().clamp(0, src - 2);
-          final b0 = sb.floor().clamp(0, src - 2);
-          final r1 = r0 + 1;
-          final g1 = g0 + 1;
-          final b1 = b0 + 1;
-
-          final fr = sr - r0;
-          final fg = sg - g0;
-          final fb = sb - b0;
-
-          for (int c = 0; c < 3; c++) {
-            final v000 = lut5[_idx5(r0,g0,b0,c)];
-            final v100 = lut5[_idx5(r1,g0,b0,c)];
-            final v010 = lut5[_idx5(r0,g1,b0,c)];
-            final v110 = lut5[_idx5(r1,g1,b0,c)];
-            final v001 = lut5[_idx5(r0,g0,b1,c)];
-            final v101 = lut5[_idx5(r1,g0,b1,c)];
-            final v011 = lut5[_idx5(r0,g1,b1,c)];
-            final v111 = lut5[_idx5(r1,g1,b1,c)];
-
-            final v = v000*(1-fr)*(1-fg)*(1-fb) +
-                      v100*fr    *(1-fg)*(1-fb) +
-                      v010*(1-fr)*fg    *(1-fb) +
-                      v110*fr    *fg    *(1-fb) +
-                      v001*(1-fr)*(1-fg)*fb     +
-                      v101*fr    *(1-fg)*fb     +
-                      v011*(1-fr)*fg    *fb     +
-                      v111*fr    *fg    *fb;
-
-            out[_idx65(dr,dg,db,c)] = v.clamp(0.0, 1.0);
+    final lut = Float32List(_srcDim * _srcDim * _srcDim * 3);
+    for (var b = 0; b < _srcDim; b++) {
+      for (var g = 0; g < _srcDim; g++) {
+        for (var r = 0; r < _srcDim; r++) {
+          final values = output[0][r][g][b] as List;
+          for (var c = 0; c < 3; c++) {
+            lut[lutFlatIndex(r, g, b, c, _srcDim)] =
+                (values[c] as double).clamp(0.0, 1.0);
           }
         }
       }
     }
-    return out;
+    return _upsample(lut, _srcDim);
   }
 
-  static int _idx5(int r, int g, int b, int c) =>
-      (r + g * _srcDim + b * _srcDim * _srcDim) * 3 + c;
+  dynamic _buildInput(img.Image image) {
+    if (_inputLayout == _InputLayout.nhwc) {
+      return List.generate(
+        1,
+        (_) => List.generate(
+          _inWH,
+          (y) => List.generate(_inWH, (x) => _normalizedPixel(image, x, y)),
+        ),
+      );
+    }
+    return List.generate(
+      1,
+      (_) => List.generate(
+        3,
+        (c) => List.generate(
+          _inWH,
+          (y) => List.generate(_inWH, (x) => _normalizedPixel(image, x, y)[c]),
+        ),
+      ),
+    );
+  }
 
-  static int _idx65(int r, int g, int b, int c) =>
-      (r + g * _dstDim + b * _dstDim * _dstDim) * 3 + c;
+  List<double> _normalizedPixel(img.Image image, int x, int y) {
+    final pixel = image.getPixel(x, y);
+    return [
+      (pixel.rNormalized - _mean[0]) / _std[0],
+      (pixel.gNormalized - _mean[1]) / _std[1],
+      (pixel.bNormalized - _mean[2]) / _std[2],
+    ];
+  }
+
+  dynamic _buildOutput() => List.generate(
+        1,
+        (_) => List.generate(
+          _srcDim,
+          (_) => List.generate(
+            _srcDim,
+            (_) => List.generate(_srcDim, (_) => List.filled(3, 0.0)),
+          ),
+        ),
+      );
+
+  Float32List _upsample(Float32List source, int srcDim) {
+    final output = Float32List(_dstDim * _dstDim * _dstDim * 3);
+    for (var db = 0; db < _dstDim; db++) {
+      for (var dg = 0; dg < _dstDim; dg++) {
+        for (var dr = 0; dr < _dstDim; dr++) {
+          final sr = dr / (_dstDim - 1) * (srcDim - 1);
+          final sg = dg / (_dstDim - 1) * (srcDim - 1);
+          final sb = db / (_dstDim - 1) * (srcDim - 1);
+          final r0 = sr.floor().clamp(0, srcDim - 2);
+          final g0 = sg.floor().clamp(0, srcDim - 2);
+          final b0 = sb.floor().clamp(0, srcDim - 2);
+          final r1 = r0 + 1;
+          final g1 = g0 + 1;
+          final b1 = b0 + 1;
+          final fr = sr - r0;
+          final fg = sg - g0;
+          final fb = sb - b0;
+
+          for (var c = 0; c < 3; c++) {
+            final v000 = source[lutFlatIndex(r0, g0, b0, c, srcDim)];
+            final v100 = source[lutFlatIndex(r1, g0, b0, c, srcDim)];
+            final v010 = source[lutFlatIndex(r0, g1, b0, c, srcDim)];
+            final v110 = source[lutFlatIndex(r1, g1, b0, c, srcDim)];
+            final v001 = source[lutFlatIndex(r0, g0, b1, c, srcDim)];
+            final v101 = source[lutFlatIndex(r1, g0, b1, c, srcDim)];
+            final v011 = source[lutFlatIndex(r0, g1, b1, c, srcDim)];
+            final v111 = source[lutFlatIndex(r1, g1, b1, c, srcDim)];
+
+            final value = v000 * (1 - fr) * (1 - fg) * (1 - fb) +
+                v100 * fr * (1 - fg) * (1 - fb) +
+                v010 * (1 - fr) * fg * (1 - fb) +
+                v110 * fr * fg * (1 - fb) +
+                v001 * (1 - fr) * (1 - fg) * fb +
+                v101 * fr * (1 - fg) * fb +
+                v011 * (1 - fr) * fg * fb +
+                v111 * fr * fg * fb;
+            output[lutFlatIndex(dr, dg, db, c, _dstDim)] =
+                value.clamp(0.0, 1.0);
+          }
+        }
+      }
+    }
+    return output;
+  }
 
   void dispose() {
     _interpreter.close();

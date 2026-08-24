@@ -70,6 +70,38 @@ void main() {
       expect(out.width, equals(5));
       expect(out.height, equals(7));
     });
+
+    test('only the segmented region is smoothed and alpha is preserved', () {
+      final src = img.Image(width: 24, height: 12, numChannels: 4);
+      final mask = Float32List(src.width * src.height);
+      for (var y = 0; y < src.height; y++) {
+        for (var x = 0; x < src.width; x++) {
+          final value = (x + y).isEven ? 40 : 220;
+          src.setPixelRgba(x, y, value, value, value, 90 + x);
+          if (x >= 12) mask[y * src.width + x] = 1;
+        }
+      }
+
+      final out = applySkinSmoothing(src, mask, 100);
+      var backgroundChanges = 0;
+      var segmentedChanges = 0;
+      for (var y = 0; y < src.height; y++) {
+        for (var x = 0; x < src.width; x++) {
+          final before = src.getPixel(x, y);
+          final after = out.getPixel(x, y);
+          if (before.r != after.r) {
+            if (x < 12) {
+              backgroundChanges++;
+            } else {
+              segmentedChanges++;
+            }
+          }
+          expect(after.a, before.a);
+        }
+      }
+      expect(backgroundChanges, 0);
+      expect(segmentedChanges, greaterThan(0));
+    });
   });
 
   // ── applyFaceSpotlight ─────────────────────────────────────────────────────

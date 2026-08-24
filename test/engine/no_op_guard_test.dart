@@ -192,8 +192,30 @@ void main() {
 
     test('portrait operation changes face-masked pixels', () {
       final original = _sampleImage();
-      final out = _play(
-        original,
+      final session = EditSession.forImage('memory://portrait').pushOp(
+        _op(
+          EditToolType.portrait,
+          portrait: const PortraitParams(
+              smooth: 35,
+              spotlight: 30,
+              skinTone: SkinTone.medium,
+              skinToneStrength: 30),
+        ),
+      );
+      final out = const EditOperationPlayer().play(
+        EditOperationPlayerArgs(
+          original: original,
+          session: session,
+          segmentMask: _centerMask(original.width, original.height),
+        ),
+      );
+
+      expect(_meanAbsoluteDelta(original, out), greaterThan(0.5));
+    });
+
+    test('portrait effects fail closed without a valid segmentation mask', () {
+      final original = _sampleImage();
+      final session = EditSession.forImage('memory://portrait-no-mask').pushOp(
         _op(
           EditToolType.portrait,
           portrait: const PortraitParams(
@@ -205,7 +227,11 @@ void main() {
         ),
       );
 
-      expect(_meanAbsoluteDelta(original, out), greaterThan(0.5));
+      final out = const EditOperationPlayer().play(
+        EditOperationPlayerArgs(original: original, session: session),
+      );
+
+      expect(_meanAbsoluteDelta(original, out), 0);
     });
 
     test('portrait head pose changes only the face-masked region', () {
