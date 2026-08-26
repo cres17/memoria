@@ -45,13 +45,6 @@ jobs:
       - name: Install locked dependencies
         run: flutter pub get --enforce-lockfile
 
-      - name: Install iOS CocoaPods
-        if: runner.os == 'macOS'
-        run: |
-          pushd ios
-          pod install --deployment
-          popd
-
       - name: Check Flutter environment
         run: flutter doctor -v
 

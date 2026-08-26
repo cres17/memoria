@@ -41,13 +41,12 @@ void main() {
   });
 
   test('CF-12 neural generate save reload and apply are byte-stable', () async {
-    // Use the repository candidate path because worker isolates cannot resolve
-    // Flutter asset keys as ordinary files. Production passes the installed
-    // documents-directory path through the same generator contract.
+    // Use the checked-in bundle source as an ordinary repository file. In
+    // production the same model is atomically installed into the documents
+    // directory before this worker contract receives its resolved path.
     AiManager.instance.useLocalModelForTesting(
       kModelColorTransfer,
-      'ml_pipeline/reports/deployment/'
-      'direct_mvp_family_holdout_smooth_010_001_fp16.tflite',
+      'assets/models/direct_mvp_color_transfer_fp16.tflite',
     );
     const sourcePath = 'test/원본_1.jpg';
     final generator = IsolateCreateFilterGenerator(

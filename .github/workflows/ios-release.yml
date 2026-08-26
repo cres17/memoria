@@ -49,13 +49,6 @@ jobs:
           flutter analyze --no-fatal-infos
           flutter test --reporter compact
 
-      - name: Install iOS CocoaPods
-        if: runner.os == 'macOS'
-        run: |
-          pushd ios
-          pod install --deployment
-          popd
-
       - name: Import signing identities and provisioning profiles
         uses: apple-actions/import-codesign@v1
         with:

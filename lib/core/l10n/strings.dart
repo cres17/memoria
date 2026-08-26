@@ -86,6 +86,34 @@ class S {
     'settings.clear_cache_confirm': '삭제',
     'settings.clear_cache_done': '캐시가 삭제되었습니다.',
     'settings.clear_cache_fail': '삭제 실패',
+    'settings.recovery': '저장 데이터 복구',
+    'settings.recovery_sub': '복구가 필요한 항목 {n}개',
+    'settings.recovery_body':
+        '읽을 수 없는 이전 데이터를 안전하게 보관했습니다. 항목을 선택해 복구하거나 초기화할 수 있습니다.',
+    'settings.recovery_size': '보관된 원본 {n} bytes',
+    'settings.recovery_favorites': '즐겨찾는 필터',
+    'settings.recovery_adjustments': '사용자 보정값',
+    'settings.recovery_filter_index': '사용자 필터 목록',
+    'settings.recovery_filter_index_body':
+        '앱이 현재 목록을 안전하게 다시 만들었습니다. 이전 목록에서 읽을 수 있는 항목을 병합하거나, 재구성된 목록을 그대로 유지할 수 있습니다.',
+    'settings.recovery_filter_index_done': '이전 목록에서 읽을 수 있는 항목 {n}개를 병합했습니다.',
+    'settings.recovery_index_safe_reset': '재구성된 목록 유지',
+    'settings.recovery_index_safe_reset_done': '재구성된 목록을 유지하고 원본을 보관했습니다.',
+    'settings.recovery_discard_original': '원본 삭제',
+    'settings.recovery_index_discard_body':
+        '보관된 이전 목록 원본만 삭제합니다. 현재 재구성된 사용자 필터 목록은 유지됩니다.',
+    'settings.recovery_index_discard_done': '보관된 이전 목록 원본을 삭제했습니다.',
+    'settings.recovery_attempt': '복구 시도',
+    'settings.recovery_partial': '유효한 항목 {n}개를 복구했습니다.',
+    'settings.recovery_unavailable':
+        '자동으로 복구할 수 없습니다. 원본을 보관한 채 초기화하거나 원본을 삭제해 주세요.',
+    'settings.recovery_safe_reset': '원본 보관 후 초기화',
+    'settings.recovery_safe_reset_done': '원본을 보관한 채 데이터를 초기화했습니다.',
+    'settings.recovery_discard_reset': '원본 삭제 후 초기화',
+    'settings.recovery_discard_title': '원본도 삭제할까요?',
+    'settings.recovery_discard_body':
+        '현재 데이터와 보관된 원본을 모두 삭제합니다. 이 작업은 되돌릴 수 없습니다.',
+    'settings.recovery_discard_done': '저장 데이터를 초기화했습니다.',
     'settings.quality': '품질',
     'settings.export_quality': '내보내기 품질',
     'settings.export_quality_sub': 'JPEG 95%',
@@ -272,6 +300,38 @@ class S {
     'settings.clear_cache_confirm': 'Delete',
     'settings.clear_cache_done': 'Cache cleared.',
     'settings.clear_cache_fail': 'Failed to delete',
+    'settings.recovery': 'Recover Saved Data',
+    'settings.recovery_sub': '{n} item(s) need recovery',
+    'settings.recovery_body':
+        'An unreadable older value was kept safely. Choose an item to recover or reset it.',
+    'settings.recovery_size': 'Original backup: {n} bytes',
+    'settings.recovery_favorites': 'Favorite filters',
+    'settings.recovery_adjustments': 'Custom adjustments',
+    'settings.recovery_filter_index': 'Custom filter list',
+    'settings.recovery_filter_index_body':
+        'The app safely rebuilt the current list. Merge readable items from the older list, or keep the rebuilt list as it is.',
+    'settings.recovery_filter_index_done':
+        'Merged {n} readable item(s) from the older list.',
+    'settings.recovery_index_safe_reset': 'Keep rebuilt list',
+    'settings.recovery_index_safe_reset_done':
+        'The rebuilt list was kept and the original was archived.',
+    'settings.recovery_discard_original': 'Delete original',
+    'settings.recovery_index_discard_body':
+        'Only the stored older list will be deleted. The current rebuilt custom filter list stays intact.',
+    'settings.recovery_index_discard_done':
+        'The stored older list was deleted.',
+    'settings.recovery_attempt': 'Try recovery',
+    'settings.recovery_partial': 'Recovered {n} valid item(s).',
+    'settings.recovery_unavailable':
+        'This data cannot be recovered automatically. Keep the original and reset, or delete the original.',
+    'settings.recovery_safe_reset': 'Keep original and reset',
+    'settings.recovery_safe_reset_done':
+        'Data was reset and the original was kept.',
+    'settings.recovery_discard_reset': 'Delete original and reset',
+    'settings.recovery_discard_title': 'Delete the original too?',
+    'settings.recovery_discard_body':
+        'This deletes both the current data and the stored original. It cannot be undone.',
+    'settings.recovery_discard_done': 'Saved data was reset.',
     'settings.quality': 'Quality',
     'settings.export_quality': 'Export Quality',
     'settings.export_quality_sub': 'JPEG 95%',

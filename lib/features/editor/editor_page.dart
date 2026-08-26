@@ -37,6 +37,7 @@ import 'package:memoria/features/editor/editor_export_failure.dart';
 import 'package:memoria/features/editor/editor_export_service.dart';
 import 'package:memoria/features/editor/editor_media_export_coordinator.dart';
 import 'package:memoria/features/editor/editor_draft_store.dart';
+import 'package:memoria/features/editor/editor_edit_state.dart';
 import 'package:memoria/features/editor/editor_history_controller.dart';
 import 'package:memoria/features/editor/editor_state_adapter.dart';
 import 'package:memoria/engine/artistic_effects.dart';
@@ -67,6 +68,38 @@ enum _MainNavTab { style, tools, export }
 
 enum _LocalSubTab { selective, dodgeBurn, tiltShift, lensBlur }
 
+/// Ephemeral screen state that does not belong in render recipes, drafts, or
+/// history. Keeping it together prevents the page shell from accumulating a
+/// second, unrelated collection of mutable fields alongside editor data.
+class _EditorUiState {
+  _MainNavTab? mainNavTab;
+  bool isToolActive = false;
+  String? activeToolName;
+  String? activeToolId;
+  bool isSliding = false;
+  bool slideGestureActive = false;
+  int adjustIndex = 0;
+  bool exporting = false;
+  double exportProgress = 0;
+  bool exportForShare = false;
+  _LocalSubTab localSubTab = _LocalSubTab.tiltShift;
+  bool processingPreview = false;
+  bool previewPending = false;
+  bool showComparePreview = false;
+  bool pickingEmptyImage = false;
+  bool pickingBlendImage = false;
+  List<String> favoriteToolIds = [
+    'tune',
+    'details',
+    'curves',
+    'crop',
+    'rotate',
+    'selective',
+    'brush',
+  ];
+  bool showFavoriteTip = true;
+}
+
 class EditorPage extends StatefulWidget {
   final String? imagePath;
   final String? initialPresetId;
@@ -77,246 +110,199 @@ class EditorPage extends StatefulWidget {
 }
 
 class _EditorPageState extends State<EditorPage> {
-  _MainNavTab? _mainNavTab;
-  bool _isToolActive = false;
-  String? _activeToolName;
-  String? _activeToolId;
+  final _uiState = _EditorUiState();
+  final _editState = EditorEditState();
+
+  _MainNavTab? get _mainNavTab => _uiState.mainNavTab;
+  set _mainNavTab(_MainNavTab? value) => _uiState.mainNavTab = value;
+  bool get _isToolActive => _uiState.isToolActive;
+  set _isToolActive(bool value) => _uiState.isToolActive = value;
+  String? get _activeToolName => _uiState.activeToolName;
+  set _activeToolName(String? value) => _uiState.activeToolName = value;
+  String? get _activeToolId => _uiState.activeToolId;
+  set _activeToolId(String? value) => _uiState.activeToolId = value;
+  bool get _isSliding => _uiState.isSliding;
+  set _isSliding(bool value) => _uiState.isSliding = value;
+  bool get _slideGestureActive => _uiState.slideGestureActive;
+  set _slideGestureActive(bool value) => _uiState.slideGestureActive = value;
+  int get _adjustIndex => _uiState.adjustIndex;
+  set _adjustIndex(int value) => _uiState.adjustIndex = value;
+  bool get _exporting => _uiState.exporting;
+  set _exporting(bool value) => _uiState.exporting = value;
+  double get _exportProgress => _uiState.exportProgress;
+  set _exportProgress(double value) => _uiState.exportProgress = value;
+  bool get _exportForShare => _uiState.exportForShare;
+  set _exportForShare(bool value) => _uiState.exportForShare = value;
+  _LocalSubTab get _localSubTab => _uiState.localSubTab;
+  set _localSubTab(_LocalSubTab value) => _uiState.localSubTab = value;
+  bool get _processingPreview => _uiState.processingPreview;
+  set _processingPreview(bool value) => _uiState.processingPreview = value;
+  bool get _previewPending => _uiState.previewPending;
+  set _previewPending(bool value) => _uiState.previewPending = value;
+  bool get _showComparePreview => _uiState.showComparePreview;
+  set _showComparePreview(bool value) => _uiState.showComparePreview = value;
+  bool get _pickingEmptyImage => _uiState.pickingEmptyImage;
+  set _pickingEmptyImage(bool value) => _uiState.pickingEmptyImage = value;
+  bool get _pickingBlendImage => _uiState.pickingBlendImage;
+  set _pickingBlendImage(bool value) => _uiState.pickingBlendImage = value;
+  List<String> get _favoriteToolIds => _uiState.favoriteToolIds;
+  set _favoriteToolIds(List<String> value) => _uiState.favoriteToolIds = value;
+  bool get _showFavoriteTip => _uiState.showFavoriteTip;
+  set _showFavoriteTip(bool value) => _uiState.showFavoriteTip = value;
+
+  AdjustParams get _params => _editState.params;
+  set _params(AdjustParams value) => _editState.params = value;
+  FilterPreset? get _selectedPreset => _editState.selectedPreset;
+  set _selectedPreset(FilterPreset? value) => _editState.selectedPreset = value;
+  double get _intensity => _editState.intensity;
+  set _intensity(double value) => _editState.intensity = value;
+  Map<CurveChannel, CurveData> get _curves => _editState.curves;
+  ArtisticEffect get _effect => _editState.effect;
+  set _effect(ArtisticEffect value) => _editState.effect = value;
+  double get _effectStrength => _editState.effectStrength;
+  set _effectStrength(double value) => _editState.effectStrength = value;
+  int get _grainVariant => _editState.grainVariant;
+  set _grainVariant(int value) => _editState.grainVariant = value;
+  CropRatioPreset get _cropRatio => _editState.cropRatio;
+  set _cropRatio(CropRatioPreset value) => _editState.cropRatio = value;
+  double get _cropCenterX => _editState.cropCenterX;
+  set _cropCenterX(double value) => _editState.cropCenterX = value;
+  double get _cropCenterY => _editState.cropCenterY;
+  set _cropCenterY(double value) => _editState.cropCenterY = value;
+  double get _cropLeft => _editState.cropLeft;
+  set _cropLeft(double value) => _editState.cropLeft = value;
+  double get _cropTop => _editState.cropTop;
+  set _cropTop(double value) => _editState.cropTop = value;
+  double get _cropRight => _editState.cropRight;
+  set _cropRight(double value) => _editState.cropRight = value;
+  double get _cropBottom => _editState.cropBottom;
+  set _cropBottom(double value) => _editState.cropBottom = value;
+  double get _rotation => _editState.rotation;
+  set _rotation(double value) => _editState.rotation = value;
+  bool get _flipH => _editState.flipH;
+  set _flipH(bool value) => _editState.flipH = value;
+  bool get _flipV => _editState.flipV;
+  set _flipV(bool value) => _editState.flipV = value;
+  double get _perspH => _editState.perspectiveH;
+  set _perspH(double value) => _editState.perspectiveH = value;
+  double get _perspV => _editState.perspectiveV;
+  set _perspV(double value) => _editState.perspectiveV = value;
+  double get _expandTop => _editState.expandTop;
+  set _expandTop(double value) => _editState.expandTop = value;
+  double get _expandBottom => _editState.expandBottom;
+  set _expandBottom(double value) => _editState.expandBottom = value;
+  double get _expandLeft => _editState.expandLeft;
+  set _expandLeft(double value) => _editState.expandLeft = value;
+  double get _expandRight => _editState.expandRight;
+  set _expandRight(double value) => _editState.expandRight = value;
+  String get _expandMode => _editState.expandMode;
+  set _expandMode(String value) => _editState.expandMode = value;
+  double get _portraitSmooth => _editState.portraitSmooth;
+  set _portraitSmooth(double value) => _editState.portraitSmooth = value;
+  double get _portraitSpotlight => _editState.portraitSpotlight;
+  set _portraitSpotlight(double value) => _editState.portraitSpotlight = value;
+  SkinTone get _skinTone => _editState.skinTone;
+  set _skinTone(SkinTone value) => _editState.skinTone = value;
+  double get _skinToneStrength => _editState.skinToneStrength;
+  set _skinToneStrength(double value) => _editState.skinToneStrength = value;
+  String? get _blendImagePath => _editState.blendImagePath;
+  set _blendImagePath(String? value) => _editState.blendImagePath = value;
+  bm.BlendMode get _blendMode => _editState.blendMode;
+  set _blendMode(bm.BlendMode value) => _editState.blendMode = value;
+  double get _blendOpacity => _editState.blendOpacity;
+  set _blendOpacity(double value) => _editState.blendOpacity = value;
+  int get _frameIndex => _editState.frameIndex;
+  set _frameIndex(int value) => _editState.frameIndex = value;
+  String get _overlayText => _editState.overlayText;
+  set _overlayText(String value) => _editState.overlayText = value;
+  double get _textSize => _editState.textSize;
+  set _textSize(double value) => _editState.textSize = value;
+  Color get _textColor => Color(_editState.textColorValue);
+  set _textColor(Color value) => _editState.textColorValue = value.toARGB32();
+  String get _textFontFamily => _editState.textFontFamily;
+  set _textFontFamily(String value) => _editState.textFontFamily = value;
+  double get _textX => _editState.textX;
+  set _textX(double value) => _editState.textX = value;
+  double get _textY => _editState.textY;
+  set _textY(double value) => _editState.textY = value;
+  double get _textRotation => _editState.textRotation;
+  set _textRotation(double value) => _editState.textRotation = value;
+  bool get _selActive => _editState.selectiveActive;
+  set _selActive(bool value) => _editState.selectiveActive = value;
+  double get _selX => _editState.selectiveX;
+  set _selX(double value) => _editState.selectiveX = value;
+  double get _selY => _editState.selectiveY;
+  set _selY(double value) => _editState.selectiveY = value;
+  double get _selBright => _editState.selectiveBrightness;
+  set _selBright(double value) => _editState.selectiveBrightness = value;
+  double get _selContrast => _editState.selectiveContrast;
+  set _selContrast(double value) => _editState.selectiveContrast = value;
+  double get _selSat => _editState.selectiveSaturation;
+  set _selSat(double value) => _editState.selectiveSaturation = value;
+  double get _selRadius => _editState.selectiveRadius;
+  set _selRadius(double value) => _editState.selectiveRadius = value;
+  bool get _dbActive => _editState.dodgeBurnActive;
+  set _dbActive(bool value) => _editState.dodgeBurnActive = value;
+  String get _brushMode => _editState.brushMode;
+  set _brushMode(String value) => _editState.brushMode = value;
+  double get _dodgeY => _editState.dodgeY;
+  set _dodgeY(double value) => _editState.dodgeY = value;
+  double get _dodgeRadius => _editState.dodgeRadius;
+  set _dodgeRadius(double value) => _editState.dodgeRadius = value;
+  double get _dodgeStrength => _editState.dodgeStrength;
+  set _dodgeStrength(double value) => _editState.dodgeStrength = value;
+  double get _burnY => _editState.burnY;
+  set _burnY(double value) => _editState.burnY = value;
+  double get _burnRadius => _editState.burnRadius;
+  set _burnRadius(double value) => _editState.burnRadius = value;
+  double get _burnStrength => _editState.burnStrength;
+  set _burnStrength(double value) => _editState.burnStrength = value;
+  List<DodgeBurnStroke> get _brushStrokes => _editState.brushStrokes;
+  bool get _tiltActive => _editState.tiltActive;
+  set _tiltActive(bool value) => _editState.tiltActive = value;
+  double get _tiltFocusCenter => _editState.tiltFocusCenter;
+  set _tiltFocusCenter(double value) => _editState.tiltFocusCenter = value;
+  double get _tiltBandWidth => _editState.tiltBandWidth;
+  set _tiltBandWidth(double value) => _editState.tiltBandWidth = value;
+  double get _tiltMaxBlur => _editState.tiltMaxBlur;
+  set _tiltMaxBlur(double value) => _editState.tiltMaxBlur = value;
+  bool get _lensActive => _editState.lensActive;
+  set _lensActive(bool value) => _editState.lensActive = value;
+  double get _lensFocusDepth => _editState.lensFocusDepth;
+  set _lensFocusDepth(double value) => _editState.lensFocusDepth = value;
+  double get _lensMaxRadius => _editState.lensMaxRadius;
+  set _lensMaxRadius(double value) => _editState.lensMaxRadius = value;
+
   ui.Image? _liveBaseCacheImage;
   ui.Image? _liveLutAtlas;
   ui.Image? _liveCurve1D;
   ui.Image? _liveLumCurve;
-  bool _isSliding = false;
-  bool _slideGestureActive = false;
   int _livePrepareToken = 0;
   late final ValueNotifier<AdjustParams> _liveParamsNotifier;
   late final ValueNotifier<double> _liveIntensityNotifier;
   late final EditorHistoryController _history;
   late final EditorDraftStore _draftStore;
   late final EditorResourcePreparer _resourcePreparer;
-  List<String> _favoriteToolIds = [
-    'tune',
-    'details',
-    'curves',
-    'crop',
-    'rotate',
-    'selective',
-    'brush'
-  ];
-  bool _showFavoriteTip = true;
 
-  // Canvas Expansion
-  double _expandTop = 0.0;
-  double _expandBottom = 0.0;
-  double _expandLeft = 0.0;
-  double _expandRight = 0.0;
-  // New edits deliberately avoid the legacy edge-mirroring "smart" mode.
-  // Existing drafts can still replay it through the renderer.
-  String _expandMode = 'black';
-
-  // Interactive Crop & Brush bounds
-  double _cropLeft = 0.0;
-  double _cropTop = 0.0;
-  double _cropRight = 1.0;
-  double _cropBottom = 1.0;
-  final List<DodgeBurnStroke> _brushStrokes = [];
   final TransformationController _transformationController =
       TransformationController();
-  String _brushMode = 'dodge';
 
-  // Backup variables
-  late AdjustParams _paramsBeforeTool;
-  late Map<CurveChannel, CurveData> _curvesBeforeTool;
-  FilterPreset? _selectedPresetBeforeTool;
-  late double _intensityBeforeTool;
+  // A tool transaction captures every editable field through the same
+  // snapshot adapter used by history, drafts, and render recipes. LUT bytes
+  // are kept separately because they are a loaded resource, not UI state.
+  EditorStateSnapshot? _stateBeforeTool;
   Uint8List? _lutBytesBeforeTool;
-  late ArtisticEffect _effectBeforeTool;
-  late double _effectStrengthBeforeTool;
-  late CropRatioPreset _cropRatioBeforeTool;
-  late double _cropCenterXBeforeTool;
-  late double _cropCenterYBeforeTool;
-  late double _rotationBeforeTool;
-  late bool _flipHBeforeTool;
-  late bool _flipVBeforeTool;
-  late double _perspHBeforeTool;
-  late double _perspVBeforeTool;
-  late double _expandTopBeforeTool;
-  late double _expandBottomBeforeTool;
-  late double _expandLeftBeforeTool;
-  late double _expandRightBeforeTool;
-  late String _expandModeBeforeTool;
-  late double _portraitSmoothBeforeTool;
-  late double _portraitSpotlightBeforeTool;
-  late SkinTone _skinToneBeforeTool;
-  late double _skinToneStrengthBeforeTool;
-  String? _blendImagePathBeforeTool;
-  late bm.BlendMode _blendModeBeforeTool;
-  late double _blendOpacityBeforeTool;
-  late int _frameIndexBeforeTool;
-  late String _overlayTextBeforeTool;
-  late double _textSizeBeforeTool;
-  late Color _textColorBeforeTool;
-  late String _textFontFamilyBeforeTool;
-  late double _textXBeforeTool;
-  late double _textYBeforeTool;
-  late double _textRotationBeforeTool;
-  late String _brushModeBeforeTool;
-  late bool _selActiveBeforeTool;
-  late double _selXBeforeTool;
-  late double _selYBeforeTool;
-  late double _selBrightBeforeTool;
-  late double _selContrastBeforeTool;
-  late double _selSatBeforeTool;
-  late double _selRadiusBeforeTool;
-  late bool _dbActiveBeforeTool;
-  late double _dodgeStrengthBeforeTool;
-  late double _dodgeYBeforeTool;
-  late double _dodgeRadiusBeforeTool;
-  late double _burnStrengthBeforeTool;
-  late double _burnYBeforeTool;
-  late double _burnRadiusBeforeTool;
-  late bool _tiltActiveBeforeTool;
-  late double _tiltFocusCenterBeforeTool;
-  late double _tiltBandWidthBeforeTool;
-  late double _tiltMaxBlurBeforeTool;
-  late bool _lensActiveBeforeTool;
-  late double _lensFocusDepthBeforeTool;
-  late double _lensMaxRadiusBeforeTool;
-  late double _cropLeftBeforeTool;
-  late double _cropTopBeforeTool;
-  late double _cropRightBeforeTool;
-  late double _cropBottomBeforeTool;
-  late List<DodgeBurnStroke> _brushStrokesBeforeTool;
 
   void _backupState() {
-    _paramsBeforeTool = _params;
-    _curvesBeforeTool = Map.from(_curves);
-    _selectedPresetBeforeTool = _selectedPreset;
-    _intensityBeforeTool = _intensity;
+    _stateBeforeTool = _currentEditorState();
     _lutBytesBeforeTool = _lutBytes;
-    _effectBeforeTool = _effect;
-    _effectStrengthBeforeTool = _effectStrength;
-    _cropRatioBeforeTool = _cropRatio;
-    _cropCenterXBeforeTool = _cropCenterX;
-    _cropCenterYBeforeTool = _cropCenterY;
-    _rotationBeforeTool = _rotation;
-    _flipHBeforeTool = _flipH;
-    _flipVBeforeTool = _flipV;
-    _perspHBeforeTool = _perspH;
-    _perspVBeforeTool = _perspV;
-    _expandTopBeforeTool = _expandTop;
-    _expandBottomBeforeTool = _expandBottom;
-    _expandLeftBeforeTool = _expandLeft;
-    _expandRightBeforeTool = _expandRight;
-    _expandModeBeforeTool = _expandMode;
-    _portraitSmoothBeforeTool = _portraitSmooth;
-    _portraitSpotlightBeforeTool = _portraitSpotlight;
-    _skinToneBeforeTool = _skinTone;
-    _skinToneStrengthBeforeTool = _skinToneStrength;
-    _blendImagePathBeforeTool = _blendImagePath;
-    _blendModeBeforeTool = _blendMode;
-    _blendOpacityBeforeTool = _blendOpacity;
-    _frameIndexBeforeTool = _frameIndex;
-    _overlayTextBeforeTool = _overlayText;
-    _textSizeBeforeTool = _textSize;
-    _textColorBeforeTool = _textColor;
-    _textFontFamilyBeforeTool = _textFontFamily;
-    _textXBeforeTool = _textX;
-    _textYBeforeTool = _textY;
-    _textRotationBeforeTool = _textRotation;
-    _brushModeBeforeTool = _brushMode;
-    _selActiveBeforeTool = _selActive;
-    _selXBeforeTool = _selX;
-    _selYBeforeTool = _selY;
-    _selBrightBeforeTool = _selBright;
-    _selContrastBeforeTool = _selContrast;
-    _selSatBeforeTool = _selSat;
-    _selRadiusBeforeTool = _selRadius;
-    _dbActiveBeforeTool = _dbActive;
-    _dodgeStrengthBeforeTool = _dodgeStrength;
-    _dodgeYBeforeTool = _dodgeY;
-    _dodgeRadiusBeforeTool = _dodgeRadius;
-    _burnStrengthBeforeTool = _burnStrength;
-    _burnYBeforeTool = _burnY;
-    _burnRadiusBeforeTool = _burnRadius;
-    _tiltActiveBeforeTool = _tiltActive;
-    _tiltFocusCenterBeforeTool = _tiltFocusCenter;
-    _tiltBandWidthBeforeTool = _tiltBandWidth;
-    _tiltMaxBlurBeforeTool = _tiltMaxBlur;
-    _lensActiveBeforeTool = _lensActive;
-    _lensFocusDepthBeforeTool = _lensFocusDepth;
-    _lensMaxRadiusBeforeTool = _lensMaxRadius;
-    _cropLeftBeforeTool = _cropLeft;
-    _cropTopBeforeTool = _cropTop;
-    _cropRightBeforeTool = _cropRight;
-    _cropBottomBeforeTool = _cropBottom;
-    _brushStrokesBeforeTool = List.from(_brushStrokes);
   }
 
   void _restoreState() {
-    _params = _paramsBeforeTool;
-    _curves.clear();
-    _curves.addAll(_curvesBeforeTool);
-    _selectedPreset = _selectedPresetBeforeTool;
-    _intensity = _intensityBeforeTool;
+    final state = _stateBeforeTool;
+    if (state == null) return;
+    _applyEditorState(state);
     _lutBytes = _lutBytesBeforeTool;
-    _effect = _effectBeforeTool;
-    _effectStrength = _effectStrengthBeforeTool;
-    _cropRatio = _cropRatioBeforeTool;
-    _cropCenterX = _cropCenterXBeforeTool;
-    _cropCenterY = _cropCenterYBeforeTool;
-    _rotation = _rotationBeforeTool;
-    _flipH = _flipHBeforeTool;
-    _flipV = _flipVBeforeTool;
-    _perspH = _perspHBeforeTool;
-    _perspV = _perspVBeforeTool;
-    _expandTop = _expandTopBeforeTool;
-    _expandBottom = _expandBottomBeforeTool;
-    _expandLeft = _expandLeftBeforeTool;
-    _expandRight = _expandRightBeforeTool;
-    _expandMode = _expandModeBeforeTool;
-    _portraitSmooth = _portraitSmoothBeforeTool;
-    _portraitSpotlight = _portraitSpotlightBeforeTool;
-    _skinTone = _skinToneBeforeTool;
-    _skinToneStrength = _skinToneStrengthBeforeTool;
-    _blendImagePath = _blendImagePathBeforeTool;
-    _blendMode = _blendModeBeforeTool;
-    _blendOpacity = _blendOpacityBeforeTool;
-    _frameIndex = _frameIndexBeforeTool;
-    _overlayText = _overlayTextBeforeTool;
-    _textSize = _textSizeBeforeTool;
-    _textColor = _textColorBeforeTool;
-    _textFontFamily = _textFontFamilyBeforeTool;
-    _textX = _textXBeforeTool;
-    _textY = _textYBeforeTool;
-    _textRotation = _textRotationBeforeTool;
-    _brushMode = _brushModeBeforeTool;
-    _selActive = _selActiveBeforeTool;
-    _selX = _selXBeforeTool;
-    _selY = _selYBeforeTool;
-    _selBright = _selBrightBeforeTool;
-    _selContrast = _selContrastBeforeTool;
-    _selSat = _selSatBeforeTool;
-    _selRadius = _selRadiusBeforeTool;
-    _dbActive = _dbActiveBeforeTool;
-    _dodgeStrength = _dodgeStrengthBeforeTool;
-    _dodgeY = _dodgeYBeforeTool;
-    _dodgeRadius = _dodgeRadiusBeforeTool;
-    _burnStrength = _burnStrengthBeforeTool;
-    _burnY = _burnYBeforeTool;
-    _burnRadius = _burnRadiusBeforeTool;
-    _tiltActive = _tiltActiveBeforeTool;
-    _tiltFocusCenter = _tiltFocusCenterBeforeTool;
-    _tiltBandWidth = _tiltBandWidthBeforeTool;
-    _tiltMaxBlur = _tiltMaxBlurBeforeTool;
-    _lensActive = _lensActiveBeforeTool;
-    _lensFocusDepth = _lensFocusDepthBeforeTool;
-    _lensMaxRadius = _lensMaxRadiusBeforeTool;
-    _cropLeft = _cropLeftBeforeTool;
-    _cropTop = _cropTopBeforeTool;
-    _cropRight = _cropRightBeforeTool;
-    _cropBottom = _cropBottomBeforeTool;
-    _brushStrokes.clear();
-    _brushStrokes.addAll(_brushStrokesBeforeTool);
   }
 
   void _activateTool(String toolId, String toolName) {
@@ -538,98 +524,8 @@ class _EditorPageState extends State<EditorPage> {
     _renderPreview();
   }
 
-  CropState _currentCropState() => CropState(
-        ratio: _cropRatio,
-        centerX: _cropCenterX,
-        centerY: _cropCenterY,
-        cropLeft: _cropLeft,
-        cropTop: _cropTop,
-        cropRight: _cropRight,
-        cropBottom: _cropBottom,
-        rotation: _rotation,
-        flipH: _flipH,
-        flipV: _flipV,
-        perspH: _perspH,
-        perspV: _perspV,
-        expandTop: _expandTop,
-        expandBottom: _expandBottom,
-        expandLeft: _expandLeft,
-        expandRight: _expandRight,
-        expandMode: _expandMode,
-      );
-
-  PortraitParams _currentPortraitParams() => PortraitParams(
-        smooth: _portraitSmooth,
-        spotlight: _portraitSpotlight,
-        skinTone: _skinTone,
-        skinToneStrength: _skinToneStrength,
-      );
-
-  CreativeParams _currentCreativeParams() => CreativeParams(
-        blendImagePath: _blendImagePath,
-        blendMode: _blendMode,
-        blendOpacity: _blendOpacity,
-        frameIndex: _frameIndex,
-        overlayText: _overlayText,
-        textSize: _textSize,
-        textColorValue: _textColor.value,
-        textX: _textX,
-        textY: _textY,
-        textRotation: _textRotation,
-        fontFamily: _textFontFamily,
-      );
-
-  EditorEffectState _currentEffectState() => EditorEffectState(
-        artisticEffect: _effect.name,
-        effectStrength: _effectStrength,
-        grainVariant: _grainVariant,
-        selectiveActive: _selActive,
-        selectiveX: _selX,
-        selectiveY: _selY,
-        selectiveBrightness: _selBright,
-        selectiveContrast: _selContrast,
-        selectiveSaturation: _selSat,
-        selectiveRadius: _selRadius,
-        dodgeBurnActive: _dbActive,
-        brushMode: _brushMode,
-        dodgeY: _dodgeY,
-        dodgeRadius: _dodgeRadius,
-        dodgeStrength: _dodgeStrength,
-        burnY: _burnY,
-        burnRadius: _burnRadius,
-        burnStrength: _burnStrength,
-        brushStrokes: _brushStrokes
-            .map(
-              (stroke) => DodgeBurnHistoryStroke(
-                x: stroke.x,
-                y: stroke.y,
-                radius: stroke.radius,
-                strength: stroke.strength,
-                isDodge: stroke.isDodge,
-              ),
-            )
-            .toList(growable: false),
-        tiltActive: _tiltActive,
-        tiltFocusCenter: _tiltFocusCenter,
-        tiltBandWidth: _tiltBandWidth,
-        tiltMaxBlur: _tiltMaxBlur,
-        lensActive: _lensActive,
-        lensFocusDepth: _lensFocusDepth,
-        lensMaxRadius: _lensMaxRadius,
-      );
-
-  EditorStateSnapshot _currentEditorState() => EditorStateSnapshot(
-        adjustParams: _params,
-        curves: _curves,
-        presetId: _selectedPreset?.id,
-        lutPath: _selectedPreset?.lutPath,
-        intensity: _intensity,
-        crop: _currentCropState(),
-        portrait: _currentPortraitParams(),
-        creative: _currentCreativeParams(),
-        effects: _currentEffectState(),
-        localSubTabName: _localSubTab.name,
-      );
+  EditorStateSnapshot _currentEditorState() =>
+      _editState.toSnapshot(localSubTabName: _localSubTab.name);
 
   EditorRenderRecipe _currentRenderRecipe({
     AdjustParams? adjustParams,
@@ -752,137 +648,17 @@ class _EditorPageState extends State<EditorPage> {
   }
 
   void _applyEditorState(EditorStateSnapshot state) {
-    _params = state.adjustParams;
-    _syncCurvesFromParams();
-    if (state.curves.isNotEmpty) {
-      _curves
-        ..clear()
-        ..addAll(state.curves);
-    }
-    _selectedPreset = _presetForId(state.presetId);
-    _lutBytes = null;
-    _intensity = state.intensity;
-    final crop = state.crop;
-    _cropRatio = crop.ratio;
-    _cropCenterX = crop.centerX;
-    _cropCenterY = crop.centerY;
-    _cropLeft = crop.cropLeft;
-    _cropTop = crop.cropTop;
-    _cropRight = crop.cropRight;
-    _cropBottom = crop.cropBottom;
-    _rotation = crop.rotation;
-    _flipH = crop.flipH;
-    _flipV = crop.flipV;
-    _perspH = crop.perspH;
-    _perspV = crop.perspV;
-    _expandTop = crop.expandTop;
-    _expandBottom = crop.expandBottom;
-    _expandLeft = crop.expandLeft;
-    _expandRight = crop.expandRight;
-    _expandMode = crop.expandMode;
-    final portrait = state.portrait;
-    _portraitSmooth = portrait.smooth;
-    _portraitSpotlight = portrait.spotlight;
-    _skinTone = portrait.skinTone;
-    _skinToneStrength = portrait.skinToneStrength;
-    final creative = state.creative;
-    _blendImagePath = creative.blendImagePath;
-    _blendMode = creative.blendMode;
-    _blendOpacity = creative.blendOpacity;
-    _frameIndex = creative.frameIndex;
-    _overlayText = creative.overlayText;
-    _textSize = creative.textSize;
-    _textColor = Color(creative.textColorValue);
-    _textX = creative.textX;
-    _textY = creative.textY;
-    _textRotation = creative.textRotation;
-    _textFontFamily = creative.fontFamily;
-    _restoreEffectState(state.effects);
-  }
-
-  void _restoreEffectState(EditorEffectState state) {
-    _effect = ArtisticEffect.values.firstWhere(
-      (effect) => effect.name == state.artisticEffect,
-      orElse: () => ArtisticEffect.none,
+    _editState.restore(
+      state,
+      resolvedPreset: _presetForId(state.presetId),
     );
-    _effectStrength = state.effectStrength;
-    _grainVariant = state.grainVariant;
-    _selActive = state.selectiveActive;
-    _selX = state.selectiveX;
-    _selY = state.selectiveY;
-    _selBright = state.selectiveBrightness;
-    _selContrast = state.selectiveContrast;
-    _selSat = state.selectiveSaturation;
-    _selRadius = state.selectiveRadius;
-    _dbActive = state.dodgeBurnActive;
-    _brushMode = state.brushMode;
-    _dodgeY = state.dodgeY;
-    _dodgeRadius = state.dodgeRadius;
-    _dodgeStrength = state.dodgeStrength;
-    _burnY = state.burnY;
-    _burnRadius = state.burnRadius;
-    _burnStrength = state.burnStrength;
-    _brushStrokes
-      ..clear()
-      ..addAll(
-        state.brushStrokes.map(
-          (stroke) => DodgeBurnStroke(
-            x: stroke.x,
-            y: stroke.y,
-            radius: stroke.radius,
-            strength: stroke.strength,
-            isDodge: stroke.isDodge,
-          ),
-        ),
-      );
-    _tiltActive = state.tiltActive;
-    _tiltFocusCenter = state.tiltFocusCenter;
-    _tiltBandWidth = state.tiltBandWidth;
-    _tiltMaxBlur = state.tiltMaxBlur;
-    _lensActive = state.lensActive;
-    _lensFocusDepth = state.lensFocusDepth;
-    _lensMaxRadius = state.lensMaxRadius;
+    _lutBytes = null;
   }
 
   void _resetCommittedState() {
-    _params = AdjustParams.zero;
-    _syncCurvesFromParams();
-    _selectedPreset = null;
-    _lutBytes = null;
-    _intensity = 1.0;
-    _cropRatio = CropRatioPreset.free;
-    _cropCenterX = 0.5;
-    _cropCenterY = 0.5;
-    _cropLeft = 0.0;
-    _cropTop = 0.0;
-    _cropRight = 1.0;
-    _cropBottom = 1.0;
-    _rotation = 0.0;
-    _flipH = false;
-    _flipV = false;
-    _perspH = 0.0;
-    _perspV = 0.0;
-    _expandTop = 0.0;
-    _expandBottom = 0.0;
-    _expandLeft = 0.0;
-    _expandRight = 0.0;
-    _expandMode = 'black';
-    _portraitSmooth = 0;
-    _portraitSpotlight = 0;
-    _skinTone = SkinTone.none;
-    _skinToneStrength = 50;
-    _blendImagePath = null;
-    _blendMode = bm.BlendMode.lighten;
-    _blendOpacity = 0.5;
-    _frameIndex = -1;
-    _overlayText = '';
-    _textSize = 32;
-    _textColor = Colors.white;
-    _textFontFamily = 'Montserrat';
-    _textX = 0.5;
-    _textY = 0.82;
-    _textRotation = 0;
-    _restoreEffectState(EditorEffectState.defaults);
+    _applyEditorState(
+      EditorStateSnapshot.initial(localSubTabName: _localSubTab.name),
+    );
   }
 
   void _reloadSelectedPresetLut() {
@@ -901,84 +677,15 @@ class _EditorPageState extends State<EditorPage> {
     }());
   }
 
-  AdjustParams _params = AdjustParams.zero;
-  FilterPreset? _selectedPreset;
-  double _intensity = 1.0;
-  int _adjustIndex = 0;
-  bool _exporting = false;
-  double _exportProgress = 0.0;
-  bool _exportForShare = false;
   final EditorMediaExportCoordinator _mediaExportCoordinator =
       EditorMediaExportCoordinator();
-
-  // Phase 2: 채널별 커브 상태
-  final Map<CurveChannel, CurveData> _curves = {};
-
-  // Phase 4: 아티스틱 이펙트
-  ArtisticEffect _effect = ArtisticEffect.none;
-  double _effectStrength = 1.0;
-  int _grainVariant = 3;
-
-  // Phase 5: 기하학 변환
-  CropRatioPreset _cropRatio = CropRatioPreset.free;
-  double _cropCenterX = 0.5;
-  double _cropCenterY = 0.5;
-  double _rotation = 0.0; // degrees -45..+45
-  bool _flipH = false;
-  bool _flipV = false;
-  // Portrait
-  double _portraitSmooth = 0.0;
-  double _portraitSpotlight = 0.0;
-  SkinTone _skinTone = SkinTone.none;
-  double _skinToneStrength = 50.0;
-
-  // Creative — double exposure
-  String? _blendImagePath;
-  bm.BlendMode _blendMode = bm.BlendMode.lighten;
-  double _blendOpacity = 0.5;
-  // Creative — frame
-  int _frameIndex = -1; // -1 = none
-  // Creative — text overlay
-  String _overlayText = '';
-  double _textSize = 32.0;
-  Color _textColor = Colors.white;
-  String _textFontFamily = 'Montserrat';
-  double _textX = 0.5;
-  double _textY = 0.82;
-  double _textRotation = 0.0;
   double _textGestureStartSize = 32.0;
   double _textGestureStartRotation = 0.0;
-
-  // Phase 6: 로컬 조정
-  _LocalSubTab _localSubTab = _LocalSubTab.tiltShift;
-  // Selective
-  bool _selActive = false;
-  double _selX = 0.5, _selY = 0.5;
-  double _selBright = 0, _selContrast = 0, _selSat = 0;
-  double _selRadius = 0.3;
-  // Dodge & Burn
-  bool _dbActive = false;
-  double _dodgeY = 0.25, _dodgeRadius = 0.25, _dodgeStrength = 0.3;
-  double _burnY = 0.75, _burnRadius = 0.25, _burnStrength = 0.3;
-  // Tilt-Shift
-  bool _tiltActive = false;
-  double _tiltFocusCenter = 0.5, _tiltBandWidth = 0.3, _tiltMaxBlur = 8;
-  // Lens Blur
-  bool _lensActive = false;
-  double _lensFocusDepth = 0.0, _lensMaxRadius = 8;
-
-  // Perspective (shear-based skew, degrees)
-  double _perspH = 0.0, _perspV = 0.0;
 
   Uint8List? _lutBytes;
   Uint8List? _previewBytes;
   Uint8List? _spatialBaseBytes;
   Uint8List? _comparePreviewBytes;
-  bool _processingPreview = false;
-  bool _previewPending = false;
-  bool _showComparePreview = false;
-  bool _pickingEmptyImage = false;
-  bool _pickingBlendImage = false;
   Timer? _previewDebounce;
   Timer? _draftSaveDebounce;
   int _presetSelectToken = 0;
@@ -1427,20 +1134,7 @@ class _EditorPageState extends State<EditorPage> {
   }
 
   void _syncCurvesFromParams() {
-    _curves
-      ..clear()
-      ..addEntries([
-        if (_params.luminanceCurve != null)
-          MapEntry(CurveChannel.luminance, _params.luminanceCurve!),
-        if (_params.rgbCurve != null)
-          MapEntry(CurveChannel.rgb, _params.rgbCurve!),
-        if (_params.redCurve != null)
-          MapEntry(CurveChannel.red, _params.redCurve!),
-        if (_params.greenCurve != null)
-          MapEntry(CurveChannel.green, _params.greenCurve!),
-        if (_params.blueCurve != null)
-          MapEntry(CurveChannel.blue, _params.blueCurve!),
-      ]);
+    _editState.syncCurvesFromParams();
   }
 
   void _scheduleDraftSave() {
@@ -1606,8 +1300,9 @@ class _EditorPageState extends State<EditorPage> {
         _overlayText = json['overlayText'] as String? ?? '';
         _textFontFamily = json['textFontFamily'] as String? ?? 'Montserrat';
         _textSize = _doubleFromJson(json['textSize'], 32.0);
-        _textColor =
-            Color((json['textColor'] as num?)?.toInt() ?? Colors.white.value);
+        _textColor = Color(
+          (json['textColor'] as num?)?.toInt() ?? Colors.white.toARGB32(),
+        );
         _textX = _doubleFromJson(json['textX'], 0.5).clamp(0.0, 1.0);
         _textY = _doubleFromJson(json['textY'], 0.82).clamp(0.0, 1.0);
         _textRotation = _doubleFromJson(json['textRotation'], 0.0);
@@ -1698,7 +1393,7 @@ class _EditorPageState extends State<EditorPage> {
         _blendImagePath ?? '', _blendMode.name,
         _blendOpacity.toStringAsFixed(2),
         _frameIndex,
-        _overlayText, _textSize.toStringAsFixed(1), _textColor.value,
+        _overlayText, _textSize.toStringAsFixed(1), _textColor.toARGB32(),
         _textX.toStringAsFixed(4), _textY.toStringAsFixed(4),
         _textRotation.toStringAsFixed(2),
         _textFontFamily,

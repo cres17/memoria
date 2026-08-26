@@ -34,6 +34,25 @@ class EditorStateSnapshot {
     required this.localSubTabName,
   }) : curves = Map.unmodifiable(curves);
 
+  /// Canonical committed state for a new image or an emptied history stack.
+  /// Keeping it here ensures reset, draft, history, and recipe paths evolve
+  /// through the same adapter rather than independently resetting page fields.
+  factory EditorStateSnapshot.initial({
+    String localSubTabName = 'tiltShift',
+  }) =>
+      EditorStateSnapshot(
+        adjustParams: AdjustParams.zero,
+        curves: const {},
+        presetId: null,
+        lutPath: null,
+        intensity: 1,
+        crop: CropState.identity,
+        portrait: PortraitParams.zero,
+        creative: CreativeParams.zero,
+        effects: EditorEffectState.defaults,
+        localSubTabName: localSubTabName,
+      );
+
   factory EditorStateSnapshot.fromOperation(EditOperation operation) =>
       EditorStateSnapshot(
         adjustParams: operation.params ?? AdjustParams.zero,
