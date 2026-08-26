@@ -193,8 +193,7 @@ void main() {
   });
 
   test('Phase C worker receives the resolved Direct MVP model path', () async {
-    const modelPath =
-        'ml_pipeline/reports/deployment/direct_mvp_family_holdout_smooth_010_001_fp16.tflite';
+    const modelPath = 'assets/models/direct_mvp_color_transfer_fp16.tflite';
     final source = File('${tempDirectory.path}/neural-source.png');
     final image = img.Image(width: 64, height: 64);
     for (var y = 0; y < image.height; y++) {

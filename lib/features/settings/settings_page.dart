@@ -11,10 +11,22 @@ import '../../core/services/export_preferences.dart';
 import '../../core/services/media_permission_service.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/platform_utils.dart';
+import '../../data/repositories/filter_index_recovery_service.dart';
+import '../../data/repositories/preferences_recovery_service.dart';
 import '../../engine/engine_channel.dart';
+import 'settings_recovery_section.dart';
 
 class SettingsPage extends StatefulWidget {
-  const SettingsPage({super.key});
+  final PreferencesRecoveryService? preferencesRecovery;
+  final FilterIndexRecoveryService? filterIndexRecovery;
+  final SettingsRecoveryController? recoveryController;
+
+  const SettingsPage({
+    super.key,
+    this.preferencesRecovery,
+    this.filterIndexRecovery,
+    this.recoveryController,
+  });
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -25,10 +37,18 @@ class _SettingsPageState extends State<SettingsPage> {
   ExportFormat _exportFormat = ExportFormat.jpeg;
   int _exportQuality = 95;
   bool _webpSupported = false;
+  late final SettingsRecoveryController _recoveryController;
 
   @override
   void initState() {
     super.initState();
+    _recoveryController = widget.recoveryController ??
+        ServiceSettingsRecoveryController(
+          preferences:
+              widget.preferencesRecovery ?? PreferencesRecoveryService(),
+          filterIndex:
+              widget.filterIndexRecovery ?? FilterIndexRecoveryService(),
+        );
     setStatusBarForDark();
     _loadSettings();
   }
@@ -403,6 +423,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 title: S.get('settings.clear_cache'),
                 onTap: _clearCache,
               ),
+              SettingsRecoverySection(controller: _recoveryController),
             ],
           ),
           const SizedBox(height: 24),
