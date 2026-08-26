@@ -167,7 +167,8 @@ Future<img.Image?> _loadAsset(String path) async {
     final data = await rootBundle.load(path);
     final bytes = data.buffer.asUint8List();
     return img.decodeImage(bytes);
-  } catch (_) {
+  } on Object {
+    // Optional texture assets degrade to the untextured effect.
     return null;
   }
 }

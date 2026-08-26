@@ -872,7 +872,7 @@ Future<Map<String, dynamic>> generateLutFromStyle(
         neuralModelPath: neuralModelPath,
         onProgress: onProgress,
       );
-    } catch (_) {
+    } catch (error) {
       // The algorithmic path is intentionally retained as a safe local fallback.
       // Do not expose the original exception or image path in persisted metadata.
       return _generateLutAlgorithmic(
@@ -995,7 +995,8 @@ Future<Map<String, dynamic>> _generateLutAlgorithmic(
     try {
       final bytes = File(path).readAsBytesSync();
       images.add(_decodeStyleImage(bytes, path));
-    } catch (_) {
+    } on Object {
+      // Invalid references are counted in diagnostics without persisting paths.
       skippedReferenceCount++;
     }
   }
@@ -1393,7 +1394,8 @@ Future<Uint8List?> loadLutBytes(String? lutPath) async {
     try {
       final data = await rootBundle.load(lutPath);
       return data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
-    } catch (_) {
+    } on Object {
+      // Missing optional LUT assets mean “no LUT”; tonal edits still render.
       return null;
     }
   }

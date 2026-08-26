@@ -1122,7 +1122,8 @@ DecodedLut? tryDecodeCustomLut(Uint8List? bytes) {
   }
   try {
     return decodeCustomLut(bytes);
-  } catch (_) {
+  } on Object {
+    // Invalid optional LUT data disables the LUT; the base adjustments remain.
     return null;
   }
 }

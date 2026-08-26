@@ -194,11 +194,11 @@ integration_test/                실제 EditorPage 화이트박스·성능 시�
 
 [`EditOperationPlayer`](lib/engine/edit_operation_player.dart)는 operation 목록을 순서대로 재생하는 canonical renderer 후보로 구현되어 있고 엔진 테스트에서도 사용합니다. 다만 현재 production `EditorPage`의 preview/export는 이 player를 직접 호출하지 않고 각각 `_PreviewParams`, `_ExportParams`를 구성합니다. README의 이전 버전처럼 “이미 하나의 canonical renderer로 완전히 통합됐다”고 설명하는 것은 정확하지 않습니다.
 
-Riverpod도 같은 상태입니다. [`EditSessionNotifier`](lib/features/editor/edit_session_controller.dart)와 repository provider가 있지만, 현재 편집 화면은 자체 `_editSession`과 `setState`를 사용합니다. 지금 당장 앱이 작동하지 않는 문제는 아니지만, 다음 구조 개선에서는 아래 순서가 안전합니다.
+이전에는 production 경로에 연결되지 않은 Riverpod session notifier와 repository가 함께 있었지만, 2026-08의 정리에서 제거했습니다. 앱의 실제 source of truth는 현재 `EditorPage`의 transaction/draft 상태 하나입니다. 또한 preview와 export는 이제 같은 불변 `EditorRenderRecipe`를 받아 렌더 입력을 조립합니다. 아직 operation 순서를 독립 renderer로 완전히 추출한 것은 아니므로, 다음 구조 개선에서는 아래 순서가 안전합니다.
 
-1. `EditorPage`의 현재 값을 하나의 `EditorRecipe` 또는 renderer input으로 묶습니다.
+1. `EditorRenderRecipe`의 표현 범위를 history/draft 직렬화까지 넓힙니다.
 2. preview와 export가 같은 recipe를 받아 같은 operation 순서를 사용하게 만듭니다.
-3. 그 다음 session persistence를 Riverpod notifier 또는 별도 controller 한 곳으로 옮깁니다.
+3. session persistence를 별도 controller 한 곳으로 옮깁니다.
 4. 마지막에 도구 panel을 화면 파일에서 작은 feature module로 분리합니다.
 
 이 순서를 거꾸로 하면 파일만 잘게 나뉘고 실제 상태 중복은 그대로 남을 가능성이 큽니다.
@@ -266,6 +266,7 @@ flutter drive --profile \
 
 - [퍼블리시 체크리스트](PUBLISH_CHECKLIST.md)
 - [최종 프로덕션 준비도 감사](docs/final-production-readiness-review.md)
+- [아키텍처·연결성·코드 품질 평가](docs/architecture-connectivity-code-quality-review.md)
 - [편집기 화이트박스 검증 계획](docs/editor-whitebox-validation-plan.md)
 - [필터 생성 연결성 감사](docs/create-filter-gap-review.md)
 - [온디바이스 참조 룩 설계](docs/on-device-reference-look-design.md)

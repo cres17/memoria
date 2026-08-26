@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/l10n/app_locale.dart';
 import '../../core/l10n/strings.dart';
+import '../../core/error/error_handler.dart';
 import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
@@ -337,7 +338,12 @@ class _CreateFilterPageState extends State<CreateFilterPage> {
       setState(() => _resolvingRecentPhotoIds.add(item.assetId));
       try {
         path = await _recentPhotoSource.resolveOriginalPath(item.assetId);
-      } catch (_) {
+      } catch (error, stackTrace) {
+        ErrorLogger.log(
+          'Recent photo original could not be resolved',
+          error.runtimeType,
+          stackTrace,
+        );
         path = null;
       } finally {
         if (mounted) {
@@ -489,7 +495,13 @@ class _CreateFilterPageState extends State<CreateFilterPage> {
           }
         }
       }
-    } catch (_) {}
+    } catch (error, stackTrace) {
+      ErrorLogger.log(
+        'Filter reference analysis failed; keeping manual naming available',
+        error.runtimeType,
+        stackTrace,
+      );
+    }
   }
 
   Future<void> _generate() async {
@@ -666,7 +678,13 @@ class _CreateFilterPageState extends State<CreateFilterPage> {
     try {
       final directory = File(lutPath).parent;
       if (await directory.exists()) await directory.delete(recursive: true);
-    } catch (_) {}
+    } catch (error, stackTrace) {
+      ErrorLogger.log(
+        'Uncommitted generated-filter cleanup failed',
+        error.runtimeType,
+        stackTrace,
+      );
+    }
   }
 
   String? _buildReferenceGuidance({

@@ -148,10 +148,12 @@ void main() {
         .singleWhere((key) => key.startsWith('editor.draft.'));
     final draft =
         jsonDecode(preferences.getString(draftKey)!) as Map<String, dynamic>;
-    expect(draft['version'], 2);
-    expect(draft['lensActive'], isTrue);
-    expect(draft['lensMaxRadius'], 14);
-    expect(draft['brushStrokes'], isA<List<dynamic>>());
+    expect(draft['version'], 3);
+    final snapshot = draft['snapshot'] as Map<String, dynamic>;
+    final effects = snapshot['effects'] as Map<String, dynamic>;
+    expect(effects['lensActive'], isTrue);
+    expect(effects['lensMaxRadius'], 14);
+    expect(effects['brushStrokes'], isA<List<dynamic>>());
     final persistedSession = draft['editSession'] as Map<String, dynamic>;
     final persistedOps = persistedSession['ops'] as List<dynamic>;
     expect(persistedOps, hasLength(2));

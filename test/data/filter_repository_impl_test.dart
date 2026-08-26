@@ -65,4 +65,41 @@ void main() {
     expect(indexJson, equals(['custom_stable_id']));
     expect(Directory('${filtersDir.path}/Golden Walk').existsSync(), isFalse);
   });
+
+  test('corrupt index is quarantined and rebuilt from orphan metadata',
+      () async {
+    final repo = FilterRepositoryImpl();
+    final createdAt = DateTime.utc(2026, 8, 25);
+    final preset = FilterPreset(
+      id: 'orphaned_preset',
+      name: 'Recovered',
+      type: FilterPresetType.custom,
+      lutPath: '',
+      params: AdjustParams.zero,
+      defaultIntensity: 1,
+      thumbnailPath: '',
+      createdAt: createdAt,
+      updatedAt: createdAt,
+    );
+    final filtersDir = Directory('${tempDir.path}/filters');
+    await Directory('${filtersDir.path}/${preset.id}').create(recursive: true);
+    await File('${filtersDir.path}/${preset.id}/meta.json')
+        .writeAsString(preset.toJsonString());
+    await File('${filtersDir.path}/filters_index.json')
+        .writeAsString('{broken');
+
+    final presets = await repo.getCustomPresets();
+
+    expect(presets.single.id, preset.id);
+    expect(
+      await File('${filtersDir.path}/filters_index.json').readAsString(),
+      '["orphaned_preset"]',
+    );
+    expect(
+      filtersDir.listSync().whereType<File>().any(
+            (file) => file.path.contains('filters_index.json.corrupt.'),
+          ),
+      isTrue,
+    );
+  });
 }

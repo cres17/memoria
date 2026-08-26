@@ -6,25 +6,29 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:memoria/domain/models/adjust_params.dart';
 import 'package:memoria/domain/models/edit_operation.dart';
-import 'package:memoria/domain/models/edit_session.dart';
+import 'package:memoria/engine/artistic_effects.dart';
 import 'package:memoria/engine/blend_modes.dart' as bm;
-import 'package:memoria/engine/edit_operation_player.dart';
 import 'package:memoria/engine/portrait_engine.dart';
+import 'package:memoria/features/editor/editor_render_recipe.dart';
+import 'package:memoria/features/editor/editor_renderer.dart';
 
 void main() {
   group('M10 regression gate', () {
-    test('EditOperationPlayer applies M6-M9 stack without blank output', () {
+    test(
+        'production renderer applies the M6-M9 visual stack without blank output',
+        () async {
       final original = _gradientImage(96, 64);
       final blend = _solidImage(96, 64, 32, 96, 220);
-      final session = _integratedSession();
-
-      final out = const EditOperationPlayer().play(EditOperationPlayerArgs(
-        original: original,
-        session: session,
-        segmentMask: _centerMask(original.width, original.height),
-        depthMap: _depthMap(original.width, original.height),
-        blendImageBytes: Uint8List.fromList(img.encodePng(blend)),
-      ));
+      final out = await EditorRenderer.renderExport(
+        source: original,
+        recipe: _integratedRecipe(),
+        resources: EditorRenderResources(
+          segmentMask: _centerMask(original.width, original.height),
+          segmentMaskWidth: original.width,
+          segmentMaskHeight: original.height,
+          blendImageBytes: Uint8List.fromList(img.encodePng(blend)),
+        ),
+      );
 
       expect(out.width, original.width);
       expect(out.height, original.height);
@@ -66,84 +70,60 @@ void main() {
   });
 }
 
-EditSession _integratedSession() {
-  final now = DateTime.utc(2026, 6, 3);
-  EditOperation op(
-    String id,
-    EditToolType tool, {
-    AdjustParams? params,
-    List<HealStroke>? healStrokes,
-    PortraitParams? portrait,
-    CreativeParams? creative,
-  }) =>
-      EditOperation(
-        id: id,
-        tool: tool,
-        appliedAt: now,
-        params: params,
-        healStrokes: healStrokes,
-        portrait: portrait,
-        creative: creative,
-      );
-
-  return EditSession.forImage('memory://m10')
-      .pushOp(op(
-        'm6-global',
-        EditToolType.globalAdjust,
-        params: const AdjustParams(
-          exposure: 0.12,
-          contrast: 12,
-          saturation: 8,
-          structure: 10,
-          glowStrength: 12,
-          hdrStrength: 14,
-          lightLeakStrength: 16,
-          lightLeakAngle: 28,
-          halationStrength: 18,
-          halationThreshold: 58,
-        ),
-      ))
-      .pushOp(op(
-        'm8-heal',
-        EditToolType.heal,
-        healStrokes: const [
-          HealStroke(
-            radius: 0.045,
-            path: [
-              {'x': 0.48, 'y': 0.48},
-              {'x': 0.54, 'y': 0.52},
-            ],
-          ),
-        ],
-      ))
-      .pushOp(op(
-        'raw',
-        EditToolType.rawDevelop,
-        params: const AdjustParams(luminanceNR: 14, colourNR: 8, nrDetail: 6),
-      ))
-      .pushOp(op(
-        'm9-portrait',
-        EditToolType.portrait,
-        portrait: const PortraitParams(
-          smooth: 16,
-          spotlight: 18,
-          skinTone: SkinTone.medium,
-          skinToneStrength: 18,
-          bokeh: 20,
-          headYaw: 18,
-          headPitch: -10,
-        ),
-      ))
-      .pushOp(op(
-        'creative',
-        EditToolType.creative,
-        creative: const CreativeParams(
-          blendImagePath: 'memory://blend',
-          blendMode: bm.BlendMode.overlay,
-          blendOpacity: 0.20,
-        ),
-      ));
-}
+EditorRenderRecipe _integratedRecipe() => EditorRenderRecipe(
+      adjustParams: const AdjustParams(
+        exposure: 0.12,
+        contrast: 12,
+        saturation: 8,
+        structure: 10,
+        glowStrength: 12,
+        hdrStrength: 14,
+        lightLeakStrength: 16,
+        lightLeakAngle: 28,
+        halationStrength: 18,
+        halationThreshold: 58,
+      ),
+      lutBytes: null,
+      intensity: 1,
+      crop: CropState.identity,
+      cropAspectRatio: null,
+      effect: ArtisticEffect.none,
+      effectStrength: 1,
+      grainVariant: 0,
+      selectiveActive: false,
+      selectiveX: 0.5,
+      selectiveY: 0.5,
+      selectiveBrightness: 0,
+      selectiveContrast: 0,
+      selectiveSaturation: 0,
+      selectiveRadius: 0.3,
+      dodgeBurnActive: false,
+      dodgeStrength: 0,
+      dodgeY: 0.5,
+      dodgeRadius: 0.3,
+      burnStrength: 0,
+      burnY: 0.5,
+      burnRadius: 0.3,
+      tiltActive: false,
+      tiltFocusCenter: 0.5,
+      tiltBandWidth: 0.3,
+      tiltMaxBlur: 0,
+      lensActive: true,
+      lensFocusDepth: 0.35,
+      lensMaxRadius: 2,
+      portrait: const PortraitParams(
+        smooth: 16,
+        spotlight: 18,
+        skinTone: SkinTone.medium,
+        skinToneStrength: 18,
+      ),
+      creative: const CreativeParams(
+        blendImagePath: 'memory://blend',
+        blendMode: bm.BlendMode.overlay,
+        blendOpacity: 0.20,
+      ),
+      brushStrokes: const [],
+    );
 
 img.Image _gradientImage(int width, int height) {
   final image = img.Image(width: width, height: height);
@@ -187,21 +167,6 @@ Float32List _centerMask(int width, int height) {
     }
   }
   return mask;
-}
-
-Float32List _depthMap(int width, int height) {
-  final map = Float32List(width * height);
-  final cx = (width - 1) / 2;
-  final cy = (height - 1) / 2;
-  final maxD = (cx * cx + cy * cy);
-  for (var y = 0; y < height; y++) {
-    for (var x = 0; x < width; x++) {
-      final dx = x - cx;
-      final dy = y - cy;
-      map[y * width + x] = ((dx * dx + dy * dy) / maxD).clamp(0.0, 1.0);
-    }
-  }
-  return map;
 }
 
 double _meanAbsoluteDelta(img.Image a, img.Image b) {

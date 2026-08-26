@@ -36,6 +36,8 @@ import ImageIO
             result(["useDartFallback": true])
         case "encodeWebP":
             handleEncodeWebP(call: call, result: result)
+        case "supportsWebPEncoding":
+            result(Self.supportsWebPEncoding)
         default:
             result(FlutterMethodNotImplemented)
         }
@@ -43,9 +45,16 @@ import ImageIO
 
     // MARK: — WebP export
 
+    private static var supportsWebPEncoding: Bool {
+        let webpType = "org.webmproject.webp"
+        return (CGImageDestinationCopyTypeIdentifiers() as NSArray)
+            .contains { String(describing: $0) == webpType }
+    }
+
     /// ImageIO is the source of truth for native codec support. The app only
-    /// exposes WebP when this conversion succeeds, so an extension can never
-    /// claim WebP while containing JPEG bytes.
+    /// exposes WebP when the destination type is advertised, and still treats
+    /// a failed conversion as a hard failure so JPEG bytes are never published
+    /// under a `.webp` extension.
     private func handleEncodeWebP(call: FlutterMethodCall, result: @escaping FlutterResult) {
         guard let args = call.arguments as? [String: Any],
               let inputPath = args["inputPath"] as? String,
@@ -59,8 +68,7 @@ import ImageIO
         DispatchQueue.global(qos: .userInitiated).async {
             do {
                 let webpType = "org.webmproject.webp" as CFString
-                let supportedTypes = CGImageDestinationCopyTypeIdentifiers() as NSArray
-                guard supportedTypes.contains(where: { String(describing: $0) == webpType as String }) else {
+                guard Self.supportsWebPEncoding else {
                     throw NSError(domain: "LutEngine", code: 20,
                                   userInfo: [NSLocalizedDescriptionKey: "WebP is not supported by ImageIO on this device"])
                 }

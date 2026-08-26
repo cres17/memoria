@@ -60,7 +60,8 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
           r == ConnectivityResult.mobile ||
           r == ConnectivityResult.wifi ||
           r == ConnectivityResult.ethernet);
-    } catch (_) {
+    } on Object {
+      // Banner availability is best-effort and never blocks app content.
       return false;
     }
   }

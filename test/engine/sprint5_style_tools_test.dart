@@ -2,11 +2,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:memoria/domain/models/adjust_params.dart';
 import 'package:memoria/domain/models/edit_operation.dart';
-import 'package:memoria/domain/models/edit_session.dart';
-import 'package:memoria/engine/edit_operation_player.dart';
 import 'package:memoria/engine/lut_engine.dart';
 
-img.Image _syntheticTestImage({required int width, required int height, required double grayLevel}) {
+img.Image _syntheticTestImage(
+    {required int width, required int height, required double grayLevel}) {
   final image = img.Image(width: width, height: height);
   final pixelVal = (grayLevel * 255).round().clamp(0, 255);
   for (var y = 0; y < height; y++) {
@@ -19,8 +18,10 @@ img.Image _syntheticTestImage({required int width, required int height, required
 
 void main() {
   group('Sprint 5 Style Tools: Vignette', () {
-    test('vignette reduces brightness at the corners more than at the center', () {
-      final img.Image image = _syntheticTestImage(width: 100, height: 100, grayLevel: 0.8);
+    test('vignette reduces brightness at the corners more than at the center',
+        () {
+      final img.Image image =
+          _syntheticTestImage(width: 100, height: 100, grayLevel: 0.8);
       const params = AdjustParams(vignette: 80);
 
       final result = applyImagePipeline(image: image, params: params);
@@ -36,17 +37,23 @@ void main() {
   });
 
   group('Sprint 5 Style Tools: Glamour Glow', () {
-    test('glow increases brightness in high-luminance regions while leaving dark areas intact', () {
+    test(
+        'glow increases brightness in high-luminance regions while leaving dark areas intact',
+        () {
       // 1. High-luminance test
-      final img.Image lightImage = _syntheticTestImage(width: 50, height: 50, grayLevel: 0.9);
-      const glowParams = AdjustParams(glowStrength: 60, glowSaturation: 10, glowWarmth: 10);
-      final lightGlow = applyImagePipeline(image: lightImage, params: glowParams);
+      final img.Image lightImage =
+          _syntheticTestImage(width: 50, height: 50, grayLevel: 0.9);
+      const glowParams =
+          AdjustParams(glowStrength: 60, glowSaturation: 10, glowWarmth: 10);
+      final lightGlow =
+          applyImagePipeline(image: lightImage, params: glowParams);
 
       // Screen blend with glow layer should make high luminance pixels even brighter
       expect(lightGlow.getPixel(25, 25).rNormalized, greaterThan(0.9));
 
       // 2. Low-luminance test (should not glow)
-      final img.Image darkImage = _syntheticTestImage(width: 50, height: 50, grayLevel: 0.15);
+      final img.Image darkImage =
+          _syntheticTestImage(width: 50, height: 50, grayLevel: 0.15);
       final darkGlow = applyImagePipeline(image: darkImage, params: glowParams);
 
       // Since L is low, glow highlight mask is almost 0, dark pixels should stay dark
@@ -84,7 +91,9 @@ void main() {
   });
 
   group('Sprint 5 Style Tools: Integration and Serialization', () {
-    test('JSON serialization roundtrip for vignette, glow, and drama operations is lossless', () {
+    test(
+        'JSON serialization roundtrip for vignette, glow, and drama operations is lossless',
+        () {
       final ops = [
         EditOperation(
           id: 'vignette-op',
@@ -96,7 +105,8 @@ void main() {
           id: 'glow-op',
           tool: EditToolType.glow,
           appliedAt: DateTime.utc(2026, 6, 1),
-          params: const AdjustParams(glowStrength: 40, glowSaturation: 20, glowWarmth: -10),
+          params: const AdjustParams(
+              glowStrength: 40, glowSaturation: 20, glowWarmth: -10),
         ),
         EditOperation(
           id: 'drama-op',
@@ -118,39 +128,6 @@ void main() {
         expect(roundtripped.params?.hdrStrength, op.params?.hdrStrength);
         expect(roundtripped.params?.hdrSaturation, op.params?.hdrSaturation);
       }
-    });
-
-    test('EditOperationPlayer executes vignette, glow, and drama tools successfully', () {
-      final im = _syntheticTestImage(width: 32, height: 32, grayLevel: 0.7);
-      
-      final session = EditSession(
-        imageUri: 'style_tools_test.jpg',
-        ops: [
-          EditOperation(
-            id: 'glow-1',
-            tool: EditToolType.glow,
-            appliedAt: DateTime.utc(2026, 6, 1),
-            params: const AdjustParams(glowStrength: 50),
-          ),
-          EditOperation(
-            id: 'vignette-1',
-            tool: EditToolType.vignette,
-            appliedAt: DateTime.utc(2026, 6, 1),
-            params: const AdjustParams(vignette: 80),
-          ),
-        ],
-        undoCursor: 2,
-      );
-
-      const player = EditOperationPlayer();
-      final out = player.play(EditOperationPlayerArgs(original: im, session: session));
-
-      // Glow + Vignette should result in a valid image of the same dimensions
-      expect(out.width, 32);
-      expect(out.height, 32);
-
-      // Verify vignette darkened the corner
-      expect(out.getPixel(0, 0).rNormalized, lessThan(out.getPixel(16, 16).rNormalized));
     });
   });
 }

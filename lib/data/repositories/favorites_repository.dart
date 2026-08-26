@@ -1,8 +1,10 @@
 import 'dart:convert';
+import 'package:memoria/core/error/error_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class FavoritesRepository {
   static const _key = 'filter_favorites_v1';
+  static const _corruptBackupKey = '${_key}_corrupt_backup';
 
   Future<Set<String>> getFavoriteIds() async {
     final prefs = await SharedPreferences.getInstance();
@@ -11,8 +13,20 @@ class FavoritesRepository {
     try {
       final list = jsonDecode(raw) as List<dynamic>;
       return list.cast<String>().toSet();
-    } catch (_) {
+    } catch (error, stackTrace) {
+      await _quarantine(raw, prefs);
+      ErrorLogger.log(
+        'Favorite filter storage was corrupt; original was quarantined',
+        error.runtimeType,
+        stackTrace,
+      );
       return {};
+    }
+  }
+
+  Future<void> _quarantine(String raw, SharedPreferences prefs) async {
+    if (prefs.getString(_corruptBackupKey) == null) {
+      await prefs.setString(_corruptBackupKey, raw);
     }
   }
 
