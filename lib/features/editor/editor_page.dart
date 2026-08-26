@@ -1,8 +1,5 @@
-// ignore_for_file: unused_element, unused_field, unused_element_parameter
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
-import 'dart:isolate';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui';
@@ -13,20 +10,13 @@ import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
-import 'package:gal/gal.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:memoria/core/l10n/strings.dart';
-import 'package:memoria/core/services/export_preferences.dart';
 import 'package:memoria/core/services/media_permission_service.dart';
 import 'package:memoria/core/theme/app_colors.dart';
 import 'package:memoria/core/theme/app_theme.dart';
 import 'package:memoria/core/utils/platform_utils.dart';
 import 'package:memoria/engine/gpu_image_view.dart';
-import 'package:memoria/engine/engine_channel.dart';
-import 'package:memoria/engine/export_encoder.dart';
-import 'package:memoria/engine/frame_overlay.dart';
 import 'package:memoria/data/repositories/custom_adjustment_repository.dart';
 import 'package:memoria/data/repositories/favorites_repository.dart';
 import 'package:memoria/data/repositories/filter_repository_impl.dart';
@@ -38,10 +28,18 @@ import 'package:memoria/engine/portrait_engine.dart';
 import 'package:memoria/domain/models/adjust_params.dart';
 import 'package:memoria/domain/models/curve_data.dart';
 import 'package:memoria/domain/models/filter_preset.dart';
-import 'package:memoria/domain/models/edit_session.dart';
 import 'package:memoria/domain/models/edit_operation.dart';
+import 'package:memoria/features/editor/editor_render_recipe.dart';
+import 'package:memoria/features/editor/editor_renderer.dart';
+import 'package:memoria/features/editor/editor_resource_preparer.dart';
+import 'package:memoria/features/editor/editor_spatial_renderer.dart';
+import 'package:memoria/features/editor/editor_export_failure.dart';
+import 'package:memoria/features/editor/editor_export_service.dart';
+import 'package:memoria/features/editor/editor_media_export_coordinator.dart';
+import 'package:memoria/features/editor/editor_draft_store.dart';
+import 'package:memoria/features/editor/editor_history_controller.dart';
+import 'package:memoria/features/editor/editor_state_adapter.dart';
 import 'package:memoria/engine/artistic_effects.dart';
-import 'package:memoria/engine/blur_engine.dart';
 import 'package:memoria/engine/local_adjust.dart';
 import 'package:memoria/domain/models/crop_ratio_preset.dart';
 import 'package:memoria/engine/lut_engine.dart';
@@ -92,7 +90,9 @@ class _EditorPageState extends State<EditorPage> {
   int _livePrepareToken = 0;
   late final ValueNotifier<AdjustParams> _liveParamsNotifier;
   late final ValueNotifier<double> _liveIntensityNotifier;
-  late EditSession _editSession;
+  late final EditorHistoryController _history;
+  late final EditorDraftStore _draftStore;
+  late final EditorResourcePreparer _resourcePreparer;
   List<String> _favoriteToolIds = [
     'tune',
     'details',
@@ -538,18 +538,7 @@ class _EditorPageState extends State<EditorPage> {
     _renderPreview();
   }
 
-  void _saveToHistory() {
-    final op = EditOperation(
-      id: DateTime.now().microsecondsSinceEpoch.toString(),
-      tool: _historyToolForActiveTool(),
-      schemaVersion: 2,
-      appliedAt: DateTime.now(),
-      params: _params,
-      presetId: _selectedPreset?.id,
-      lutPath: _selectedPreset?.lutPath,
-      intensity: _intensity,
-      curves: Map<CurveChannel, CurveData>.from(_curves),
-      cropState: CropState(
+  CropState _currentCropState() => CropState(
         ratio: _cropRatio,
         centerX: _cropCenterX,
         centerY: _cropCenterY,
@@ -567,14 +556,16 @@ class _EditorPageState extends State<EditorPage> {
         expandLeft: _expandLeft,
         expandRight: _expandRight,
         expandMode: _expandMode,
-      ),
-      portrait: PortraitParams(
+      );
+
+  PortraitParams _currentPortraitParams() => PortraitParams(
         smooth: _portraitSmooth,
         spotlight: _portraitSpotlight,
         skinTone: _skinTone,
         skinToneStrength: _skinToneStrength,
-      ),
-      creative: CreativeParams(
+      );
+
+  CreativeParams _currentCreativeParams() => CreativeParams(
         blendImagePath: _blendImagePath,
         blendMode: _blendMode,
         blendOpacity: _blendOpacity,
@@ -586,8 +577,9 @@ class _EditorPageState extends State<EditorPage> {
         textY: _textY,
         textRotation: _textRotation,
         fontFamily: _textFontFamily,
-      ),
-      effectState: EditorEffectState(
+      );
+
+  EditorEffectState _currentEffectState() => EditorEffectState(
         artisticEffect: _effect.name,
         effectStrength: _effectStrength,
         grainVariant: _grainVariant,
@@ -624,9 +616,44 @@ class _EditorPageState extends State<EditorPage> {
         lensActive: _lensActive,
         lensFocusDepth: _lensFocusDepth,
         lensMaxRadius: _lensMaxRadius,
-      ),
+      );
+
+  EditorStateSnapshot _currentEditorState() => EditorStateSnapshot(
+        adjustParams: _params,
+        curves: _curves,
+        presetId: _selectedPreset?.id,
+        lutPath: _selectedPreset?.lutPath,
+        intensity: _intensity,
+        crop: _currentCropState(),
+        portrait: _currentPortraitParams(),
+        creative: _currentCreativeParams(),
+        effects: _currentEffectState(),
+        localSubTabName: _localSubTab.name,
+      );
+
+  EditorRenderRecipe _currentRenderRecipe({
+    AdjustParams? adjustParams,
+    Uint8List? lutBytes,
+    bool overrideLutBytes = false,
+    double? intensity,
+  }) =>
+      _currentEditorState().toRenderRecipe(
+        lutBytes: _lutBytes,
+        cropAspectRatio: _currentCropRect(),
+        adjustParamsOverride: adjustParams,
+        lutBytesOverride: lutBytes,
+        overrideLutBytes: overrideLutBytes,
+        intensityOverride: intensity,
+      );
+
+  void _saveToHistory() {
+    final now = DateTime.now();
+    final op = _currentEditorState().toOperation(
+      id: now.microsecondsSinceEpoch.toString(),
+      tool: _historyToolForActiveTool(),
+      appliedAt: now,
     );
-    _editSession = _editSession.pushOp(op);
+    _history.apply(op);
   }
 
   EditToolType _historyToolForActiveTool() {
@@ -680,11 +707,10 @@ class _EditorPageState extends State<EditorPage> {
   }
 
   void _undo() {
-    if (!_editSession.canUndo) return;
-    _editSession = _editSession.undo();
+    if (!_history.canUndo) return;
+    final op = _history.undo();
 
-    if (_editSession.undoCursor > 0) {
-      final op = _editSession.ops[_editSession.undoCursor - 1];
+    if (op != null) {
       setState(() {
         _applyHistorySnapshot(op);
       });
@@ -700,10 +726,10 @@ class _EditorPageState extends State<EditorPage> {
   }
 
   void _redo() {
-    if (!_editSession.canRedo) return;
-    _editSession = _editSession.redo();
+    if (!_history.canRedo) return;
+    final op = _history.redo();
+    if (op == null) return;
 
-    final op = _editSession.ops[_editSession.undoCursor - 1];
     setState(() {
       _applyHistorySnapshot(op);
     });
@@ -722,58 +748,56 @@ class _EditorPageState extends State<EditorPage> {
   }
 
   void _applyHistorySnapshot(EditOperation op) {
-    if (op.params != null) _params = op.params!;
+    _applyEditorState(EditorStateSnapshot.fromOperation(op));
+  }
+
+  void _applyEditorState(EditorStateSnapshot state) {
+    _params = state.adjustParams;
     _syncCurvesFromParams();
-    if (op.curves != null) {
+    if (state.curves.isNotEmpty) {
       _curves
         ..clear()
-        ..addAll(op.curves!);
+        ..addAll(state.curves);
     }
-    _selectedPreset = _presetForId(op.presetId);
+    _selectedPreset = _presetForId(state.presetId);
     _lutBytes = null;
-    if (op.intensity != null) _intensity = op.intensity!;
-    if (op.cropState != null) {
-      final cs = op.cropState!;
-      _cropRatio = cs.ratio;
-      _cropCenterX = cs.centerX;
-      _cropCenterY = cs.centerY;
-      _cropLeft = cs.cropLeft;
-      _cropTop = cs.cropTop;
-      _cropRight = cs.cropRight;
-      _cropBottom = cs.cropBottom;
-      _rotation = cs.rotation;
-      _flipH = cs.flipH;
-      _flipV = cs.flipV;
-      _perspH = cs.perspH;
-      _perspV = cs.perspV;
-      _expandTop = cs.expandTop;
-      _expandBottom = cs.expandBottom;
-      _expandLeft = cs.expandLeft;
-      _expandRight = cs.expandRight;
-      _expandMode = cs.expandMode;
-    }
-    if (op.portrait != null) {
-      final portrait = op.portrait!;
-      _portraitSmooth = portrait.smooth;
-      _portraitSpotlight = portrait.spotlight;
-      _skinTone = portrait.skinTone;
-      _skinToneStrength = portrait.skinToneStrength;
-    }
-    if (op.creative != null) {
-      final creative = op.creative!;
-      _blendImagePath = creative.blendImagePath;
-      _blendMode = creative.blendMode;
-      _blendOpacity = creative.blendOpacity;
-      _frameIndex = creative.frameIndex;
-      _overlayText = creative.overlayText;
-      _textSize = creative.textSize;
-      _textColor = Color(creative.textColorValue);
-      _textX = creative.textX;
-      _textY = creative.textY;
-      _textRotation = creative.textRotation;
-      _textFontFamily = creative.fontFamily;
-    }
-    _restoreEffectState(op.effectState ?? EditorEffectState.defaults);
+    _intensity = state.intensity;
+    final crop = state.crop;
+    _cropRatio = crop.ratio;
+    _cropCenterX = crop.centerX;
+    _cropCenterY = crop.centerY;
+    _cropLeft = crop.cropLeft;
+    _cropTop = crop.cropTop;
+    _cropRight = crop.cropRight;
+    _cropBottom = crop.cropBottom;
+    _rotation = crop.rotation;
+    _flipH = crop.flipH;
+    _flipV = crop.flipV;
+    _perspH = crop.perspH;
+    _perspV = crop.perspV;
+    _expandTop = crop.expandTop;
+    _expandBottom = crop.expandBottom;
+    _expandLeft = crop.expandLeft;
+    _expandRight = crop.expandRight;
+    _expandMode = crop.expandMode;
+    final portrait = state.portrait;
+    _portraitSmooth = portrait.smooth;
+    _portraitSpotlight = portrait.spotlight;
+    _skinTone = portrait.skinTone;
+    _skinToneStrength = portrait.skinToneStrength;
+    final creative = state.creative;
+    _blendImagePath = creative.blendImagePath;
+    _blendMode = creative.blendMode;
+    _blendOpacity = creative.blendOpacity;
+    _frameIndex = creative.frameIndex;
+    _overlayText = creative.overlayText;
+    _textSize = creative.textSize;
+    _textColor = Color(creative.textColorValue);
+    _textX = creative.textX;
+    _textY = creative.textY;
+    _textRotation = creative.textRotation;
+    _textFontFamily = creative.fontFamily;
+    _restoreEffectState(state.effects);
   }
 
   void _restoreEffectState(EditorEffectState state) {
@@ -877,84 +901,15 @@ class _EditorPageState extends State<EditorPage> {
     }());
   }
 
-  void _applyStateJson(Map<String, dynamic> json) {
-    setState(() {
-      _params =
-          AdjustParams.fromJson(json['adjustParams'] as Map<String, dynamic>);
-      _syncCurvesFromParams();
-      _intensity = _doubleFromJson(json['intensity'], 1.0);
-      _effect = _enumByName(ArtisticEffect.values, json['effect'] as String?,
-          ArtisticEffect.none);
-      _effectStrength = _doubleFromJson(json['effectStrength'], 1.0);
-      _toolsSubTab = _enumByName(_ToolsSubTab.values,
-          json['toolsSubTab'] as String?, _ToolsSubTab.crop);
-      _cropRatio = _enumByName(CropRatioPreset.values,
-          json['cropRatio'] as String?, CropRatioPreset.free);
-      _cropCenterX = _doubleFromJson(json['cropCenterX'], 0.5);
-      _cropCenterY = _doubleFromJson(json['cropCenterY'], 0.5);
-      _rotation = _doubleFromJson(json['rotation'], 0.0);
-      _flipH = json['flipH'] as bool? ?? false;
-      _flipV = json['flipV'] as bool? ?? false;
-      _perspH = _doubleFromJson(json['perspH'], 0.0);
-      _perspV = _doubleFromJson(json['perspV'], 0.0);
-      _expandTop = _doubleFromJson(json['expandTop'], 0.0);
-      _expandBottom = _doubleFromJson(json['expandBottom'], 0.0);
-      _expandLeft = _doubleFromJson(json['expandLeft'], 0.0);
-      _expandRight = _doubleFromJson(json['expandRight'], 0.0);
-      _expandMode = json['expandMode'] as String? ?? 'black';
-      _localSubTab = _enumByName(_LocalSubTab.values,
-          json['localSubTab'] as String?, _LocalSubTab.tiltShift);
-      _selActive = json['selActive'] as bool? ?? false;
-      _selX = _doubleFromJson(json['selX'], 0.5);
-      _selY = _doubleFromJson(json['selY'], 0.5);
-      _selBright = _doubleFromJson(json['selBright'], 0.0);
-      _selContrast = _doubleFromJson(json['selContrast'], 0.0);
-      _selSat = _doubleFromJson(json['selSat'], 0.0);
-      _selRadius = _doubleFromJson(json['selRadius'], 0.3);
-      _dbActive = json['dbActive'] as bool? ?? false;
-      _dodgeY = _doubleFromJson(json['dodgeY'], 0.25);
-      _dodgeRadius = _doubleFromJson(json['dodgeRadius'], 0.25);
-      _dodgeStrength = _doubleFromJson(json['dodgeStrength'], 0.3);
-      _burnY = _doubleFromJson(json['burnY'], 0.75);
-      _burnRadius = _doubleFromJson(json['burnRadius'], 0.25);
-      _burnStrength = _doubleFromJson(json['burnStrength'], 0.3);
-      _tiltActive = json['tiltActive'] as bool? ?? false;
-      _tiltFocusCenter = _doubleFromJson(json['tiltFocusCenter'], 0.5);
-      _tiltBandWidth = _doubleFromJson(json['tiltBandWidth'], 0.3);
-      _tiltMaxBlur = _doubleFromJson(json['tiltMaxBlur'], 8.0);
-      _lensActive = json['lensActive'] as bool? ?? false;
-      _lensFocusDepth = _doubleFromJson(json['lensFocusDepth'], 0.0);
-      _lensMaxRadius = _doubleFromJson(json['lensMaxRadius'], 8.0);
-      _portraitSmooth = _doubleFromJson(json['portraitSmooth'], 0.0);
-      _portraitSpotlight = _doubleFromJson(json['portraitSpotlight'], 0.0);
-      _skinTone = _enumByName(
-          SkinTone.values, json['skinTone'] as String?, SkinTone.none);
-      _skinToneStrength = _doubleFromJson(json['skinToneStrength'], 50.0);
-      _blendImagePath = json['blendImagePath'] as String?;
-      _blendMode = _enumByName(bm.BlendMode.values,
-          json['blendMode'] as String?, bm.BlendMode.lighten);
-      _blendOpacity = _doubleFromJson(json['blendOpacity'], 0.5);
-      _frameIndex = (json['frameIndex'] as num?)?.toInt() ?? -1;
-      _overlayText = json['overlayText'] as String? ?? '';
-      _textFontFamily = json['textFontFamily'] as String? ?? 'Montserrat';
-      _textSize = _doubleFromJson(json['textSize'], 32.0);
-      _textColor =
-          Color((json['textColor'] as num?)?.toInt() ?? Colors.white.value);
-      _textX = _doubleFromJson(json['textX'], 0.5).clamp(0.0, 1.0);
-      _textY = _doubleFromJson(json['textY'], 0.82).clamp(0.0, 1.0);
-      _textRotation = _doubleFromJson(json['textRotation'], 0.0);
-    });
-  }
-
   AdjustParams _params = AdjustParams.zero;
   FilterPreset? _selectedPreset;
   double _intensity = 1.0;
   int _adjustIndex = 0;
   bool _exporting = false;
   double _exportProgress = 0.0;
-  bool _exportCancelled = false;
   bool _exportForShare = false;
-  Isolate? _exportIsolateRef;
+  final EditorMediaExportCoordinator _mediaExportCoordinator =
+      EditorMediaExportCoordinator();
 
   // Phase 2: 채널별 커브 상태
   final Map<CurveChannel, CurveData> _curves = {};
@@ -965,7 +920,6 @@ class _EditorPageState extends State<EditorPage> {
   int _grainVariant = 3;
 
   // Phase 5: 기하학 변환
-  _ToolsSubTab _toolsSubTab = _ToolsSubTab.crop;
   CropRatioPreset _cropRatio = CropRatioPreset.free;
   double _cropCenterX = 0.5;
   double _cropCenterY = 0.5;
@@ -1051,40 +1005,6 @@ class _EditorPageState extends State<EditorPage> {
   Float32List? _segmentMask; // cached mask for current preview base image
   String? _segmentMaskBaseKey; // preview base key the mask was computed for
 
-  /// 크롭 비율에 따라 이미지 중앙 크롭.
-  img.Image _applyCropToImage(img.Image image) {
-    if (_cropLeft > 0.0 ||
-        _cropTop > 0.0 ||
-        _cropRight < 1.0 ||
-        _cropBottom < 1.0) {
-      final x = (image.width * _cropLeft).round().clamp(0, image.width - 1);
-      final y = (image.height * _cropTop).round().clamp(0, image.height - 1);
-      final w = (image.width * (_cropRight - _cropLeft))
-          .round()
-          .clamp(1, image.width - x);
-      final h = (image.height * (_cropBottom - _cropTop))
-          .round()
-          .clamp(1, image.height - y);
-      return img.copyCrop(image, x: x, y: y, width: w, height: h);
-    }
-    if (_cropRatio == CropRatioPreset.free) return image;
-    final ratio = _resolvedCropAspectRatio(imageSize: image);
-    if (ratio == null) return image;
-    final W = image.width.toDouble();
-    final H = image.height.toDouble();
-    int cropW, cropH, x, y;
-    if (W / H > ratio) {
-      cropH = H.round();
-      cropW = (H * ratio).round();
-    } else {
-      cropW = W.round();
-      cropH = (W / ratio).round();
-    }
-    x = (W * _cropCenterX - cropW / 2).round().clamp(0, W.round() - cropW);
-    y = (H * _cropCenterY - cropH / 2).round().clamp(0, H.round() - cropH);
-    return img.copyCrop(image, x: x, y: y, width: cropW, height: cropH);
-  }
-
   /// Isolate 전달용: 크롭 비율을 double?으로 변환.
   double? _currentCropRect() => _resolvedCropAspectRatio();
 
@@ -1112,7 +1032,13 @@ class _EditorPageState extends State<EditorPage> {
     super.initState();
     _liveParamsNotifier = ValueNotifier(AdjustParams.zero);
     _liveIntensityNotifier = ValueNotifier(1.0);
-    _editSession = EditSession.forImage(widget.imagePath ?? '');
+    _history = EditorHistoryController(widget.imagePath ?? '');
+    _draftStore = EditorDraftStore();
+    _resourcePreparer = EditorResourcePreparer(
+      loadFrame: _loadFrameBytes,
+      loadBlend: _loadBlendImageBytesForPath,
+      loadPortraitMask: _preparePortraitMask,
+    );
     _allPresets = BuiltinPresets.all;
     _loadEditorState();
     setStatusBarForDark();
@@ -1153,25 +1079,40 @@ class _EditorPageState extends State<EditorPage> {
       setState(() {
         _showFavoriteTip = !dismissed;
       });
-    } catch (_) {}
+    } catch (error, stackTrace) {
+      ErrorLogger.log(
+        'Editor favorites could not be loaded; using defaults',
+        error.runtimeType,
+        stackTrace,
+      );
+    }
   }
 
   Future<void> _saveFavoriteTools() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setStringList('favorite_tool_ids', _favoriteToolIds);
-    } catch (_) {}
+    } catch (error, stackTrace) {
+      ErrorLogger.log(
+        'Editor favorite tools could not be saved',
+        error.runtimeType,
+        stackTrace,
+      );
+    }
   }
 
   Future<void> _saveFavoriteTipDismissed() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('favorite_tip_dismissed', true);
-    } catch (_) {}
+    } catch (error, stackTrace) {
+      ErrorLogger.log(
+        'Editor favorite tip state could not be saved',
+        error.runtimeType,
+        stackTrace,
+      );
+    }
   }
-
-  img.Image _applyPerspectiveSkew(img.Image src, double hDeg, double vDeg) =>
-      _applyPerspectiveSkewInverse(src, hDeg, vDeg);
 
   Future<void> _loadEditorState() async {
     try {
@@ -1182,15 +1123,38 @@ class _EditorPageState extends State<EditorPage> {
       // should survive a corrupt custom-preset file).
       final customPresets = await FilterRepositoryImpl()
           .getCustomPresets()
-          .catchError((_) => <FilterPreset>[]);
+          .catchError((Object error, StackTrace stackTrace) {
+        ErrorLogger.log(
+          'Custom presets unavailable during editor initialization',
+          error.runtimeType,
+          stackTrace,
+        );
+        return <FilterPreset>[];
+      });
       final presets = [
         ...customPresets,
         ...BuiltinPresets.all,
       ];
-      final favIds =
-          await _favRepo.getFavoriteIds().catchError((_) => <String>{});
-      final customAdjs =
-          await _adjRepo.getAll().catchError((_) => <CustomAdjustment>[]);
+      final favIds = await _favRepo.getFavoriteIds().catchError(
+        (Object error, StackTrace stackTrace) {
+          ErrorLogger.log(
+            'Favorite filters unavailable during editor initialization',
+            error.runtimeType,
+            stackTrace,
+          );
+          return <String>{};
+        },
+      );
+      final customAdjs = await _adjRepo.getAll().catchError(
+        (Object error, StackTrace stackTrace) {
+          ErrorLogger.log(
+            'Custom adjustments unavailable during editor initialization',
+            error.runtimeType,
+            stackTrace,
+          );
+          return <CustomAdjustment>[];
+        },
+      );
 
       FilterPreset? initialPreset;
       if (widget.initialPresetId != null) {
@@ -1216,14 +1180,19 @@ class _EditorPageState extends State<EditorPage> {
         _lutBytes = initialLut;
         _favoriteFilterIds = favIds;
         _customAdjustments = customAdjs;
-        _editSession = EditSession.forImage(widget.imagePath ?? '');
+        _history.reset();
         _syncCurvesFromParams();
       });
       _liveParamsNotifier.value = _params;
       _liveIntensityNotifier.value = _intensity;
       _preloadPresetLuts(presets);
       await _restoreDraft(presets);
-    } catch (_) {
+    } catch (error, stackTrace) {
+      ErrorLogger.log(
+        'Editor initialization degraded to built-in presets',
+        error.runtimeType,
+        stackTrace,
+      );
       if (!mounted) return;
       setState(() {
         _allPresets = BuiltinPresets.all;
@@ -1307,32 +1276,19 @@ class _EditorPageState extends State<EditorPage> {
       if (decoded == null) return;
       final preview = _previewBaseImage(decoded);
 
-      final frameBytes = await _loadFrameBytes(_frameIndex);
-      Uint8List? blendImageBytes = _blendImageCachedBytes;
-
-      Float32List? segmentMask;
-      if (_portraitActive) {
-        segmentMask = await _getSegmentMask(preview, _previewBaseKey());
-      }
-
-      // The live GPU path still needs a pre-rasterized text layer because the
-      // worker isolate cannot use Flutter's font rasterizer. Keep this in sync
-      // with the full preview/export path so another adjustment never snaps
-      // already-applied text back to the default location.
-      Uint8List? textOverlayBytes;
-      if (_overlayText.trim().isNotEmpty) {
-        textOverlayBytes = await TextRasterizer.rasterize(
-          text: _overlayText,
-          fontFamily: _textFontFamily,
-          textSize: _textSize,
-          color: _textColor,
-          textX: _textX,
-          textY: _textY,
-          rotationDegrees: _textRotation,
-          imageWidth: preview.width,
-          imageHeight: preview.height,
-        );
-      }
+      final resources = await _resourcePreparer.prepare(
+        EditorResourcePreparationRequest(
+          recipe: _currentRenderRecipe(),
+          maskSource: preview,
+          maskSourceKey: _previewBaseKey(),
+          targetGeometry: EditorTargetGeometry(
+              width: preview.width, height: preview.height),
+          frameIndex: _frameIndex,
+          blendImagePath: _blendImagePath,
+          preparePortraitMask: _portraitActive,
+          prepareTextOverlay: true,
+        ),
+      );
 
       // Keep only effects that require neighbour samples or multiple passes.
       // Everything else is applied exactly once by the live GPU shader.
@@ -1360,48 +1316,13 @@ class _EditorPageState extends State<EditorPage> {
         width: preview.width,
         height: preview.height,
         imageBytes: preview.getBytes(order: img.ChannelOrder.rgba),
-        adjustParams: onlyCpuParams,
-        lutBytes: null,
-        intensity: 0,
-        effect: _effect,
-        effectStrength: _effectStrength,
-        grainVariant: _grainVariant,
-        selActive: _selActive,
-        selX: _selX,
-        selY: _selY,
-        selBright: _selBright,
-        selContrast: _selContrast,
-        selSat: _selSat,
-        selRadius: _selRadius,
-        dbActive: _dbActive,
-        dodgeStrength: _dodgeStrength,
-        dodgeY: _dodgeY,
-        dodgeRadius: _dodgeRadius,
-        burnStrength: _burnStrength,
-        burnY: _burnY,
-        burnRadius: _burnRadius,
-        tiltActive: _tiltActive,
-        tiltFocusCenter: _tiltFocusCenter,
-        tiltBandWidth: _tiltBandWidth,
-        tiltMaxBlur: _tiltMaxBlur,
-        lensActive: _lensActive,
-        lensFocusDepth: _lensFocusDepth,
-        lensMaxRadius: _lensMaxRadius,
-        portraitSmooth: _portraitSmooth,
-        portraitSpotlight: _portraitSpotlight,
-        skinTone: _skinTone,
-        skinToneStrength: _skinToneStrength,
-        segmentMask: segmentMask,
-        blendImageBytes: blendImageBytes,
-        blendImagePath: _blendImagePath,
-        blendMode: _blendMode,
-        blendOpacity: _blendOpacity,
-        frameBytes: frameBytes,
-        overlayText: _overlayText,
-        textSize: _textSize,
-        textColorValue: _textColor.value,
-        textOverlayBytes: textOverlayBytes,
-        brushStrokes: _brushStrokes,
+        recipe: _currentRenderRecipe(
+          adjustParams: onlyCpuParams,
+          lutBytes: null,
+          overrideLutBytes: true,
+          intensity: 0,
+        ),
+        resources: resources.renderResources,
       );
 
       final renderedImgBytes = await compute(_previewWorker, workerParams);
@@ -1429,8 +1350,13 @@ class _EditorPageState extends State<EditorPage> {
           _isSliding = true;
         });
       }
-    } catch (_) {
+    } catch (error, stackTrace) {
       // CPU preview updates continue while the live GPU path is unavailable.
+      ErrorLogger.log(
+        'Live GPU preview unavailable; continuing with CPU preview',
+        error.runtimeType,
+        stackTrace,
+      );
     }
   }
 
@@ -1500,12 +1426,6 @@ class _EditorPageState extends State<EditorPage> {
     }
   }
 
-  String? get _draftKey {
-    final path = widget.imagePath;
-    if (path == null) return null;
-    return 'editor.draft.${base64Url.encode(utf8.encode(path))}';
-  }
-
   void _syncCurvesFromParams() {
     _curves
       ..clear()
@@ -1524,33 +1444,63 @@ class _EditorPageState extends State<EditorPage> {
   }
 
   void _scheduleDraftSave() {
-    if (_draftKey == null) return;
+    if (widget.imagePath == null) return;
     _draftSaveDebounce?.cancel();
     _draftSaveDebounce =
         Timer(const Duration(milliseconds: 500), () => _saveDraft());
   }
 
   Future<void> _saveDraft() async {
-    final key = _draftKey;
-    if (key == null) return;
+    final imagePath = widget.imagePath;
+    if (imagePath == null) return;
     try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(key, jsonEncode(_draftJson()));
-    } catch (_) {
+      await _draftStore.save(imagePath: imagePath, draft: _draftJson());
+    } on EditorDraftStorageException catch (e, stackTrace) {
+      ErrorLogger.log(
+          'Editor draft persistence failed (${e.operation})', e, stackTrace);
       // Draft persistence must never block editing.
     }
   }
 
   Future<void> _restoreDraft(List<FilterPreset> presets) async {
-    final key = _draftKey;
-    if (key == null || widget.imagePath == null) return;
+    final imagePath = widget.imagePath;
+    if (imagePath == null) return;
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(key);
-      if (raw == null) return;
-      final json = jsonDecode(raw) as Map<String, dynamic>;
-      if (json['imagePath'] != widget.imagePath) return;
-      if ((json['initialPresetId'] as String?) != widget.initialPresetId) {
+      final json = await _draftStore.read(
+        imagePath: imagePath,
+        initialPresetId: widget.initialPresetId,
+      );
+      if (json == null) return;
+
+      final rawSnapshot = json['snapshot'];
+      if (rawSnapshot is Map) {
+        final snapshot = EditorStateSnapshot.fromDraftJson(
+          Map<String, dynamic>.from(rawSnapshot),
+        );
+        final preset = _presetForId(snapshot.presetId);
+        final lutBytes =
+            preset == null ? null : await _loadLutBytesCached(preset.lutPath);
+        EditorHistoryState? restoredHistory;
+        if (json['editSession'] is Map<String, dynamic>) {
+          restoredHistory = EditorHistoryController.parseJson(
+            json['editSession'] as Map<String, dynamic>,
+            expectedImageUri: imagePath,
+          );
+        }
+        if (!mounted) return;
+        setState(() {
+          _applyEditorState(snapshot);
+          _localSubTab = _enumByName(
+            _LocalSubTab.values,
+            snapshot.localSubTabName,
+            _LocalSubTab.tiltShift,
+          );
+          _selectedPreset = preset;
+          _lutBytes = lutBytes;
+          if (restoredHistory != null) _history.restore(restoredHistory);
+        });
+        _liveParamsNotifier.value = _params;
+        _liveIntensityNotifier.value = _intensity;
         return;
       }
 
@@ -1566,12 +1516,12 @@ class _EditorPageState extends State<EditorPage> {
       }
       final lutBytes =
           preset == null ? null : await _loadLutBytesCached(preset.lutPath);
-      EditSession? restoredSession;
+      EditorHistoryState? restoredHistory;
       if (json['editSession'] is Map<String, dynamic>) {
-        final session = EditSession.fromJson(
+        restoredHistory = EditorHistoryController.parseJson(
           json['editSession'] as Map<String, dynamic>,
+          expectedImageUri: imagePath,
         );
-        if (session.imageUri == widget.imagePath) restoredSession = session;
       }
 
       if (!mounted) return;
@@ -1585,8 +1535,6 @@ class _EditorPageState extends State<EditorPage> {
             ArtisticEffect.none);
         _effectStrength = _doubleFromJson(json['effectStrength'], 1.0);
         _grainVariant = (json['grainVariant'] as num?)?.toInt() ?? 3;
-        _toolsSubTab = _enumByName(_ToolsSubTab.values,
-            json['toolsSubTab'] as String?, _ToolsSubTab.crop);
         _cropRatio = _enumByName(CropRatioPreset.values,
             json['cropRatio'] as String?, CropRatioPreset.free);
         _cropCenterX = _doubleFromJson(json['cropCenterX'], 0.5);
@@ -1664,95 +1612,24 @@ class _EditorPageState extends State<EditorPage> {
         _textY = _doubleFromJson(json['textY'], 0.82).clamp(0.0, 1.0);
         _textRotation = _doubleFromJson(json['textRotation'], 0.0);
         _lutBytes = lutBytes;
-        if (restoredSession != null) _editSession = restoredSession;
+        if (restoredHistory != null) _history.restore(restoredHistory);
       });
       _liveParamsNotifier.value = _params;
       _liveIntensityNotifier.value = _intensity;
-    } catch (_) {
+    } on EditorDraftStorageException catch (e, stackTrace) {
+      ErrorLogger.log(
+          'Editor draft restoration failed (${e.operation})', e, stackTrace);
       // Corrupt or stale drafts are ignored; the editor falls back to defaults.
+    } catch (e, stackTrace) {
+      ErrorLogger.log('Editor draft payload migration failed', e, stackTrace);
     }
   }
 
-  Map<String, dynamic> _draftJson() => {
-        'version': 2,
-        'savedAt': DateTime.now().toIso8601String(),
-        'imagePath': widget.imagePath,
-        'initialPresetId': widget.initialPresetId,
-        'selectedPresetId': _selectedPreset?.id,
-        'adjustParams': _params.toJson(),
-        'intensity': _intensity,
-        'effect': _effect.name,
-        'effectStrength': _effectStrength,
-        'grainVariant': _grainVariant,
-        'toolsSubTab': _toolsSubTab.name,
-        'cropRatio': _cropRatio.name,
-        'cropCenterX': _cropCenterX,
-        'cropCenterY': _cropCenterY,
-        'rotation': _rotation,
-        'flipH': _flipH,
-        'flipV': _flipV,
-        'perspH': _perspH,
-        'perspV': _perspV,
-        'cropLeft': _cropLeft,
-        'cropTop': _cropTop,
-        'cropRight': _cropRight,
-        'cropBottom': _cropBottom,
-        'expandTop': _expandTop,
-        'expandBottom': _expandBottom,
-        'expandLeft': _expandLeft,
-        'expandRight': _expandRight,
-        'expandMode': _expandMode,
-        'localSubTab': _localSubTab.name,
-        'selActive': _selActive,
-        'selX': _selX,
-        'selY': _selY,
-        'selBright': _selBright,
-        'selContrast': _selContrast,
-        'selSat': _selSat,
-        'selRadius': _selRadius,
-        'dbActive': _dbActive,
-        'brushMode': _brushMode,
-        'dodgeY': _dodgeY,
-        'dodgeRadius': _dodgeRadius,
-        'dodgeStrength': _dodgeStrength,
-        'burnY': _burnY,
-        'burnRadius': _burnRadius,
-        'burnStrength': _burnStrength,
-        'brushStrokes': _brushStrokes
-            .map(
-              (stroke) => {
-                'x': stroke.x,
-                'y': stroke.y,
-                'radius': stroke.radius,
-                'strength': stroke.strength,
-                'isDodge': stroke.isDodge,
-              },
-            )
-            .toList(growable: false),
-        'tiltActive': _tiltActive,
-        'tiltFocusCenter': _tiltFocusCenter,
-        'tiltBandWidth': _tiltBandWidth,
-        'tiltMaxBlur': _tiltMaxBlur,
-        'lensActive': _lensActive,
-        'lensFocusDepth': _lensFocusDepth,
-        'lensMaxRadius': _lensMaxRadius,
-        'portraitSmooth': _portraitSmooth,
-        'portraitSpotlight': _portraitSpotlight,
-        'skinTone': _skinTone.name,
-        'skinToneStrength': _skinToneStrength,
-        'blendImagePath': _blendImagePath,
-        'blendMode': _blendMode.name,
-        'blendOpacity': _blendOpacity,
-        'frameIndex': _frameIndex,
-        'overlayText': _overlayText,
-        'textFontFamily': _textFontFamily,
-        'textSize': _textSize,
-        'textColor': _textColor.value,
-        'textX': _textX,
-        'textY': _textY,
-        'textRotation': _textRotation,
-        'editSession': _editSession.toJson(),
-      };
+  Map<String, dynamic> _draftJson() => _currentEditorState().toDraftJson(
+        imagePath: widget.imagePath,
+        initialPresetId: widget.initialPresetId,
+        history: _history.toJson(),
+      );
 
   T _enumByName<T extends Enum>(List<T> values, String? name, T fallback) {
     if (name == null) return fallback;
@@ -1841,7 +1718,8 @@ class _EditorPageState extends State<EditorPage> {
     }
     final file = File(path);
     final bytes = await file.readAsBytes();
-    final decoded = img.decodeImage(bytes);
+    final rawDecoded = img.decodeImage(bytes);
+    final decoded = rawDecoded == null ? null : img.bakeOrientation(rawDecoded);
     _decodedCachePath = path;
     _decodedCache = decoded;
     _previewBaseCache = null;
@@ -1856,63 +1734,22 @@ class _EditorPageState extends State<EditorPage> {
       return _previewBaseCache!;
     }
 
-    var image = decoded;
-    if (_expandTop > 0 ||
-        _expandBottom > 0 ||
-        _expandLeft > 0 ||
-        _expandRight > 0) {
-      image = _applyExpandHelper(image, _expandTop, _expandBottom, _expandLeft,
-          _expandRight, _expandMode);
-    }
-    if (!(_isToolActive && _activeToolId == 'crop')) {
-      image = _applyCropToImage(image);
-    }
     // While rotate is open flips are rendered by Transform in the widget tree.
     // Re-encoding and re-running the CPU pipeline for each tap made the two
     // flip controls noticeably slow on real devices.
     final previewingSpatialTransform =
         _isToolActive && _activeToolId == 'rotate';
-    if (!previewingSpatialTransform && (_flipH || _flipV)) {
-      final dir = _flipH && _flipV
-          ? img.FlipDirection.both
-          : _flipH
-              ? img.FlipDirection.horizontal
-              : img.FlipDirection.vertical;
-      image = img.copyFlip(image, direction: dir);
-    }
-    if (!previewingSpatialTransform && _rotation != 0) {
-      image = img.copyRotate(image, angle: _rotation);
-    }
-    if (!previewingSpatialTransform && (_perspH != 0 || _perspV != 0)) {
-      image = _applyPerspectiveSkew(image, _perspH, _perspV);
-    }
-
-    // Keep the interactive preview small enough to update within a frame or two
-    // on device. Full-resolution quality is preserved by the export pipeline.
-    const previewMaxLongEdge = 720;
-    final maxDim = image.width > image.height ? image.width : image.height;
-    final scale =
-        maxDim > previewMaxLongEdge ? previewMaxLongEdge / maxDim : 1.0;
-    final preview = scale < 1.0
-        ? img.copyResize(image,
-            width: (image.width * scale).round(),
-            height: (image.height * scale).round(),
-            interpolation: img.Interpolation.cubic)
-        : image;
+    final preview = EditorRenderer.preparePreviewSource(
+      decoded,
+      _currentRenderRecipe(),
+      maxLongEdge: 720,
+      skipCrop: _isToolActive && _activeToolId == 'crop',
+      skipTransforms: previewingSpatialTransform,
+    );
 
     _previewBaseCacheKey = key;
     _previewBaseCache = preview;
     return preview;
-  }
-
-  void _moveCropCenter(Offset delta, Size bounds) {
-    final ratio = _resolvedCropAspectRatio();
-    if (ratio == null || bounds.width <= 0 || bounds.height <= 0) return;
-    setState(() {
-      _cropCenterX = (_cropCenterX + delta.dx / bounds.width).clamp(0.0, 1.0);
-      _cropCenterY = (_cropCenterY + delta.dy / bounds.height).clamp(0.0, 1.0);
-    });
-    _debouncedPreview();
   }
 
   bool get _portraitActive =>
@@ -1995,97 +1832,29 @@ class _EditorPageState extends State<EditorPage> {
         return;
       }
 
-      final frameBytes = await _loadFrameBytes(_frameIndex);
-
-      // Load blend image bytes once (cached by path) so the worker isolate
-      // doesn't need file access.
-      Uint8List? blendImageBytes;
-      final blendPath = _blendImagePath;
-      if (blendPath != null && _blendOpacity > 0) {
-        if (_blendImageCachedPath == blendPath &&
-            _blendImageCachedBytes != null) {
-          blendImageBytes = _blendImageCachedBytes;
-        } else {
-          try {
-            blendImageBytes = await File(blendPath).readAsBytes();
-            _blendImageCachedPath = blendPath;
-            _blendImageCachedBytes = blendImageBytes;
-          } catch (_) {}
-        }
-      }
-
-      // Compute segmentation mask before entering the isolate.
-      // The segmenter runs on the main isolate (TFLite interpreter is not
-      // isolate-safe), and the resulting Float32List is plain data that can
-      // be passed to compute() without copying.
-      Float32List? segmentMask;
-      if (_portraitActive) {
-        segmentMask = await _getSegmentMask(preview, _previewBaseKey());
-      }
-
       final useLiveTextOverlay = _isToolActive && _activeToolId == 'text';
-      Uint8List? textOverlayBytes;
-      if (!useLiveTextOverlay && _overlayText.trim().isNotEmpty) {
-        textOverlayBytes = await TextRasterizer.rasterize(
-          text: _overlayText,
-          fontFamily: _textFontFamily,
-          textSize: _textSize,
-          color: _textColor,
-          textX: _textX,
-          textY: _textY,
-          rotationDegrees: _textRotation,
-          imageWidth: preview.width,
-          imageHeight: preview.height,
-        );
-      }
+      final resources = await _resourcePreparer.prepare(
+        EditorResourcePreparationRequest(
+          recipe: _currentRenderRecipe(),
+          maskSource: preview,
+          maskSourceKey: _previewBaseKey(),
+          targetGeometry: EditorTargetGeometry(
+              width: preview.width, height: preview.height),
+          frameIndex: _frameIndex,
+          blendImagePath: _blendImagePath,
+          preparePortraitMask: _portraitActive,
+          prepareTextOverlay: !useLiveTextOverlay,
+        ),
+      );
 
       final previewRaw = preview.getBytes(order: img.ChannelOrder.rgba);
       final params = _PreviewParams(
         width: preview.width,
         height: preview.height,
         imageBytes: previewRaw,
-        adjustParams: _params,
-        lutBytes: _lutBytes,
-        intensity: _intensity,
-        effect: _effect,
-        effectStrength: _effectStrength,
-        grainVariant: _grainVariant,
-        selActive: _selActive,
-        selX: _selX,
-        selY: _selY,
-        selBright: _selBright,
-        selContrast: _selContrast,
-        selSat: _selSat,
-        selRadius: _selRadius,
-        dbActive: _dbActive,
-        dodgeStrength: _dodgeStrength,
-        dodgeY: _dodgeY,
-        dodgeRadius: _dodgeRadius,
-        burnStrength: _burnStrength,
-        burnY: _burnY,
-        burnRadius: _burnRadius,
-        tiltActive: _tiltActive,
-        tiltFocusCenter: _tiltFocusCenter,
-        tiltBandWidth: _tiltBandWidth,
-        tiltMaxBlur: _tiltMaxBlur,
-        lensActive: _lensActive,
-        lensFocusDepth: _lensFocusDepth,
-        lensMaxRadius: _lensMaxRadius,
-        portraitSmooth: _portraitSmooth,
-        portraitSpotlight: _portraitSpotlight,
-        skinTone: _skinTone,
-        skinToneStrength: _skinToneStrength,
-        segmentMask: segmentMask,
-        blendImageBytes: blendImageBytes,
-        blendImagePath: _blendImagePath,
-        blendMode: _blendMode,
-        blendOpacity: _blendOpacity,
-        frameBytes: frameBytes,
-        overlayText: useLiveTextOverlay ? '' : _overlayText,
-        textSize: _textSize,
-        textColorValue: _textColor.value,
-        textOverlayBytes: textOverlayBytes,
-        brushStrokes: _brushStrokes,
+        recipe: _currentRenderRecipe(),
+        resources: resources.renderResources,
+        overlayTextOverride: useLiveTextOverlay ? '' : null,
       );
       final bytes = await compute(_previewWorker, params);
       // Stale token: a newer render was queued — discard this result but
@@ -2101,8 +1870,8 @@ class _EditorPageState extends State<EditorPage> {
       ErrorLogger.log('Preview rendering failed', e, stackTrace);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('미리보기 처리 중 오류가 발생했습니다: $e'),
+          const SnackBar(
+            content: Text('미리보기를 업데이트하지 못했습니다. 다시 조절해 주세요.'),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -2122,341 +1891,163 @@ class _EditorPageState extends State<EditorPage> {
     try {
       final data = await rootBundle.load(_frameAssets[frameIndex]);
       return data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
-    } catch (_) {
+    } catch (e, stackTrace) {
+      ErrorLogger.log(
+          'Frame asset unavailable (index: $frameIndex)', e, stackTrace);
       return null;
     }
   }
 
+  /// Loads the blend source before crossing a render isolate boundary.
+  /// The renderer only accepts bytes, never a local path, so preview and
+  /// export cannot diverge because one path happened to re-read the file.
+  Future<Uint8List?> _loadBlendImageBytesForPath(String blendPath) async {
+    if (_blendImageCachedPath == blendPath && _blendImageCachedBytes != null) {
+      return _blendImageCachedBytes;
+    }
+    try {
+      final bytes = await File(blendPath).readAsBytes();
+      _blendImageCachedPath = blendPath;
+      _blendImageCachedBytes = bytes;
+      return bytes;
+    } catch (error, stackTrace) {
+      ErrorLogger.log(
+        'Blend source could not be loaded; omitting blend layer',
+        error.runtimeType,
+        stackTrace,
+      );
+      return null;
+    }
+  }
+
+  Future<EditorPortraitMaskResource?> _preparePortraitMask(
+    img.Image source,
+    String sourceKey,
+  ) async {
+    final mask = await _getSegmentMask(source, sourceKey);
+    return EditorPortraitMaskResource(
+      data: mask,
+      width: source.width,
+      height: source.height,
+    );
+  }
+
   Future<void> _export({bool share = false}) async {
+    if (_exporting) return;
     if (_adService != null) {
       await _adService!.show(FullScreenAdTrigger.applyOrExport);
     }
+    if (!mounted) return;
 
     setState(() {
       _exporting = true;
       _exportProgress = 0;
-      _exportCancelled = false;
       _exportForShare = share;
     });
 
-    final exportSettings =
-        await ExportPreferences.load(allowWebp: Platform.isIOS);
-    final exportFormat = exportSettings.format;
-    final exportQuality = exportSettings.quality;
-    final List<int?> resolutionAttempts = [null, 4096, 2048];
-    String? tempPath;
-    String? intermediatePath;
-    var currentAttemptIndex = 0;
-
-    while (currentAttemptIndex < resolutionAttempts.length) {
-      final targetDim = resolutionAttempts[currentAttemptIndex];
-      final receivePort = ReceivePort();
-
-      try {
-        final tempDir = await getTemporaryDirectory();
-        final exportBase =
-            '${tempDir.path}/memoria_${DateTime.now().microsecondsSinceEpoch}';
-        tempPath = '$exportBase.${exportFormat.extension}';
-        // The image worker has no platform channel. It renders a lossless PNG
-        // first, then ImageIO creates the final WebP on the main isolate.
-        intermediatePath =
-            exportFormat == ExportFormat.webp ? '$exportBase.render.png' : null;
-        final workerOutputPath = intermediatePath ?? tempPath;
-        final frameBytes = await _loadFrameBytes(_frameIndex);
-
-        // Compute segmentation mask for full-resolution export image.
-        Float32List? exportSegmentMask;
-        int exportMaskW = 0, exportMaskH = 0;
-        if (_portraitActive) {
-          final fullDecoded = await _decodedSourceImage();
-          if (fullDecoded != null) {
-            await _ensureSegmenter();
-            final seg = _segmenter;
-            if (seg != null) {
-              final result = seg.segment(fullDecoded);
-              exportSegmentMask = result.data;
-              exportMaskW = result.width;
-              exportMaskH = result.height;
-            }
-          }
-        }
-
-        int fullW = 0;
-        int fullH = 0;
-        final fullDecoded = await _decodedSourceImage();
-        if (fullDecoded != null) {
-          fullW = fullDecoded.width;
-          fullH = fullDecoded.height;
-        }
-        var targetW = fullW;
-        var targetH = fullH;
-        if (targetDim != null && (targetW > targetDim || targetH > targetDim)) {
-          final scale = targetDim / math.max(targetW, targetH);
-          targetW = (targetW * scale).round();
-          targetH = (targetH * scale).round();
-        }
-
-        if (_expandTop > 0 ||
-            _expandBottom > 0 ||
-            _expandLeft > 0 ||
-            _expandRight > 0) {
-          targetW = targetW +
-              (targetW * _expandLeft).round() +
-              (targetW * _expandRight).round();
-          targetH = targetH +
-              (targetH * _expandTop).round() +
-              (targetH * _expandBottom).round();
-        }
-        if (_cropLeft > 0.0 ||
-            _cropTop > 0.0 ||
-            _cropRight < 1.0 ||
-            _cropBottom < 1.0) {
-          final x = (targetW * _cropLeft).round().clamp(0, targetW - 1);
-          final y = (targetH * _cropTop).round().clamp(0, targetH - 1);
-          targetW = (targetW * (_cropRight - _cropLeft))
-              .round()
-              .clamp(1, targetW - x);
-          targetH = (targetH * (_cropBottom - _cropTop))
-              .round()
-              .clamp(1, targetH - y);
-        } else if (_currentCropRect() != null) {
-          final ratio = _currentCropRect()!;
-          final W = targetW.toDouble(), H = targetH.toDouble();
-          if (W / H > ratio) {
-            targetH = H.round();
-            targetW = (H * ratio).round();
-          } else {
-            targetW = W.round();
-            targetH = (W / ratio).round();
-          }
-        }
-        if (_rotation == 90 ||
-            _rotation == 270 ||
-            _rotation == -90 ||
-            _rotation == -270) {
-          final tmp = targetW;
-          targetW = targetH;
-          targetH = tmp;
-        }
-
-        Uint8List? textOverlayBytes;
-        if (_overlayText.trim().isNotEmpty && targetW > 0 && targetH > 0) {
-          textOverlayBytes = await TextRasterizer.rasterize(
-            text: _overlayText,
-            fontFamily: _textFontFamily,
-            textSize: _textSize,
-            color: _textColor,
-            textX: _textX,
-            textY: _textY,
-            rotationDegrees: _textRotation,
-            imageWidth: targetW,
-            imageHeight: targetH,
+    try {
+      final result = await _mediaExportCoordinator.export(
+        share: share,
+        buildRequest: _buildExportRequest,
+        onProgress: (progress) {
+          if (mounted) setState(() => _exportProgress = progress);
+        },
+        onRetryAtLowerResolution: (dimension) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('메모리 부족으로 인해 해상도를 조절하여 재시도합니다... (${dimension}px)'),
+              duration: const Duration(seconds: 2),
+              behavior: SnackBarBehavior.floating,
+            ),
           );
-        }
-
-        final params = _ExportParams(
-          imagePath: widget.imagePath!,
-          outPath: workerOutputPath,
-          exportFormat: exportFormat == ExportFormat.webp
-              ? ExportFormat.png
-              : exportFormat,
-          exportQuality: exportQuality,
-          maxDimension: targetDim,
-          adjustParams: _params,
-          lutBytes: _lutBytes,
-          intensity: _intensity,
-          cropRect: _currentCropRect(),
-          cropCenterX: _cropCenterX,
-          cropCenterY: _cropCenterY,
-          flipH: _flipH,
-          flipV: _flipV,
-          rotation: _rotation,
-          perspH: _perspH,
-          perspV: _perspV,
-          effect: _effect,
-          effectStrength: _effectStrength,
-          grainVariant: _grainVariant,
-          selActive: _selActive,
-          selX: _selX,
-          selY: _selY,
-          selBright: _selBright,
-          selContrast: _selContrast,
-          selSat: _selSat,
-          selRadius: _selRadius,
-          dbActive: _dbActive,
-          dodgeStrength: _dodgeStrength,
-          dodgeY: _dodgeY,
-          dodgeRadius: _dodgeRadius,
-          burnStrength: _burnStrength,
-          burnY: _burnY,
-          burnRadius: _burnRadius,
-          tiltActive: _tiltActive,
-          tiltFocusCenter: _tiltFocusCenter,
-          tiltBandWidth: _tiltBandWidth,
-          tiltMaxBlur: _tiltMaxBlur,
-          lensActive: _lensActive,
-          lensFocusDepth: _lensFocusDepth,
-          lensMaxRadius: _lensMaxRadius,
-          portraitSmooth: _portraitSmooth,
-          portraitSpotlight: _portraitSpotlight,
-          skinTone: _skinTone,
-          skinToneStrength: _skinToneStrength,
-          segmentMask: exportSegmentMask,
-          segmentMaskWidth: exportMaskW,
-          segmentMaskHeight: exportMaskH,
-          blendImagePath: _blendImagePath,
-          blendMode: _blendMode,
-          blendOpacity: _blendOpacity,
-          frameBytes: frameBytes,
-          overlayText: _overlayText,
-          textSize: _textSize,
-          textColorValue: _textColor.value,
-          textOverlayBytes: textOverlayBytes,
-          sendPort: receivePort.sendPort,
-          expandTop: _expandTop,
-          expandBottom: _expandBottom,
-          expandLeft: _expandLeft,
-          expandRight: _expandRight,
-          expandMode: _expandMode,
-          cropLeft: _cropLeft,
-          cropTop: _cropTop,
-          cropRight: _cropRight,
-          cropBottom: _cropBottom,
-          brushStrokes: _brushStrokes,
-        );
-
-        _exportIsolateRef = await Isolate.spawn(_exportWorker, params);
-
-        await for (final msg in receivePort) {
-          if (_exportCancelled) break;
-          if (msg is double) {
-            if (mounted) setState(() => _exportProgress = msg);
-          } else if (msg == 'done') {
-            break;
-          } else if (msg is String && msg.startsWith('error:')) {
-            throw Exception(msg.substring(6));
-          }
-        }
-
-        if (_exportCancelled) {
-          receivePort.close();
-          break;
-        }
-
-        if (exportFormat == ExportFormat.webp) {
-          final converted = await EngineChannel.encodeWebP(
-            inputPath: workerOutputPath,
-            outputPath: tempPath,
-            quality: exportQuality,
+        },
+      );
+      if (!result.cancelled && mounted) {
+        setState(() => _exportProgress = 1.0);
+        hapticMedium();
+        if (!share) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(S.get('editor.saved_to_gallery')),
+              behavior: SnackBarBehavior.floating,
+            ),
           );
-          if (!converted) {
-            throw Exception('이 기기에서는 WebP 내보내기를 지원하지 않습니다.');
-          }
-          final renderedFile = File(workerOutputPath);
-          if (await renderedFile.exists()) await renderedFile.delete();
-          intermediatePath = null;
-        }
-
-        final completedBytes = await File(tempPath).readAsBytes();
-        if (!ExportEncoder.matchesSignature(exportFormat, completedBytes)) {
-          throw Exception(
-              '${exportFormat.name.toUpperCase()} 파일 형식 검증에 실패했습니다.');
-        }
-
-        if (share) {
-          if (mounted) setState(() => _exportProgress = 1.0);
-          hapticMedium();
-          await Share.shareXFiles([XFile(tempPath)]);
-        } else {
-          await Gal.putImage(tempPath);
-          if (mounted) setState(() => _exportProgress = 1.0);
-          hapticMedium();
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                  content: Text(S.get('editor.saved_to_gallery')),
-                  behavior: SnackBarBehavior.floating),
-            );
-          }
-        }
-        receivePort.close();
-        break; // Success! Exit retry loop.
-      } catch (e, stackTrace) {
-        receivePort.close();
-        _exportIsolateRef?.kill(priority: Isolate.immediate);
-        _exportIsolateRef = null;
-
-        ErrorLogger.log(
-            'Export attempt failed (resolution: $targetDim)', e, stackTrace);
-
-        final isOom = e.toString().toLowerCase().contains('out of memory') ||
-            e.toString().toLowerCase().contains('oom') ||
-            e.toString().toLowerCase().contains('allocation') ||
-            e.toString().toLowerCase().contains('null');
-
-        if (isOom && currentAttemptIndex < resolutionAttempts.length - 1) {
-          currentAttemptIndex++;
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                    '메모리 부족으로 인해 해상도를 조절하여 재시도합니다... (${resolutionAttempts[currentAttemptIndex]}px)'),
-                duration: const Duration(seconds: 2),
-                behavior: SnackBarBehavior.floating,
-              ),
-            );
-          }
-          continue;
-        } else {
-          if (!_exportCancelled && mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                  content: Text('${S.get('editor.save_failed')}: $e'),
-                  behavior: SnackBarBehavior.floating),
-            );
-          }
-          break; // Hard fail. Exit retry loop.
-        }
-      } finally {
-        _exportIsolateRef?.kill(priority: Isolate.immediate);
-        _exportIsolateRef = null;
-        if (tempPath != null) {
-          final f = File(tempPath);
-          if (await f.exists()) {
-            if (share) {
-              Future.delayed(const Duration(minutes: 5), () async {
-                try {
-                  if (await f.exists()) {
-                    await f.delete();
-                  }
-                } catch (_) {}
-              });
-            } else {
-              await f.delete();
-            }
-          }
-        }
-        if (intermediatePath != null) {
-          final intermediate = File(intermediatePath);
-          if (await intermediate.exists()) await intermediate.delete();
         }
       }
-    }
-
-    if (mounted) {
-      setState(() {
-        _exporting = false;
-        _exportProgress = 0;
-      });
+    } catch (error, stackTrace) {
+      final failure = EditorExportFailure.fromError(error);
+      ErrorLogger.log(
+        'Editor media export failed (${failure.kind.name})',
+        failure.diagnostic,
+        stackTrace,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content:
+                Text('${S.get('editor.save_failed')}: ${failure.userMessage}'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _exporting = false;
+          _exportProgress = 0;
+        });
+      }
     }
   }
 
-  void _cancelExport() {
-    _exportCancelled = true;
-    _exportIsolateRef?.kill(priority: Isolate.immediate);
-    _exportIsolateRef = null;
-    // Temp-file cleanup is handled exclusively by _export's finally block
-    // (via the local tempPath variable) to avoid a double-delete race.
+  Future<EditorExportRequest> _buildExportRequest(
+      EditorMediaExportAttempt attempt) async {
+    final fullDecoded = await _decodedSourceImage();
+    final recipe = _currentRenderRecipe();
+    final resources = fullDecoded == null
+        ? const EditorPreparedResources(
+            renderResources: EditorRenderResources(),
+            targetGeometry: EditorTargetGeometry(width: 0, height: 0),
+          )
+        : await _resourcePreparer.prepare(
+            EditorResourcePreparationRequest(
+              recipe: recipe,
+              maskSource: fullDecoded,
+              maskSourceKey:
+                  'export:${widget.imagePath}:${attempt.maxDimension ?? 'full'}',
+              targetGeometry: EditorSpatialRenderer.outputGeometry(
+                fullDecoded.width,
+                fullDecoded.height,
+                recipe,
+                maxDimension: attempt.maxDimension,
+              ),
+              frameIndex: _frameIndex,
+              blendImagePath: _blendImagePath,
+              preparePortraitMask: _portraitActive,
+              prepareTextOverlay: true,
+            ),
+          );
+
+    return EditorExportRequest(
+      imagePath: widget.imagePath!,
+      outputPath: attempt.outputPath,
+      format: attempt.renderFormat,
+      quality: attempt.quality,
+      maxDimension: attempt.maxDimension,
+      recipe: recipe,
+      segmentMask: resources.renderResources.segmentMask,
+      segmentMaskWidth: resources.renderResources.segmentMaskWidth,
+      segmentMaskHeight: resources.renderResources.segmentMaskHeight,
+      blendImageBytes: resources.renderResources.blendImageBytes,
+      frameBytes: resources.renderResources.frameBytes,
+      textOverlayBytes: resources.renderResources.textOverlayBytes,
+    );
+  }
+
+  Future<void> _cancelExport() async {
+    if (!_exporting) return;
+    await _mediaExportCoordinator.cancel();
     if (mounted) {
       setState(() {
         _exporting = false;
@@ -2690,231 +2281,6 @@ class _EditorPageState extends State<EditorPage> {
     if (parts.isEmpty) return '기본값';
     return parts.take(3).join(' · ');
   }
-
-  // ── Phase 6: 로컬 조정 빌더 ─────────────────────────────
-
-  Widget _buildLocalPanel() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _buildLocalSubTabRow(),
-        const SizedBox(height: 10),
-        if (_localSubTab == _LocalSubTab.selective)
-          ..._buildSelectiveContent()
-        else if (_localSubTab == _LocalSubTab.dodgeBurn)
-          ..._buildDodgeBurnContent()
-        else if (_localSubTab == _LocalSubTab.tiltShift)
-          ..._buildTiltShiftContent()
-        else
-          ..._buildLensBlurContent(),
-      ],
-    );
-  }
-
-  Widget _buildLocalSubTabRow() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: [
-            _SubTabBtn(
-                label: S.get('editor.local.selective'),
-                icon: Icons.adjust_rounded,
-                selected: _localSubTab == _LocalSubTab.selective,
-                onTap: () =>
-                    setState(() => _localSubTab = _LocalSubTab.selective)),
-            const SizedBox(width: 8),
-            _SubTabBtn(
-                label: S.get('editor.local.dodge_burn'),
-                icon: Icons.brightness_medium_rounded,
-                selected: _localSubTab == _LocalSubTab.dodgeBurn,
-                onTap: () =>
-                    setState(() => _localSubTab = _LocalSubTab.dodgeBurn)),
-            const SizedBox(width: 8),
-            _SubTabBtn(
-                label: S.get('editor.local.tilt_shift'),
-                icon: Icons.gradient_rounded,
-                selected: _localSubTab == _LocalSubTab.tiltShift,
-                onTap: () =>
-                    setState(() => _localSubTab = _LocalSubTab.tiltShift)),
-            const SizedBox(width: 8),
-            _SubTabBtn(
-                label: S.get('editor.local.lens_blur'),
-                icon: Icons.blur_on_rounded,
-                selected: _localSubTab == _LocalSubTab.lensBlur,
-                onTap: () =>
-                    setState(() => _localSubTab = _LocalSubTab.lensBlur)),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildLocalToggle(
-      String label, bool value, ValueChanged<bool> onChange) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      child: Row(
-        children: [
-          Text(label,
-              style: const TextStyle(
-                  fontFamily: 'NotoSerif',
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textOnDarkSub)),
-          const Spacer(),
-          GestureDetector(
-            onTap: () {
-              hapticLight();
-              onChange(!value);
-            },
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              width: 40,
-              height: 22,
-              decoration: BoxDecoration(
-                color: value ? AppColors.oceanTeal : AppColors.oceanNavy,
-                borderRadius: BorderRadius.circular(11),
-              ),
-              child: Align(
-                alignment: value ? Alignment.centerRight : Alignment.centerLeft,
-                child: Container(
-                  width: 18,
-                  height: 18,
-                  margin: const EdgeInsets.symmetric(horizontal: 2),
-                  decoration: const BoxDecoration(
-                      color: AppColors.cloudWhite, shape: BoxShape.circle),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// Compact slider for local adjustment panels.
-  /// [onSet] is a plain assignment (no setState) — widget wraps it.
-  Widget _lSlider(String label, double value, double min, double max,
-      void Function(double) onSet) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 1),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 68,
-            child: Text(label,
-                style: const TextStyle(
-                    fontFamily: 'NotoSerif',
-                    fontSize: 12,
-                    color: AppColors.textOnDarkSub)),
-          ),
-          Expanded(
-            child: SliderTheme(
-              data: const SliderThemeData(
-                activeTrackColor: AppColors.oceanFoam,
-                inactiveTrackColor: AppColors.oceanNavy,
-                thumbColor: AppColors.cloudWhite,
-                trackHeight: 2.5,
-                thumbShape: RoundSliderThumbShape(enabledThumbRadius: 6),
-              ),
-              child: Slider(
-                value: value.clamp(min, max),
-                min: min,
-                max: max,
-                onChanged: (v) => setState(() => onSet(v)),
-                onChangeEnd: (_) => _renderPreview(),
-              ),
-            ),
-          ),
-          SizedBox(
-            width: 36,
-            child: Text(value.toStringAsFixed(1),
-                textAlign: TextAlign.right,
-                style: const TextStyle(
-                    fontFamily: 'NotoSerif',
-                    fontSize: 11,
-                    color: AppColors.textOnDarkTert)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  List<Widget> _buildSelectiveContent() => [
-        _buildLocalToggle(S.get('editor.local.selective_adjust'), _selActive,
-            (v) {
-          setState(() => _selActive = v);
-          _renderPreview();
-        }),
-        if (_selActive) ...[
-          _lSlider('X 위치', _selX, 0.0, 1.0, (v) => _selX = v),
-          _lSlider('Y 위치', _selY, 0.0, 1.0, (v) => _selY = v),
-          _lSlider('반경', _selRadius, 0.1, 0.8, (v) => _selRadius = v),
-          _lSlider('밝기', _selBright, -100, 100, (v) => _selBright = v),
-          _lSlider('대비', _selContrast, -100, 100, (v) => _selContrast = v),
-          _lSlider('채도', _selSat, -100, 100, (v) => _selSat = v),
-        ],
-      ];
-
-  List<Widget> _buildDodgeBurnContent() => [
-        _buildLocalToggle(S.get('editor.local.dodge_burn'), _dbActive, (v) {
-          setState(() => _dbActive = v);
-          _renderPreview();
-        }),
-        if (_dbActive) ...[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 2),
-            child: Text(S.get('editor.local.dodge'),
-                style: TextStyle(
-                    fontFamily: 'NotoSerif',
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.oceanFoam.withOpacity(0.85))),
-          ),
-          _lSlider('Y 위치', _dodgeY, 0.0, 1.0, (v) => _dodgeY = v),
-          _lSlider('반경', _dodgeRadius, 0.05, 0.5, (v) => _dodgeRadius = v),
-          _lSlider('강도', _dodgeStrength, 0.0, 1.0, (v) => _dodgeStrength = v),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 2),
-            child: Text(S.get('editor.local.burn'),
-                style: const TextStyle(
-                    fontFamily: 'NotoSerif',
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.textOnDarkSub)),
-          ),
-          _lSlider('Y 위치', _burnY, 0.0, 1.0, (v) => _burnY = v),
-          _lSlider('반경', _burnRadius, 0.05, 0.5, (v) => _burnRadius = v),
-          _lSlider('강도', _burnStrength, 0.0, 1.0, (v) => _burnStrength = v),
-        ],
-      ];
-
-  List<Widget> _buildTiltShiftContent() => [
-        _buildLocalToggle(S.get('editor.local.tilt_shift'), _tiltActive, (v) {
-          setState(() => _tiltActive = v);
-          _renderPreview();
-        }),
-        if (_tiltActive) ...[
-          _lSlider(
-              '포커스', _tiltFocusCenter, 0.0, 1.0, (v) => _tiltFocusCenter = v),
-          _lSlider('밴드폭', _tiltBandWidth, 0.05, 0.8, (v) => _tiltBandWidth = v),
-          _lSlider('블러', _tiltMaxBlur, 1.0, 20.0, (v) => _tiltMaxBlur = v),
-        ],
-      ];
-
-  List<Widget> _buildLensBlurContent() => [
-        _buildLocalToggle(S.get('editor.local.lens_blur'), _lensActive, (v) {
-          setState(() => _lensActive = v);
-          _renderPreview();
-        }),
-        if (_lensActive) ...[
-          _lSlider(
-              '포커스', _lensFocusDepth, 0.0, 1.0, (v) => _lensFocusDepth = v),
-          _lSlider('블러', _lensMaxRadius, 1.0, 20.0, (v) => _lensMaxRadius = v),
-        ],
-      ];
 
   List<AdjustSliderItem> get _sliderItems => [
         AdjustSliderItem(
@@ -3388,14 +2754,14 @@ class _EditorPageState extends State<EditorPage> {
               _EditorOverlayIconButton(
                 icon: Icons.undo_rounded,
                 tooltip: '실행 취소',
-                enabled: _editSession.canUndo,
+                enabled: _history.canUndo,
                 onTap: _undo,
               ),
               const SizedBox(width: 6),
               _EditorOverlayIconButton(
                 icon: Icons.redo_rounded,
                 tooltip: '다시 실행',
-                enabled: _editSession.canRedo,
+                enabled: _history.canRedo,
                 onTap: _redo,
               ),
             ],
@@ -5606,54 +4972,6 @@ class _EditorPageState extends State<EditorPage> {
   }
 }
 
-class _TabBtn extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _TabBtn({
-    required this.label,
-    required this.icon,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          color: selected ? AppColors.oceanTeal : Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
-          children: [
-            Icon(icon,
-                size: 16,
-                color:
-                    selected ? AppColors.cloudWhite : AppColors.textOnDarkTert),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: TextStyle(
-                fontFamily: 'NotoSerif',
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color:
-                    selected ? AppColors.cloudWhite : AppColors.textOnDarkTert,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class _EditorOverlayIconButton extends StatelessWidget {
   final IconData icon;
   final String tooltip;
@@ -5875,275 +5193,6 @@ class _BnwToggle extends StatelessWidget {
   }
 }
 
-// ── Phase 5: 기하학 변환 ──────────────────────────────────
-
-enum _ToolsSubTab { crop, rotate, perspective, expand }
-
-class _ToolsPanel extends StatelessWidget {
-  final _ToolsSubTab subTab;
-  final CropRatioPreset cropRatio;
-  final double rotation;
-  final bool flipH;
-  final bool flipV;
-  final double perspH;
-  final double perspV;
-  final ValueChanged<_ToolsSubTab> onSubTab;
-  final ValueChanged<CropRatioPreset> onCropRatio;
-  final ValueChanged<double> onRotation;
-  final ValueChanged<double> onRotationEnd;
-  final VoidCallback onFlipH;
-  final VoidCallback onFlipV;
-  final ValueChanged<double> onPerspH;
-  final ValueChanged<double> onPerspV;
-  final VoidCallback onPerspReset;
-
-  const _ToolsPanel({
-    required this.subTab,
-    required this.cropRatio,
-    required this.rotation,
-    required this.flipH,
-    required this.flipV,
-    required this.perspH,
-    required this.perspV,
-    required this.onSubTab,
-    required this.onCropRatio,
-    required this.onRotation,
-    required this.onRotationEnd,
-    required this.onFlipH,
-    required this.onFlipV,
-    required this.onPerspH,
-    required this.onPerspV,
-    required this.onPerspReset,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Sub-tab bar
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Row(
-            children: [
-              _SubTabBtn(
-                  label: '크롭',
-                  icon: Icons.crop_rounded,
-                  selected: subTab == _ToolsSubTab.crop,
-                  onTap: () => onSubTab(_ToolsSubTab.crop)),
-              const SizedBox(width: 8),
-              _SubTabBtn(
-                  label: '회전',
-                  icon: Icons.rotate_90_degrees_cw_rounded,
-                  selected: subTab == _ToolsSubTab.rotate,
-                  onTap: () => onSubTab(_ToolsSubTab.rotate)),
-              const SizedBox(width: 8),
-              _SubTabBtn(
-                  label: '원근',
-                  icon: Icons.transform_rounded,
-                  selected: subTab == _ToolsSubTab.perspective,
-                  onTap: () => onSubTab(_ToolsSubTab.perspective)),
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
-        if (subTab == _ToolsSubTab.crop) _buildCrop(context),
-        if (subTab == _ToolsSubTab.rotate) _buildRotate(context),
-        if (subTab == _ToolsSubTab.perspective) _buildPerspective(),
-      ],
-    );
-  }
-
-  Widget _buildCrop(BuildContext context) {
-    return SizedBox(
-      height: 44,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        itemCount: CropRatioPreset.values.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 8),
-        itemBuilder: (_, i) {
-          final preset = CropRatioPreset.values[i];
-          final sel = cropRatio == preset;
-          return GestureDetector(
-            onTap: () {
-              hapticLight();
-              onCropRatio(preset);
-            },
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              decoration: BoxDecoration(
-                color: sel ? AppColors.oceanTeal : AppColors.oceanNavy,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: sel
-                      ? AppColors.oceanFoam
-                      : AppColors.oceanFoam.withOpacity(0.15),
-                ),
-              ),
-              child: Text(
-                preset.label,
-                style: TextStyle(
-                  fontFamily: 'NotoSerif',
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: sel ? AppColors.cloudWhite : AppColors.textOnDarkSub,
-                ),
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildRotate(BuildContext context) {
-    return Column(
-      children: [
-        // 회전 슬라이더
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Row(
-            children: [
-              const Icon(Icons.rotate_left_rounded,
-                  size: 18, color: AppColors.textOnDarkTert),
-              Expanded(
-                child: SliderTheme(
-                  data: SliderTheme.of(context).copyWith(
-                    activeTrackColor: AppColors.oceanFoam,
-                    inactiveTrackColor: AppColors.oceanNavy,
-                    thumbColor: AppColors.cloudWhite,
-                    overlayColor: AppColors.oceanFoam.withOpacity(0.2),
-                    trackHeight: 3,
-                    thumbShape:
-                        const RoundSliderThumbShape(enabledThumbRadius: 7),
-                  ),
-                  child: Slider(
-                    value: rotation,
-                    min: -45,
-                    max: 45,
-                    divisions: 360,
-                    label: '${rotation.round()}°',
-                    onChanged: onRotation,
-                    onChangeEnd: onRotationEnd,
-                  ),
-                ),
-              ),
-              const Icon(Icons.rotate_right_rounded,
-                  size: 18, color: AppColors.textOnDarkTert),
-              const SizedBox(width: 8),
-              SizedBox(
-                width: 36,
-                child: Text(
-                  '${rotation.round()}°',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontFamily: 'NotoSerif',
-                    fontSize: 12,
-                    color: AppColors.textOnDarkSub,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-        // 플립 버튼
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Row(
-            children: [
-              _FlipBtn(
-                label: '좌우 반전',
-                icon: Icons.flip_rounded,
-                active: flipH,
-                onTap: onFlipH,
-              ),
-              const SizedBox(width: 10),
-              _FlipBtn(
-                label: '상하 반전',
-                icon: Icons.flip_rounded, // rotate 90 visually
-                active: flipV,
-                onTap: onFlipV,
-                rotate: true,
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildPerspective() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _perspSlider('수평 기울기', perspH, onPerspH),
-          _perspSlider('수직 기울기', perspV, onPerspV),
-          if (perspH != 0 || perspV != 0)
-            Padding(
-              padding: const EdgeInsets.only(top: 8, left: 4),
-              child: GestureDetector(
-                onTap: onPerspReset,
-                child: const Text('초기화',
-                    style: TextStyle(
-                        fontFamily: 'NotoSerif',
-                        fontSize: 12,
-                        color: AppColors.oceanFoam)),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _perspSlider(
-      String label, double value, ValueChanged<double> onChanged) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        children: [
-          SizedBox(
-              width: 72,
-              child: Text(label,
-                  style: const TextStyle(
-                      fontFamily: 'NotoSerif',
-                      fontSize: 12,
-                      color: AppColors.textOnDarkSub))),
-          Expanded(
-            child: SliderTheme(
-              data: const SliderThemeData(
-                activeTrackColor: AppColors.oceanFoam,
-                inactiveTrackColor: AppColors.oceanNavy,
-                thumbColor: AppColors.cloudWhite,
-                trackHeight: 2.5,
-                thumbShape: RoundSliderThumbShape(enabledThumbRadius: 6),
-              ),
-              child: Slider(
-                  value: value,
-                  min: -45,
-                  max: 45,
-                  divisions: 180,
-                  onChanged: onChanged),
-            ),
-          ),
-          SizedBox(
-              width: 36,
-              child: Text('${value.round()}°',
-                  textAlign: TextAlign.right,
-                  style: const TextStyle(
-                      fontFamily: 'NotoSerif',
-                      fontSize: 11,
-                      color: AppColors.textOnDarkTert))),
-        ],
-      ),
-    );
-  }
-}
-
 class _SubTabBtn extends StatelessWidget {
   final String label;
   final IconData icon;
@@ -6192,67 +5241,6 @@ class _SubTabBtn extends StatelessWidget {
   }
 }
 
-class _FlipBtn extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final bool active;
-  final VoidCallback onTap;
-  final bool rotate;
-
-  const _FlipBtn({
-    required this.label,
-    required this.icon,
-    required this.active,
-    required this.onTap,
-    this.rotate = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () {
-        hapticLight();
-        onTap();
-      },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          color: active ? AppColors.oceanTeal : AppColors.oceanNavy,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: active
-                ? AppColors.oceanFoam
-                : AppColors.oceanFoam.withOpacity(0.15),
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Transform.rotate(
-              angle: rotate ? 1.5708 : 0, // 90° for vertical flip icon
-              child: Icon(icon,
-                  size: 14,
-                  color:
-                      active ? AppColors.cloudWhite : AppColors.textOnDarkSub),
-            ),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: TextStyle(
-                fontFamily: 'NotoSerif',
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-                color: active ? AppColors.cloudWhite : AppColors.textOnDarkSub,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 // ── Phase 4: 아티스틱 이펙트 패널 ────────────────────────
 
 class _EffectsPanel extends StatelessWidget {
@@ -6264,7 +5252,6 @@ class _EffectsPanel extends StatelessWidget {
   final ValueChanged<double> onStrength;
 
   const _EffectsPanel({
-    super.key,
     required this.imagePath,
     required this.selected,
     required this.strength,
@@ -6469,7 +5456,12 @@ class _EffectChipState extends State<_EffectChip> {
               height: 72,
               interpolation: img.Interpolation.linear,
             );
-          } catch (_) {
+          } catch (error, stackTrace) {
+            ErrorLogger.log(
+              'Effect thumbnail source could not be decoded',
+              error.runtimeType,
+              stackTrace,
+            );
             return null;
           }
         },
@@ -6489,7 +5481,12 @@ class _EffectChipState extends State<_EffectChip> {
               ? proxy
               : await applyArtisticEffect(proxy, widget.effect);
           return Uint8List.fromList(img.encodeJpg(rendered, quality: 82));
-        } catch (_) {
+        } catch (error, stackTrace) {
+          ErrorLogger.log(
+            'Effect thumbnail rendering failed',
+            error.runtimeType,
+            stackTrace,
+          );
           return null;
         }
       },
@@ -6833,7 +5830,6 @@ class _CreativePanel extends StatefulWidget {
   final ValueChanged<String> onTextFontFamily;
 
   const _CreativePanel({
-    super.key,
     this.forceTab,
     required this.blendImagePath,
     required this.blendMode,
@@ -7294,767 +6290,44 @@ class _CreativePanelState extends State<_CreativePanel> {
   }
 }
 
-// ── Export Isolate ────────────────────────────────────────────
-
-img.Image _applyPerspectiveSkewInverse(
-    img.Image src, double hDeg, double vDeg) {
-  final shX = math.tan(hDeg * math.pi / 180);
-  final shY = math.tan(vDeg * math.pi / 180);
-  final width = src.width;
-  final height = src.height;
-  final cx = (width - 1) / 2.0;
-  final cy = (height - 1) / 2.0;
-  final dst = img.Image(width: width, height: height);
-  final denomBase = 1 - shX * shY;
-
-  for (var y = 0; y < height; y++) {
-    for (var x = 0; x < width; x++) {
-      final dx = x - cx;
-      final dy = y - cy;
-      final denom = denomBase.abs() < 0.0001 ? 0.0001 : denomBase;
-      final sx = (dx - shY * dy) / denom + cx;
-      final sy = (dy - shX * dx) / denom + cy;
-      if (sx >= 0 && sx < width - 1 && sy >= 0 && sy < height - 1) {
-        dst.setPixel(x, y, src.getPixelInterpolate(sx, sy));
-      } else {
-        dst.setPixelRgba(x, y, 0, 0, 0, 255);
-      }
-    }
-  }
-  return dst;
-}
-
-Float32List _ovalFaceMask(int width, int height) {
-  final mask = Float32List(width * height);
-  final cx = width * 0.5;
-  final cy = height * 0.38;
-  final rx = width * 0.26;
-  final ry = height * 0.33;
-
-  for (var y = 0; y < height; y++) {
-    for (var x = 0; x < width; x++) {
-      final nx = (x - cx) / rx;
-      final ny = (y - cy) / ry;
-      final d = math.sqrt(nx * nx + ny * ny);
-      mask[y * width + x] = (1.0 - ((d - 0.78) / 0.22)).clamp(0.0, 1.0);
-    }
-  }
-  return mask;
-}
-
-img.Image _applyPortraitEffects(
-  img.Image image, {
-  required double smooth,
-  required double spotlight,
-  required SkinTone skinTone,
-  required double skinToneStrength,
-  Float32List? segmentMask,
-}) {
-  if (smooth <= 0 && spotlight <= 0 && skinTone == SkinTone.none) return image;
-  // Never invent a central-face mask. Portrait processing is a no-op until a
-  // real on-device segmentation result is available for this exact image.
-  if (segmentMask == null || segmentMask.length != image.width * image.height) {
-    return image;
-  }
-  final mask = segmentMask;
-  var out = image;
-  if (smooth > 0) {
-    out = applySkinSmoothing(out, mask, smooth);
-  }
-  if (spotlight > 0) {
-    out = applyFaceSpotlight(out, mask, spotlight);
-  }
-  if (skinTone != SkinTone.none) {
-    out = applySkinToning(out, mask, skinTone, skinToneStrength);
-  }
-  return out;
-}
-
-Future<img.Image> _applyCreativeEffects(
-  img.Image image, {
-  Uint8List? blendImageBytes, // pre-loaded bytes (preview path)
-  required String? blendImagePath, // file path fallback (export path)
-  required bm.BlendMode blendMode,
-  required double blendOpacity,
-  required Uint8List? frameBytes,
-  required String overlayText,
-  required double textSize,
-  required int textColorValue,
-  Uint8List? textOverlayBytes,
-}) async {
-  var out = image;
-
-  if (blendOpacity > 0) {
-    Uint8List? rawBlend;
-    if (blendImageBytes != null) {
-      rawBlend = blendImageBytes;
-    } else if (blendImagePath != null) {
-      final blendFile = File(blendImagePath);
-      if (blendFile.existsSync()) rawBlend = blendFile.readAsBytesSync();
-    }
-    if (rawBlend != null) {
-      final blend = img.decodeImage(rawBlend);
-      if (blend != null) {
-        out = bm.blendImages(
-          dst: out,
-          src: blend,
-          mode: blendMode,
-          opacity: blendOpacity.clamp(0.0, 1.0),
-        );
-      }
-    }
-  }
-
-  if (frameBytes != null) {
-    final frame = img.decodeImage(frameBytes);
-    if (frame != null) {
-      // The bundled frame artwork is an opaque JPEG-style PNG. Convert its
-      // centre to transparency before compositing so the photo stays visible
-      // through the frame while the painted border remains on top.
-      out = img.compositeImage(out, buildFrameOverlay(frame),
-          dstW: out.width, dstH: out.height);
-    }
-  }
-
-  if (textOverlayBytes != null) {
-    final textImg = img.decodeImage(textOverlayBytes);
-    if (textImg != null) {
-      out = img.compositeImage(
-        out,
-        textImg,
-        blend: img.BlendMode.alpha,
-        dstW: out.width,
-        dstH: out.height,
-      );
-    }
-  } else {
-    final text = overlayText.trim();
-    if (text.isNotEmpty) {
-      final a = (textColorValue >> 24) & 0xff;
-      final r = (textColorValue >> 16) & 0xff;
-      final g = (textColorValue >> 8) & 0xff;
-      final b = textColorValue & 0xff;
-      final color = img.ColorRgba8(r, g, b, a);
-
-      // Render at maximum resolution (arial48) on a transparent canvas,
-      // then scale the canvas to match textSize before compositing.
-      // This avoids the 3-step quantization of the original font selection.
-      const baseSize = 48.0; // arial48 glyph height in pixels
-      final scale = (textSize / baseSize).clamp(0.25, 4.0);
-      final canvasW = out.width;
-      final canvasH = out.height;
-
-      final textCanvas = img.Image(
-        width: canvasW,
-        height: canvasH,
-        numChannels: 4,
-      );
-      img.drawString(
-        textCanvas,
-        text,
-        font: img.arial48,
-        y: (canvasH - baseSize * 2.2).round().clamp(0, canvasH - 1),
-        color: color,
-        wrap: true,
-      );
-
-      if (scale != 1.0) {
-        final scaledW = (canvasW * scale).round().clamp(1, canvasW * 4);
-        final scaledH = (canvasH * scale).round().clamp(1, canvasH * 4);
-        final scaled = img.copyResize(textCanvas,
-            width: scaledW,
-            height: scaledH,
-            interpolation: img.Interpolation.linear);
-        // Crop back to output size (centered horizontally, bottom-aligned).
-        final cropX = ((scaledW - canvasW) / 2).round().clamp(0, scaledW - 1);
-        final cropY = (scaledH - canvasH).clamp(0, scaledH - 1);
-        final cropped = img.copyCrop(scaled,
-            x: cropX,
-            y: cropY,
-            width: canvasW.clamp(1, scaledW - cropX),
-            height: canvasH.clamp(1, scaledH - cropY));
-        out = img.compositeImage(out, cropped,
-            blend: img.BlendMode.alpha, dstW: out.width, dstH: out.height);
-      } else {
-        out = img.compositeImage(out, textCanvas,
-            blend: img.BlendMode.alpha, dstW: out.width, dstH: out.height);
-      }
-    }
-  }
-
-  return out;
-}
-
-class _ExportParams {
-  final String imagePath;
-  final String outPath;
-  final ExportFormat exportFormat;
-  final int exportQuality;
-  final int? maxDimension;
-  final AdjustParams adjustParams;
-  final Uint8List? lutBytes;
-  final double intensity;
-  final double? cropRect;
-  final double cropCenterX, cropCenterY;
-  final bool flipH, flipV;
-  final double rotation;
-  final double perspH, perspV;
-  final ArtisticEffect effect;
-  final double effectStrength;
-  final int grainVariant;
-  final bool selActive;
-  final double selX, selY, selBright, selContrast, selSat, selRadius;
-  final bool dbActive;
-  final double dodgeStrength, dodgeY, dodgeRadius;
-  final double burnStrength, burnY, burnRadius;
-  final bool tiltActive;
-  final double tiltFocusCenter, tiltBandWidth, tiltMaxBlur;
-  final bool lensActive;
-  final double lensFocusDepth, lensMaxRadius;
-  final double portraitSmooth, portraitSpotlight, skinToneStrength;
-  final SkinTone skinTone;
-  final Float32List? segmentMask;
-  final int segmentMaskWidth;
-  final int segmentMaskHeight;
-  final String? blendImagePath;
-  final bm.BlendMode blendMode;
-  final double blendOpacity;
-  final Uint8List? frameBytes;
-  final String overlayText;
-  final double textSize;
-  final int textColorValue;
-  final Uint8List? textOverlayBytes;
-  final SendPort sendPort;
-  final double expandTop, expandBottom, expandLeft, expandRight;
-  final String expandMode;
-  final double cropLeft, cropTop, cropRight, cropBottom;
-  final List<DodgeBurnStroke>? brushStrokes;
-
-  const _ExportParams({
-    required this.imagePath,
-    required this.outPath,
-    required this.exportFormat,
-    required this.exportQuality,
-    this.maxDimension,
-    required this.adjustParams,
-    required this.lutBytes,
-    required this.intensity,
-    required this.cropRect,
-    required this.cropCenterX,
-    required this.cropCenterY,
-    required this.flipH,
-    required this.flipV,
-    required this.rotation,
-    required this.perspH,
-    required this.perspV,
-    required this.effect,
-    required this.effectStrength,
-    required this.grainVariant,
-    required this.selActive,
-    required this.selX,
-    required this.selY,
-    required this.selBright,
-    required this.selContrast,
-    required this.selSat,
-    required this.selRadius,
-    required this.dbActive,
-    required this.dodgeStrength,
-    required this.dodgeY,
-    required this.dodgeRadius,
-    required this.burnStrength,
-    required this.burnY,
-    required this.burnRadius,
-    required this.tiltActive,
-    required this.tiltFocusCenter,
-    required this.tiltBandWidth,
-    required this.tiltMaxBlur,
-    required this.lensActive,
-    required this.lensFocusDepth,
-    required this.lensMaxRadius,
-    required this.portraitSmooth,
-    required this.portraitSpotlight,
-    required this.skinTone,
-    required this.skinToneStrength,
-    this.segmentMask,
-    this.segmentMaskWidth = 0,
-    this.segmentMaskHeight = 0,
-    required this.blendImagePath,
-    required this.blendMode,
-    required this.blendOpacity,
-    required this.frameBytes,
-    required this.overlayText,
-    required this.textSize,
-    required this.textColorValue,
-    this.textOverlayBytes,
-    required this.sendPort,
-    required this.expandTop,
-    required this.expandBottom,
-    required this.expandLeft,
-    required this.expandRight,
-    required this.expandMode,
-    required this.cropLeft,
-    required this.cropTop,
-    required this.cropRight,
-    required this.cropBottom,
-    this.brushStrokes,
-  });
-}
-
-Future<void> _exportWorker(_ExportParams p) async {
-  try {
-    final bytes = File(p.imagePath).readAsBytesSync();
-    var image = img.decodeImage(bytes);
-    if (image == null) {
-      p.sendPort.send('error:Unable to open image.');
-      return;
-    }
-
-    if (p.maxDimension != null &&
-        (image.width > p.maxDimension! || image.height > p.maxDimension!)) {
-      final scale = p.maxDimension! / math.max(image.width, image.height);
-      image = img.copyResize(
-        image,
-        width: (image.width * scale).round(),
-        height: (image.height * scale).round(),
-        interpolation: img.Interpolation.linear,
-      );
-    }
-
-    if (p.expandTop > 0 ||
-        p.expandBottom > 0 ||
-        p.expandLeft > 0 ||
-        p.expandRight > 0) {
-      image = _applyExpandHelper(image, p.expandTop, p.expandBottom,
-          p.expandLeft, p.expandRight, p.expandMode);
-    }
-
-    if (p.cropLeft > 0.0 ||
-        p.cropTop > 0.0 ||
-        p.cropRight < 1.0 ||
-        p.cropBottom < 1.0) {
-      final x = (image.width * p.cropLeft).round().clamp(0, image.width - 1);
-      final y = (image.height * p.cropTop).round().clamp(0, image.height - 1);
-      final w = (image.width * (p.cropRight - p.cropLeft))
-          .round()
-          .clamp(1, image.width - x);
-      final h = (image.height * (p.cropBottom - p.cropTop))
-          .round()
-          .clamp(1, image.height - y);
-      image = img.copyCrop(image, x: x, y: y, width: w, height: h);
-    } else if (p.cropRect != null) {
-      final ratio = p.cropRect!;
-      final W = image.width.toDouble(), H = image.height.toDouble();
-      int cropW, cropH, x, y;
-      if (W / H > ratio) {
-        cropH = H.round();
-        cropW = (H * ratio).round();
-      } else {
-        cropW = W.round();
-        cropH = (W / ratio).round();
-      }
-      x = (W * p.cropCenterX - cropW / 2).round().clamp(0, W.round() - cropW);
-      y = (H * p.cropCenterY - cropH / 2).round().clamp(0, H.round() - cropH);
-      image = img.copyCrop(image, x: x, y: y, width: cropW, height: cropH);
-    }
-
-    if (p.flipH || p.flipV) {
-      final dir = p.flipH && p.flipV
-          ? img.FlipDirection.both
-          : p.flipH
-              ? img.FlipDirection.horizontal
-              : img.FlipDirection.vertical;
-      image = img.copyFlip(image, direction: dir);
-    }
-    if (p.rotation != 0) image = img.copyRotate(image, angle: p.rotation);
-    if (p.perspH != 0 || p.perspV != 0) {
-      image = _applyPerspectiveSkewInverse(image, p.perspH, p.perspV);
-    }
-
-    p.sendPort.send(0.15);
-
-    var out = applyImagePipeline(
-      image: image,
-      params: p.adjustParams,
-      lutBytes: p.lutBytes,
-      intensity: p.intensity,
-    );
-
-    p.sendPort.send(0.40);
-
-    if (p.effect != ArtisticEffect.none) {
-      out = await applyArtisticEffect(out, p.effect,
-          strength: p.effectStrength, grainVariant: p.grainVariant);
-    }
-
-    p.sendPort.send(0.55);
-
-    if (p.selActive) {
-      out = applySelectiveAdjust(out, [
-        LocalSelectivePoint(
-            x: p.selX,
-            y: p.selY,
-            brightness: p.selBright,
-            contrast: p.selContrast,
-            saturation: p.selSat,
-            radius: p.selRadius),
-      ]);
-    }
-    if (p.dbActive) {
-      if (p.brushStrokes != null && p.brushStrokes!.isNotEmpty) {
-        out = applyDodgeBurn(out, p.brushStrokes!);
-      } else {
-        out = applyDodgeBurn(out, [
-          if (p.dodgeStrength > 0)
-            DodgeBurnStroke(
-                x: 0.5,
-                y: p.dodgeY,
-                radius: p.dodgeRadius,
-                strength: p.dodgeStrength,
-                isDodge: true),
-          if (p.burnStrength > 0)
-            DodgeBurnStroke(
-                x: 0.5,
-                y: p.burnY,
-                radius: p.burnRadius,
-                strength: p.burnStrength,
-                isDodge: false),
-        ]);
-      }
-    }
-    if (p.tiltActive) {
-      out = applyLinearTiltShift(
-          image: out,
-          focusCenter: p.tiltFocusCenter,
-          focusBandWidth: p.tiltBandWidth,
-          maxBlur: p.tiltMaxBlur);
-    }
-    if (p.lensActive) {
-      final depthMap = _radialDepthMapTopLevel(out.width, out.height);
-      out = applyLensBlur(
-          image: out,
-          depthMap: depthMap,
-          focusDepth: p.lensFocusDepth,
-          maxBlurRadius: p.lensMaxRadius);
-    }
-
-    p.sendPort.send(0.70);
-
-    // Resize the segmentation mask to match the (possibly transformed) image.
-    Float32List? exportMask = p.segmentMask;
-    if (exportMask != null &&
-        p.segmentMaskWidth > 0 &&
-        p.segmentMaskHeight > 0) {
-      exportMask =
-          SegmentMask(exportMask, p.segmentMaskWidth, p.segmentMaskHeight)
-              .resize(out.width, out.height)
-              .data;
-    }
-    out = _applyPortraitEffects(
-      out,
-      smooth: p.portraitSmooth,
-      spotlight: p.portraitSpotlight,
-      skinTone: p.skinTone,
-      skinToneStrength: p.skinToneStrength,
-      segmentMask: exportMask,
-    );
-    out = await _applyCreativeEffects(
-      out,
-      blendImagePath: p.blendImagePath,
-      blendMode: p.blendMode,
-      blendOpacity: p.blendOpacity,
-      frameBytes: p.frameBytes,
-      overlayText: p.overlayText,
-      textSize: p.textSize,
-      textColorValue: p.textColorValue,
-      textOverlayBytes: p.textOverlayBytes,
-    );
-
-    p.sendPort.send(0.85);
-
-    final encoded = ExportEncoder.encode(
-      out,
-      format: p.exportFormat,
-      quality: p.exportQuality,
-    );
-
-    await File(p.outPath).writeAsBytes(encoded);
-
-    p.sendPort.send(0.95);
-    p.sendPort.send('done');
-  } catch (e) {
-    p.sendPort.send('error:$e');
-  }
-}
-
-Float32List _radialDepthMapTopLevel(int w, int h) {
-  final map = Float32List(w * h);
-  final cx = w / 2.0, cy = h / 2.0;
-  final maxD = math.sqrt(cx * cx + cy * cy);
-  for (int py = 0; py < h; py++) {
-    for (int px = 0; px < w; px++) {
-      final dx = px - cx, dy = py - cy;
-      map[py * w + px] = math.sqrt(dx * dx + dy * dy) / maxD;
-    }
-  }
-  return map;
-}
-
 // ── Preview Isolate ───────────────────────────────────────────
 
 class _PreviewParams {
   final int width;
   final int height;
   final Uint8List imageBytes;
-  final AdjustParams adjustParams;
-  final Uint8List? lutBytes;
-  final double intensity;
-  final ArtisticEffect effect;
-  final double effectStrength;
-  final int grainVariant;
-  final bool selActive;
-  final double selX, selY, selBright, selContrast, selSat, selRadius;
-  final bool dbActive;
-  final double dodgeStrength, dodgeY, dodgeRadius;
-  final double burnStrength, burnY, burnRadius;
-  final bool tiltActive;
-  final double tiltFocusCenter, tiltBandWidth, tiltMaxBlur;
-  final bool lensActive;
-  final double lensFocusDepth, lensMaxRadius;
-  final double portraitSmooth, portraitSpotlight, skinToneStrength;
-  final SkinTone skinTone;
-  final Float32List? segmentMask; // null → fall back to oval mask inside worker
-  final Uint8List?
-      blendImageBytes; // pre-loaded on main isolate to avoid file I/O in worker
-  final String?
-      blendImagePath; // kept for export worker which reads the file directly
-  final bm.BlendMode blendMode;
-  final double blendOpacity;
-  final Uint8List? frameBytes;
-  final String overlayText;
-  final double textSize;
-  final int textColorValue;
-  final Uint8List? textOverlayBytes;
-  final List<DodgeBurnStroke>? brushStrokes;
+  final EditorRenderRecipe recipe;
+  final EditorRenderResources resources;
+  final String? overlayTextOverride;
 
   const _PreviewParams({
     required this.width,
     required this.height,
     required this.imageBytes,
-    required this.adjustParams,
-    required this.lutBytes,
-    required this.intensity,
-    required this.effect,
-    required this.effectStrength,
-    required this.grainVariant,
-    required this.selActive,
-    required this.selX,
-    required this.selY,
-    required this.selBright,
-    required this.selContrast,
-    required this.selSat,
-    required this.selRadius,
-    required this.dbActive,
-    required this.dodgeStrength,
-    required this.dodgeY,
-    required this.dodgeRadius,
-    required this.burnStrength,
-    required this.burnY,
-    required this.burnRadius,
-    required this.tiltActive,
-    required this.tiltFocusCenter,
-    required this.tiltBandWidth,
-    required this.tiltMaxBlur,
-    required this.lensActive,
-    required this.lensFocusDepth,
-    required this.lensMaxRadius,
-    required this.portraitSmooth,
-    required this.portraitSpotlight,
-    required this.skinTone,
-    required this.skinToneStrength,
-    this.segmentMask,
-    this.blendImageBytes,
-    required this.blendImagePath,
-    required this.blendMode,
-    required this.blendOpacity,
-    required this.frameBytes,
-    required this.overlayText,
-    required this.textSize,
-    required this.textColorValue,
-    this.textOverlayBytes,
-    this.brushStrokes,
+    required this.recipe,
+    required this.resources,
+    this.overlayTextOverride,
   });
 }
 
 Future<Uint8List> _previewWorker(_PreviewParams p) async {
-  var out = img.Image.fromBytes(
-    width: p.width,
-    height: p.height,
-    bytes: p.imageBytes.buffer,
-    bytesOffset: p.imageBytes.offsetInBytes,
-    numChannels: 4,
-    order: img.ChannelOrder.rgba,
+  return EditorRenderer.renderPreviewBytes(
+    EditorPreviewRenderRequest(
+      width: p.width,
+      height: p.height,
+      imageBytes: p.imageBytes,
+      recipe: p.recipe,
+      resources: EditorRenderResources(
+        segmentMask: p.resources.segmentMask,
+        segmentMaskWidth: p.resources.segmentMaskWidth,
+        segmentMaskHeight: p.resources.segmentMaskHeight,
+        blendImageBytes: p.resources.blendImageBytes,
+        frameBytes: p.resources.frameBytes,
+        overlayTextOverride: p.overlayTextOverride,
+        textOverlayBytes: p.resources.textOverlayBytes,
+      ),
+    ),
   );
-
-  out = applyImagePipeline(
-    image: out,
-    params: p.adjustParams,
-    lutBytes: p.lutBytes,
-    intensity: p.intensity,
-  );
-
-  if (p.effect != ArtisticEffect.none) {
-    out = await applyArtisticEffect(out, p.effect,
-        strength: p.effectStrength, grainVariant: p.grainVariant);
-  }
-  if (p.selActive) {
-    out = applySelectiveAdjust(out, [
-      LocalSelectivePoint(
-          x: p.selX,
-          y: p.selY,
-          brightness: p.selBright,
-          contrast: p.selContrast,
-          saturation: p.selSat,
-          radius: p.selRadius),
-    ]);
-  }
-  if (p.dbActive) {
-    if (p.brushStrokes != null && p.brushStrokes!.isNotEmpty) {
-      out = applyDodgeBurn(out, p.brushStrokes!);
-    } else {
-      out = applyDodgeBurn(out, [
-        if (p.dodgeStrength > 0)
-          DodgeBurnStroke(
-              x: 0.5,
-              y: p.dodgeY,
-              radius: p.dodgeRadius,
-              strength: p.dodgeStrength,
-              isDodge: true),
-        if (p.burnStrength > 0)
-          DodgeBurnStroke(
-              x: 0.5,
-              y: p.burnY,
-              radius: p.burnRadius,
-              strength: p.burnStrength,
-              isDodge: false),
-      ]);
-    }
-  }
-  if (p.tiltActive) {
-    out = applyLinearTiltShift(
-        image: out,
-        focusCenter: p.tiltFocusCenter,
-        focusBandWidth: p.tiltBandWidth,
-        maxBlur: p.tiltMaxBlur);
-  }
-  if (p.lensActive) {
-    final depthMap = _radialDepthMapTopLevel(out.width, out.height);
-    out = applyLensBlur(
-        image: out,
-        depthMap: depthMap,
-        focusDepth: p.lensFocusDepth,
-        maxBlurRadius: p.lensMaxRadius);
-  }
-  out = _applyPortraitEffects(
-    out,
-    smooth: p.portraitSmooth,
-    spotlight: p.portraitSpotlight,
-    skinTone: p.skinTone,
-    skinToneStrength: p.skinToneStrength,
-    segmentMask: p.segmentMask,
-  );
-  out = await _applyCreativeEffects(
-    out,
-    blendImageBytes: p.blendImageBytes,
-    blendImagePath: p.blendImagePath,
-    blendMode: p.blendMode,
-    blendOpacity: p.blendOpacity,
-    frameBytes: p.frameBytes,
-    overlayText: p.overlayText,
-    textSize: p.textSize,
-    textColorValue: p.textColorValue,
-    textOverlayBytes: p.textOverlayBytes,
-  );
-
-  return Uint8List.fromList(img.encodePng(out));
-}
-
-img.Image _applyExpandHelper(
-  img.Image image,
-  double expandTop,
-  double expandBottom,
-  double expandLeft,
-  double expandRight,
-  String expandMode,
-) {
-  final addLeft = (image.width * expandLeft).round();
-  final addRight = (image.width * expandRight).round();
-  final addTop = (image.height * expandTop).round();
-  final addBottom = (image.height * expandBottom).round();
-
-  if (addLeft == 0 && addRight == 0 && addTop == 0 && addBottom == 0) {
-    return image;
-  }
-
-  final newW = image.width + addLeft + addRight;
-  final newH = image.height + addTop + addBottom;
-  final dst = img.Image(width: newW, height: newH);
-
-  if (expandMode == 'black') {
-    dst.clear(img.ColorRgba8(0, 0, 0, 255));
-  } else if (expandMode == 'white') {
-    dst.clear(img.ColorRgba8(255, 255, 255, 255));
-  }
-
-  for (var y = 0; y < newH; y++) {
-    for (var x = 0; x < newW; x++) {
-      if (x >= addLeft &&
-          x < addLeft + image.width &&
-          y >= addTop &&
-          y < addTop + image.height) {
-        dst.setPixel(x, y, image.getPixel(x - addLeft, y - addTop));
-      } else if (expandMode == 'smart') {
-        int sx;
-        if (x < addLeft) {
-          final dist = addLeft - 1 - x;
-          sx = dist % (image.width * 2);
-          if (sx >= image.width) {
-            sx = 2 * image.width - 1 - sx;
-          }
-        } else if (x >= addLeft + image.width) {
-          final dist = x - (addLeft + image.width);
-          sx = image.width - 1 - (dist % (image.width * 2));
-          if (sx < 0) {
-            sx = -sx - 1;
-          }
-        } else {
-          sx = x - addLeft;
-        }
-
-        int sy;
-        if (y < addTop) {
-          final dist = addTop - 1 - y;
-          sy = dist % (image.height * 2);
-          if (sy >= image.height) {
-            sy = 2 * image.height - 1 - sy;
-          }
-        } else if (y >= addTop + image.height) {
-          final dist = y - (addTop + image.height);
-          sy = image.height - 1 - (dist % (image.height * 2));
-          if (sy < 0) {
-            sy = -sy - 1;
-          }
-        } else {
-          sy = y - addTop;
-        }
-
-        sx = sx.clamp(0, image.width - 1);
-        sy = sy.clamp(0, image.height - 1);
-        dst.setPixel(x, y, image.getPixel(sx, sy));
-      }
-    }
-  }
-
-  return dst;
 }
 
 class _ToolItem {

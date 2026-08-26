@@ -12,6 +12,12 @@
 @import connectivity_plus;
 #endif
 
+#if __has_include(<flutter_litert/FlutterLitertPlugin.h>)
+#import <flutter_litert/FlutterLitertPlugin.h>
+#else
+@import flutter_litert;
+#endif
+
 #if __has_include(<gal/GalPlugin.h>)
 #import <gal/GalPlugin.h>
 #else
@@ -70,6 +76,7 @@
 
 + (void)registerWithRegistry:(NSObject<FlutterPluginRegistry>*)registry {
   [ConnectivityPlusPlugin registerWithRegistrar:[registry registrarForPlugin:@"ConnectivityPlusPlugin"]];
+  [FlutterLitertPlugin registerWithRegistrar:[registry registrarForPlugin:@"FlutterLitertPlugin"]];
   [GalPlugin registerWithRegistrar:[registry registrarForPlugin:@"GalPlugin"]];
   [FLTGoogleMobileAdsPlugin registerWithRegistrar:[registry registrarForPlugin:@"FLTGoogleMobileAdsPlugin"]];
   [FLTImagePickerPlugin registerWithRegistrar:[registry registrarForPlugin:@"FLTImagePickerPlugin"]];

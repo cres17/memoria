@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:memoria/core/error/error_handler.dart';
 import 'package:path_provider/path_provider.dart';
 import '../../domain/models/filter_preset.dart';
 import '../../domain/repositories/filter_repository.dart';
@@ -26,14 +27,47 @@ class FilterRepositoryImpl implements FilterRepository {
       final raw = await file.readAsString();
       final list = jsonDecode(raw) as List<dynamic>;
       return list.whereType<String>().toList();
-    } catch (_) {
-      return [];
+    } catch (error, stackTrace) {
+      await _quarantineIndex(file);
+      ErrorLogger.log(
+        'Custom filter index was unreadable; rebuilding from preset metadata',
+        error.runtimeType,
+        stackTrace,
+      );
+      return _rebuildIndex();
     }
   }
 
   Future<void> _writeIndex(List<String> ids) async {
     final file = await _indexFilePath;
-    await file.writeAsString(jsonEncode(ids));
+    await _atomicWrite(file, jsonEncode(ids));
+  }
+
+  Future<void> _quarantineIndex(File file) async {
+    if (!await file.exists()) return;
+    final backup =
+        File('${file.path}.corrupt.${DateTime.now().millisecondsSinceEpoch}');
+    await file.copy(backup.path);
+  }
+
+  Future<List<String>> _rebuildIndex() async {
+    final dir = await _filtersDir;
+    final ids = <String>[];
+    await for (final entry in dir.list()) {
+      if (entry is! Directory) continue;
+      final preset = await getPresetById(
+          entry.uri.pathSegments.where((segment) => segment.isNotEmpty).last);
+      if (preset != null) ids.add(preset.id);
+    }
+    ids.sort();
+    await _writeIndex(ids);
+    return ids;
+  }
+
+  Future<void> _atomicWrite(File file, String contents) async {
+    final temporary = File('${file.path}.tmp');
+    await temporary.writeAsString(contents, flush: true);
+    await temporary.rename(file.path);
   }
 
   @override
@@ -62,7 +96,12 @@ class FilterRepositoryImpl implements FilterRepository {
     try {
       final raw = await metaFile.readAsString();
       return FilterPreset.fromJson(jsonDecode(raw) as Map<String, dynamic>);
-    } catch (_) {
+    } catch (error, stackTrace) {
+      ErrorLogger.log(
+        'Custom filter metadata was unreadable; skipping the preset',
+        error.runtimeType,
+        stackTrace,
+      );
       return null;
     }
   }
@@ -74,7 +113,7 @@ class FilterRepositoryImpl implements FilterRepository {
     await presetDir.create(recursive: true);
 
     final metaFile = File('${presetDir.path}/meta.json');
-    await metaFile.writeAsString(preset.toJsonString());
+    await _atomicWrite(metaFile, preset.toJsonString());
 
     final ids = await _readIndex();
     if (!ids.contains(preset.id)) {

@@ -2,7 +2,6 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'app.dart';
 import 'ai/ai_manager.dart';
@@ -12,7 +11,6 @@ import 'engine/gpu_image_view.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await ErrorLogger.initialize();
   final defaultFlutterErrorHandler = FlutterError.onError;
   FlutterError.onError = (details) {
     ErrorLogger.log(
@@ -55,37 +53,51 @@ void main() async {
           ),
         ),
       );
-  await initGpuFallbacks();
-  await loadSavedLocale();
 
-  // Lock to portrait
-  await SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-    DeviceOrientation.portraitDown,
-  ]);
+  // Do not hold the native launch screen while creating renderer textures or
+  // opening application storage. On iOS the engine cannot reliably produce
+  // its first Flutter frame until the app is running; awaiting that work here
+  // can leave the app on the native splash indefinitely.
+  runApp(const MemoriaApp());
+  unawaited(_initializeAfterFirstFrame());
+}
 
-  // Transparent status/nav bar (immersive)
-  SystemChrome.setSystemUIOverlayStyle(
-    const SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-      statusBarIconBrightness: Brightness.dark,
-      systemNavigationBarColor: Colors.transparent,
-      systemNavigationBarIconBrightness: Brightness.dark,
-    ),
-  );
-  SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+Future<void> _initializeAfterFirstFrame() async {
+  await WidgetsBinding.instance.endOfFrame;
+  try {
+    await ErrorLogger.initialize();
+    await initGpuFallbacks();
+    await loadSavedLocale();
 
-  runApp(const ProviderScope(child: MemoriaApp()));
+    // Lock to portrait
+    await SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+    ]);
 
-  // The color-transfer model ships with the app. Install and verify that
-  // bundled asset after first paint so filter creation never asks users to
-  // manage a model download from Settings.
-  unawaited(AiManager.instance.preload(kModelColorTransfer));
+    // Transparent status/nav bar (immersive)
+    SystemChrome.setSystemUIOverlayStyle(
+      const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.dark,
+        systemNavigationBarColor: Colors.transparent,
+        systemNavigationBarIconBrightness: Brightness.dark,
+      ),
+    );
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
-  // Portrait tools are segmentation-aware. Prepare the small on-device model
-  // automatically so skin smoothing never falls back to a whole-image effect.
-  unawaited(AiManager.instance.preload(kModelSelfie));
+    // The color-transfer model ships with the app. Install and verify that
+    // bundled asset after first paint so filter creation never asks users to
+    // manage a model download from Settings.
+    unawaited(AiManager.instance.preload(kModelColorTransfer));
 
-  // AdMob initialization can be slow on device; do it after the first frame.
-  unawaited(MobileAds.instance.initialize());
+    // Portrait tools are segmentation-aware. Prepare the small on-device model
+    // automatically so skin smoothing never falls back to a whole-image effect.
+    unawaited(AiManager.instance.preload(kModelSelfie));
+
+    // AdMob initialization can be slow on device; do it after the first frame.
+    unawaited(MobileAds.instance.initialize());
+  } catch (error, stackTrace) {
+    ErrorLogger.log('Post-frame app initialization failed', error, stackTrace);
+  }
 }

@@ -34,7 +34,7 @@ Goal: local brush edits are accurate, editable, real-time, and export-identical.
 - [ ] Draft restore rebuilds overlay before input.
 
 ## Test Commands
-- Current: `flutter test test/features/editor/edit_session_controller_test.dart`
+- Current: `flutter test test/features/editor/editor_render_recipe_test.dart`
 - Required target: `flutter test test/engine/brush_engine_test.dart test/features/editor/brush_toolbar_test.dart test/golden/brush_golden_test.dart`
 - Required perf: `dart run tool/perf_gate.dart --feature brush`
 

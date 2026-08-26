@@ -4,12 +4,14 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:path_provider/path_provider.dart';
+import '../../core/error/error_handler.dart';
 import '../../core/l10n/app_locale.dart';
 import '../../core/l10n/strings.dart';
 import '../../core/services/export_preferences.dart';
 import '../../core/services/media_permission_service.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/platform_utils.dart';
+import '../../engine/engine_channel.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -22,6 +24,7 @@ class _SettingsPageState extends State<SettingsPage> {
   int _versionTapCount = 0;
   ExportFormat _exportFormat = ExportFormat.jpeg;
   int _exportQuality = 95;
+  bool _webpSupported = false;
 
   @override
   void initState() {
@@ -31,11 +34,14 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _loadSettings() async {
-    final settings = await ExportPreferences.load(allowWebp: Platform.isIOS);
+    final webpSupported =
+        Platform.isIOS && await EngineChannel.supportsWebPEncoding();
+    final settings = await ExportPreferences.load(allowWebp: webpSupported);
     if (mounted) {
       setState(() {
         _exportFormat = settings.format;
         _exportQuality = settings.quality;
+        _webpSupported = webpSupported;
       });
     }
   }
@@ -111,7 +117,15 @@ class _SettingsPageState extends State<SettingsPage> {
       for (final e in temp.listSync()) {
         try {
           e.deleteSync(recursive: true);
-        } catch (_) {}
+        } catch (error, stackTrace) {
+          // Continue clearing independent cache entries, but retain a
+          // privacy-safe diagnostic instead of reporting a silent success.
+          ErrorLogger.log(
+            'One cache entry could not be removed',
+            error.runtimeType,
+            stackTrace,
+          );
+        }
       }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -216,7 +230,7 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
             const SizedBox(height: 16),
             _buildFormatTile(ExportFormat.jpeg, 'JPEG (고효율)'),
-            if (Platform.isIOS)
+            if (_webpSupported)
               _buildFormatTile(ExportFormat.webp, 'WebP (고효율)'),
             _buildFormatTile(ExportFormat.png, 'PNG (무손실)'),
             _buildFormatTile(ExportFormat.tiff, 'TIFF (무손실 편집본)'),

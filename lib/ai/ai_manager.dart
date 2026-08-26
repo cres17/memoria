@@ -35,30 +35,6 @@ const kModelSelfie = AiModelInfo(
   sizeBytes: 614000,
 );
 
-// MediaPipe Selfie Multiclass (256×256 → 6-class semantic mask)
-// Classes: 0=bg, 1=hair, 2=body-skin, 3=face-skin, 4=clothes, 5=other
-// Input : [1, 256, 256, 3] float32
-// Output: [1, 256, 256, 6] float32 (softmax per pixel)
-const kModelMulticlass = AiModelInfo(
-  key: 'selfie_multiclass',
-  url: 'https://storage.googleapis.com/mediapipe-models/'
-      'image_segmenter/selfie_multiclass_256x256/float32/latest/'
-      'selfie_multiclass_256x256.tflite',
-  sha256: '',
-  sizeBytes: 12600000,
-);
-
-// MiDaS Small v2.1 — monocular depth estimation (256×256 → depth map)
-// Input : [1, 256, 256, 3] float32, RGB 0-1
-// Output: [1, 256, 256]   float32, inverse depth (unnormalized)
-const kModelDepth = AiModelInfo(
-  key: 'midas_small',
-  url: 'https://storage.googleapis.com/tfhub-lite-models/intel/'
-      'lite-model/midas/v2_1_small/1/lite/2.tflite',
-  sha256: '',
-  sizeBytes: 15600000,
-);
-
 const kColorTransferModelId = 'direct_mvp_family_holdout_smooth_010_001_fp16';
 const kColorTransferModelVersion = '2026-08-04-rc1';
 const kColorTransferModelSha256 =
@@ -108,9 +84,6 @@ class AiManager extends ChangeNotifier {
   String? pathOf(String key) => _paths[key];
 
   bool get selfieReady => stateOf(kModelSelfie.key).status == ModelStatus.ready;
-  bool get multiclassReady =>
-      stateOf(kModelMulticlass.key).status == ModelStatus.ready;
-  bool get depthReady => stateOf(kModelDepth.key).status == ModelStatus.ready;
   bool get colorTransferReady =>
       stateOf(kModelColorTransfer.key).status == ModelStatus.ready;
 

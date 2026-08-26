@@ -82,7 +82,7 @@ Goal: base tuning controls behave predictably across GPU preview, CPU preview, e
 - No-op: all neutral sliders mean diff <= 0.25/255, max diff <= 2/255.
 
 ## Test Commands
-- Current: `flutter test test/features/editor/adjust_slider_test.dart test/features/editor/edit_session_controller_test.dart`
+- Current: `flutter test test/features/editor/adjust_slider_test.dart test/features/editor/editor_render_recipe_test.dart`
 - Current engine: `flutter test test/whitebox_integrated_pipeline_test.dart test/whitebox_color_utils_test.dart`
 - Required target: `flutter test test/golden/global_adjust_golden_test.dart test/engine/no_op_guard_test.dart`
 - Required perf: `dart run tool/perf_gate.dart --feature global_adjust`

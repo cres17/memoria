@@ -2,7 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:image/image.dart' as img;
-import 'package:tflite_flutter/tflite_flutter.dart';
+import 'package:flutter_litert/native.dart';
 
 import '../ai_manager.dart';
 
@@ -47,9 +47,6 @@ class LutPredictor {
 
   static Future<LutPredictor> _load(String modelPath) async {
     final options = InterpreterOptions()..threads = 2;
-    if (Platform.isAndroid) {
-      options.useNnApiForAndroid = true;
-    }
 
     final interpreter = Interpreter.fromFile(File(modelPath), options: options);
     try {
@@ -65,7 +62,8 @@ class LutPredictor {
       final layout = _inputLayoutFor(input.shape);
       final srcDim = _outputDimensionFor(output.shape);
       return LutPredictor._(interpreter, layout, srcDim);
-    } catch (_) {
+    } catch (error) {
+      // Close the native resource, then preserve the original load error.
       interpreter.close();
       rethrow;
     }

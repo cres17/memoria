@@ -1,8 +1,7 @@
 import 'dart:io';
-import 'dart:math' show exp;
 import 'dart:typed_data';
 import 'package:image/image.dart' as img;
-import 'package:tflite_flutter/tflite_flutter.dart';
+import 'package:flutter_litert/native.dart';
 
 // ─── Result types ─────────────────────────────────────────────────────────────
 
@@ -110,9 +109,7 @@ class SelfieSegmenter {
   SelfieSegmenter._(this._interpreter);
 
   static Future<SelfieSegmenter> load(String modelPath) async {
-    final options = InterpreterOptions()
-      ..threads = 2
-      ..useNnApiForAndroid = true; // GPU/NPU on Android
+    final options = InterpreterOptions()..threads = 2;
     final interp = Interpreter.fromFile(File(modelPath), options: options);
     return SelfieSegmenter._(interp);
   }
@@ -179,110 +176,4 @@ class SelfieSegmenter {
     }
     return r.clamp(0.0, double.maxFinite);
   }
-}
-
-// ─── Multiclass Segmenter (semantic regions for filter gen) ──────────────────
-
-enum SemanticClass {
-  background, // 0
-  hair, // 1
-  bodySkin, // 2
-  faceSkin, // 3
-  clothes, // 4
-  other, // 5
-}
-
-class SemanticMasks {
-  // One mask per class, all aligned to origW × origH
-  final Map<SemanticClass, SegmentMask> masks;
-  final int width;
-  final int height;
-
-  const SemanticMasks(this.masks, this.width, this.height);
-
-  SegmentMask operator [](SemanticClass c) =>
-      masks[c] ?? SegmentMask(Float32List(width * height), width, height);
-}
-
-class MulticlassSegmenter {
-  static const int _inWH = 256;
-  static const int _nClasses = 6;
-
-  final Interpreter _interpreter;
-
-  MulticlassSegmenter._(this._interpreter);
-
-  static Future<MulticlassSegmenter> load(String modelPath) async {
-    final options = InterpreterOptions()
-      ..threads = 2
-      ..useNnApiForAndroid = true;
-    final interp = Interpreter.fromFile(File(modelPath), options: options);
-    return MulticlassSegmenter._(interp);
-  }
-
-  SemanticMasks segment(img.Image image) {
-    final origW = image.width;
-    final origH = image.height;
-
-    final resized = img.copyResize(image,
-        width: _inWH, height: _inWH, interpolation: img.Interpolation.linear);
-
-    final input = List.generate(
-      1,
-      (_) => List.generate(
-          _inWH,
-          (y) => List.generate(_inWH, (x) {
-                final p = resized.getPixel(x, y);
-                // Selfie Multiclass uses the LiteRT [-1, 1] float32 contract.
-                return [
-                  p.rNormalized * 2.0 - 1.0,
-                  p.gNormalized * 2.0 - 1.0,
-                  p.bNormalized * 2.0 - 1.0,
-                ];
-              })),
-    );
-
-    // Output [1, 256, 256, 6]
-    final output = List.generate(
-        1,
-        (_) => List.generate(_inWH,
-            (_) => List.generate(_inWH, (_) => List.filled(_nClasses, 0.0))));
-
-    _interpreter.run(input, output);
-
-    // The model returns logits. Preserve calibrated class probabilities rather
-    // than clamping logits, so app masks match the training cache contract.
-    final classData =
-        List.generate(_nClasses, (_) => Float32List(_inWH * _inWH));
-
-    for (int y = 0; y < _inWH; y++) {
-      for (int x = 0; x < _inWH; x++) {
-        final scores = output[0][y][x] as List;
-        final maxScore = scores.fold<double>(-double.infinity, (max, score) {
-          final value = score as double;
-          return value > max ? value : max;
-        });
-        double denominator = 0.0;
-        for (int c = 0; c < _nClasses; c++) {
-          denominator += exp((scores[c] as double) - maxScore);
-        }
-        for (int c = 0; c < _nClasses; c++) {
-          classData[c][y * _inWH + x] =
-              exp((scores[c] as double) - maxScore) / denominator;
-        }
-      }
-    }
-
-    final masks = <SemanticClass, SegmentMask>{};
-    for (int c = 0; c < _nClasses; c++) {
-      final cls = SemanticClass.values[c];
-      masks[cls] = SegmentMask(classData[c], _inWH, _inWH)
-          .resize(origW, origH)
-          .feather(4);
-    }
-
-    return SemanticMasks(masks, origW, origH);
-  }
-
-  void dispose() => _interpreter.close();
 }

@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import '../core/error/error_handler.dart';
 import '../domain/models/adjust_params.dart';
 import 'custom_lut_core.dart' show decodeCustomLut, customLutDim;
 
@@ -259,7 +260,12 @@ class _GpuImageViewState extends State<GpuImageView> {
       final program =
           await ui.FragmentProgram.fromAsset('assets/shaders/adjust.frag');
       if (mounted) setState(() => _shader = program.fragmentShader());
-    } catch (_) {
+    } catch (error, stackTrace) {
+      ErrorLogger.log(
+        'GPU adjustment shader failed to load; using CPU rendering',
+        error.runtimeType,
+        stackTrace,
+      );
       if (mounted) {
         setState(() => _shaderError = true);
         widget.onShaderError?.call();

@@ -82,4 +82,14 @@ class EngineChannel {
       return false;
     }
   }
+
+  static Future<bool> supportsWebPEncoding() async {
+    try {
+      return await _channel.invokeMethod<bool>('supportsWebPEncoding') ?? false;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException {
+      return false;
+    }
+  }
 }

@@ -13,7 +13,6 @@ dependencies:
     sdk: flutter
 
   # State management
-  flutter_riverpod: ^2.5.1
 
   # Navigation
   go_router: ^13.2.0
@@ -28,10 +27,10 @@ dependencies:
   image: ^4.1.7
 
   # Ads
-  google_mobile_ads: ^5.1.0
+  google_mobile_ads: ^9.1.0
 
-  # AI / TFLite
-  tflite_flutter: ^0.12.1
+  # AI / LiteRT (SPM-capable successor to tflite_flutter)
+  flutter_litert: ^3.8.0
 
   # Network (model download)
   http: ^1.2.1
@@ -45,7 +44,7 @@ dependencies:
 
   # Network status
   connectivity_plus: ^6.0.5
-  share_plus: ^9.0.0
+  share_plus: ^10.1.0
 
   # Utilities
   uuid: ^4.4.0
@@ -59,7 +58,7 @@ dev_dependencies:
 
 flutter:
   config:
-    enable-swift-package-manager: false
+    enable-swift-package-manager: true
 
   uses-material-design: true
 

@@ -15,7 +15,7 @@ class FullScreenAdService {
 
   // TODO(release): replace with real AdMob unit IDs from AdMob console.
   static const _interstitialId = 'ca-app-pub-3940256099942544/1033173712';
-  static const _rewardedId     = 'ca-app-pub-3940256099942544/5224354917';
+  static const _rewardedId = 'ca-app-pub-3940256099942544/5224354917';
   static const _isTestAdId = true; // flip to false after replacing both IDs
 
   final FeatureFlagsService _flags;
@@ -45,7 +45,8 @@ class FullScreenAdService {
           r == ConnectivityResult.mobile ||
           r == ConnectivityResult.wifi ||
           r == ConnectivityResult.ethernet);
-    } catch (_) {
+    } on Object {
+      // Ads are optional; connectivity plugin failures must never block editing.
       return false;
     }
   }

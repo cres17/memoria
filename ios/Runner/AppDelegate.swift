@@ -2,17 +2,25 @@ import UIKit
 import Flutter
 
 @main
-@objc class AppDelegate: FlutterAppDelegate {
+@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
     override func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
-        GeneratedPluginRegistrant.register(with: self)
+        return super.application(
+            application,
+            didFinishLaunchingWithOptions: launchOptions
+        )
+    }
 
-        if let registrar = registrar(forPlugin: "LutEnginePlugin") {
+    func didInitializeImplicitFlutterEngine(
+        _ engineBridge: FlutterImplicitEngineBridge
+    ) {
+        GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+        if let registrar = engineBridge.pluginRegistry.registrar(
+            forPlugin: "LutEnginePlugin"
+        ) {
             LutEnginePlugin.register(with: registrar)
         }
-
-        return super.application(application, didFinishLaunchingWithOptions: launchOptions)
     }
 }

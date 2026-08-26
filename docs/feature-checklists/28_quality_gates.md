@@ -9,7 +9,7 @@ Goal: every feature reaches enterprise-grade quality through repeatable, measura
 
 ## Test Commands
 - Static analysis: `flutter analyze`
-- Core editor tests: `flutter test test/features/editor/adjust_slider_test.dart test/features/editor/parameter_panels_test.dart test/features/editor/edit_session_controller_test.dart`
+- Core editor tests: `flutter test test/features/editor/adjust_slider_test.dart test/features/editor/parameter_panels_test.dart test/features/editor/editor_render_recipe_test.dart`
 - Engine regression: `flutter test test/engine/no_op_guard_test.dart test/engine/edit_operation_roundtrip_test.dart`
 - Integrated pipeline: `flutter test test/whitebox_integrated_pipeline_test.dart test/filter_apply_whitebox_test.dart`
 - Performance: `dart run tool/perf_gate.dart`

@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:memoria/domain/models/adjust_params.dart';
 import 'package:memoria/domain/models/edit_operation.dart';
-import 'package:memoria/domain/models/edit_session.dart';
+import 'package:memoria/features/editor/editor_history_controller.dart';
 
 void main() {
   group('EditOperation round-trip coverage', () {
@@ -196,22 +196,28 @@ void main() {
     });
   });
 
-  group('EditSession round-trip coverage', () {
+  group('Editor history round-trip coverage', () {
     test('active cursor and future redo branch survive serialization', () {
-      final session = EditSession.forImage('memory://roundtrip')
-          .pushOp(_op(EditToolType.globalAdjust,
-              params: const AdjustParams(exposure: 0.2)))
-          .pushOp(_op(EditToolType.rawDevelop,
-              params: const AdjustParams(luminanceNR: 25)))
-          .undo();
+      final history = EditorHistoryController('memory://roundtrip');
+      history
+        ..apply(_op(EditToolType.globalAdjust,
+            params: const AdjustParams(exposure: 0.2)))
+        ..apply(_op(EditToolType.rawDevelop,
+            params: const AdjustParams(luminanceNR: 25)))
+        ..undo();
 
-      final rt = EditSession.fromJsonString(session.toJsonString());
+      final restored = EditorHistoryController.parseJson(
+        history.toJson(),
+        expectedImageUri: 'memory://roundtrip',
+      );
 
-      expect(rt.imageUri, session.imageUri);
-      expect(rt.ops, hasLength(2));
-      expect(rt.undoCursor, 1);
-      expect(rt.activeOps, hasLength(1));
-      expect(rt.canRedo, isTrue);
+      expect(restored, isNotNull);
+      expect(restored!.operations, hasLength(2));
+      expect(restored.cursor, 1);
+      final rehydrated = EditorHistoryController('memory://roundtrip')
+        ..restore(restored);
+      expect(rehydrated.activeOperation!.params!.exposure, 0.2);
+      expect(rehydrated.canRedo, isTrue);
     });
   });
 }

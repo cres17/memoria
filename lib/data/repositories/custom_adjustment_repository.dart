@@ -1,9 +1,11 @@
 import 'dart:convert';
+import 'package:memoria/core/error/error_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../domain/models/custom_adjustment.dart';
 
 class CustomAdjustmentRepository {
   static const _key = 'custom_adjustments_v1';
+  static const _corruptBackupKey = '${_key}_corrupt_backup';
 
   Future<List<CustomAdjustment>> getAll() async {
     final prefs = await SharedPreferences.getInstance();
@@ -15,8 +17,22 @@ class CustomAdjustmentRepository {
           .cast<Map<String, dynamic>>()
           .map(CustomAdjustment.fromJson)
           .toList();
-    } catch (_) {
+    } catch (error, stackTrace) {
+      await _quarantine(raw, prefs);
+      ErrorLogger.log(
+        'Custom adjustment storage was corrupt; original was quarantined',
+        error.runtimeType,
+        stackTrace,
+      );
       return [];
+    }
+  }
+
+  Future<void> _quarantine(String raw, SharedPreferences prefs) async {
+    // Preserve the first unreadable payload. Later saves may rebuild the live
+    // collection, but must never erase the only recoverable copy.
+    if (prefs.getString(_corruptBackupKey) == null) {
+      await prefs.setString(_corruptBackupKey, raw);
     }
   }
 
@@ -39,6 +55,7 @@ class CustomAdjustmentRepository {
 
   Future<void> _write(List<CustomAdjustment> all) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_key, jsonEncode(all.map((a) => a.toJson()).toList()));
+    await prefs.setString(
+        _key, jsonEncode(all.map((a) => a.toJson()).toList()));
   }
 }

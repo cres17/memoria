@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:photo_manager/photo_manager.dart';
 
 import '../../ai/ai_manager.dart';
+import '../../core/error/error_handler.dart';
 import '../../domain/models/filter_preset.dart';
 import '../../domain/repositories/filter_repository.dart';
 import '../../engine/lut_engine.dart';
@@ -140,8 +141,13 @@ class IsolateCreateFilterGenerator implements CreateFilterGenerator {
     if (styleImagePaths.length == 1) {
       try {
         neuralModelPath = await AiManager.instance.require(kModelColorTransfer);
-      } catch (_) {
+      } catch (error, stackTrace) {
         // The engine records the unavailable-model fallback in its recipe.
+        ErrorLogger.log(
+          'Color-transfer model unavailable; using algorithmic generation',
+          error.runtimeType,
+          stackTrace,
+        );
       }
     }
     return _run(
@@ -262,7 +268,12 @@ class IsolateCreateFilterGenerator implements CreateFilterGenerator {
       return (await root.list().where((entry) => entry is Directory).toList())
           .map((entry) => entry.path)
           .toSet();
-    } catch (_) {
+    } catch (error, stackTrace) {
+      ErrorLogger.log(
+        'Generated-filter directory snapshot failed',
+        error.runtimeType,
+        stackTrace,
+      );
       return <String>{};
     }
   }
@@ -281,8 +292,13 @@ class IsolateCreateFilterGenerator implements CreateFilterGenerator {
           await entry.delete(recursive: true);
         }
       }
-    } catch (_) {
+    } catch (error, stackTrace) {
       // Worker failure cleanup is best-effort and never hides the root error.
+      ErrorLogger.log(
+        'Generated-filter worker cleanup was incomplete',
+        error.runtimeType,
+        stackTrace,
+      );
     }
   }
 
@@ -438,7 +454,12 @@ class FileCreateFilterPreviewRenderer implements CreateFilterPreviewRenderer {
       final file = File('${dir.path}/filter_preview_${preset.id}.jpg');
       await file.writeAsBytes(img.encodeJpg(preview, quality: 88));
       return file.path;
-    } catch (_) {
+    } catch (error, stackTrace) {
+      ErrorLogger.log(
+        'Generated-filter preview rendering failed',
+        error.runtimeType,
+        stackTrace,
+      );
       return null;
     }
   }
@@ -480,7 +501,8 @@ class CreateFilterCommitTransaction {
         preset: preset,
         previewPath: previewPath,
       );
-    } catch (_) {
+    } catch (error) {
+      // Preserve the original commit failure after compensating cleanup.
       await rollback(preset, previewPath: previewPath);
       rethrow;
     }
@@ -492,8 +514,13 @@ class CreateFilterCommitTransaction {
   }) async {
     try {
       await repository.deletePreset(preset.id);
-    } catch (_) {
+    } catch (error, stackTrace) {
       // Continue with direct artifact cleanup even if repository rollback fails.
+      ErrorLogger.log(
+        'Generated-filter repository rollback failed',
+        error.runtimeType,
+        stackTrace,
+      );
     }
     await deleteFileIfPresent(previewPath);
     try {
@@ -501,8 +528,13 @@ class CreateFilterCommitTransaction {
       if (await generatedDir.exists()) {
         await generatedDir.delete(recursive: true);
       }
-    } catch (_) {
+    } catch (error, stackTrace) {
       // Cleanup is best-effort; the repository has already been rolled back.
+      ErrorLogger.log(
+        'Generated-filter artifact cleanup failed',
+        error.runtimeType,
+        stackTrace,
+      );
     }
   }
 
@@ -511,8 +543,13 @@ class CreateFilterCommitTransaction {
     try {
       final file = File(path);
       if (await file.exists()) await file.delete();
-    } catch (_) {
+    } catch (error, stackTrace) {
       // Temporary preview cleanup must not crash navigation.
+      ErrorLogger.log(
+        'Generated-filter temporary preview cleanup failed',
+        error.runtimeType,
+        stackTrace,
+      );
     }
   }
 }

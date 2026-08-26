@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../core/l10n/app_locale.dart';
 import '../../core/l10n/strings.dart';
+import '../../core/error/error_handler.dart';
 import '../../core/services/media_permission_service.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/platform_utils.dart';
@@ -31,8 +32,13 @@ class _HomePageState extends State<HomePage> {
     try {
       final flags = await FeatureFlagsService.create();
       if (mounted) setState(() => _flags = flags);
-    } catch (_) {
+    } catch (error, stackTrace) {
       // 플래그 로드 실패 시 기본값(광고 비활성) 유지
+      ErrorLogger.log(
+        'Home feature flags unavailable; using safe defaults',
+        error.runtimeType,
+        stackTrace,
+      );
     }
   }
 
