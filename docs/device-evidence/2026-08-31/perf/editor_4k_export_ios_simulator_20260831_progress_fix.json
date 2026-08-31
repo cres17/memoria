@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "scope": "physical-device/4k-temp-export",
+  "buildMode": "debug",
+  "device": {
+    "name": "iPhone 17 simulator",
+    "os": "ios",
+    "osVersion": "Version 26.5 (Build 23F77)"
+  },
+  "fixture": {
+    "id": "synthetic-gradient-3840x2160",
+    "width": 3840,
+    "height": 2160
+  },
+  "output": {
+    "format": "jpeg",
+    "width": 3840,
+    "height": 2160,
+    "bytes": 4009603,
+    "signatureValid": true,
+    "photoLibraryWrite": false
+  },
+  "durationMs": 1299.162,
+  "progress": {
+    "samples": [
+      0.01,
+      0.02,
+      0.15,
+      0.16,
+      0.17,
+      0.18000000000000002,
+      0.19000000000000003,
+      0.4,
+      0.55,
+      0.7,
+      0.85,
+      0.86,
+      0.95
+    ],
+    "elapsedMs": [
+      1.778,
+      203.866,
+      282.496,
+      403.483,
+      603.142,
+      803.227,
+      1003.503,
+      1025.428,
+      1025.501,
+      1025.505,
+      1026.215,
+      1203.108,
+      1298.486
+    ],
+    "maxIntervalMs": 202.08800000000002
+  },
+  "rssBytes": {
+    "baseline": 694616064,
+    "peak": 874594304,
+    "after": 646610944,
+    "peakDelta": 179978240,
+    "afterDelta": -48005120
+  },
+  "limitations": [
+    "The output is validated in app temporary storage, not PhotoKit.",
+    "RSS is process-wide and includes the integration-test runner."
+  ]
+}

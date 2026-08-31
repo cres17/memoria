@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "scope": "physical-device/interpreter-cold-proxy",
+  "buildMode": "profile",
+  "modelAsset": "ml_pipeline/reports/deployment/direct_mvp_family_holdout_smooth_010_001_fp16.tflite",
+  "device": {
+    "name": "iPhone 17 physical",
+    "os": "ios",
+    "osVersion": "Version 26.6.1 (Build 23G83)"
+  },
+  "sampleCounts": {
+    "cold": 5,
+    "warm": 30
+  },
+  "latencyMs": {
+    "coldLoad": {
+      "min": 0.379,
+      "mean": 7.249199999999999,
+      "p50": 0.408,
+      "p95": 34.644,
+      "max": 34.644
+    },
+    "coldGenerate": {
+      "min": 127.227,
+      "mean": 132.9492,
+      "p50": 127.874,
+      "p95": 151.706,
+      "max": 151.706
+    },
+    "warmGenerate": {
+      "min": 122.816,
+      "mean": 128.13350000000003,
+      "p50": 128.637,
+      "p95": 132.968,
+      "max": 133.839
+    }
+  },
+  "rssBytes": {
+    "baseline": 177143808,
+    "peak": 366723072,
+    "after": 231096320,
+    "peakDelta": 189579264,
+    "afterDelta": 53952512
+  },
+  "limitations": [
+    "Cold samples recreate the interpreter inside one app process.",
+    "RSS is process-wide and includes the integration-test runner."
+  ]
+}

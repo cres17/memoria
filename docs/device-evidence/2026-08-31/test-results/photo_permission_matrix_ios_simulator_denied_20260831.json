@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "scope": "simulator/photo-permission-current-state",
+  "device": {
+    "name": "iPhone 17 simulator denied",
+    "os": "ios",
+    "osVersion": "Version 26.5 (Build 23F77)"
+  },
+  "systemPicker": {
+    "requiresWholeLibraryAccess": false,
+    "promptTriggeredByTest": false
+  },
+  "recentLibrary": {
+    "accessLevel": "readWrite",
+    "state": "denied",
+    "canRead": false,
+    "limited": false,
+    "promptTriggeredByTest": false
+  },
+  "exportSave": {
+    "accessLevel": "addOnly",
+    "photoManagerState": "denied",
+    "galHasAccess": false,
+    "promptTriggeredByTest": false
+  },
+  "limitations": [
+    "This diagnostic is read-only and records the device current state."
+  ]
+}
