@@ -13,6 +13,7 @@ jobs:
   build-ios:
     name: Build iOS (no codesign)
     runs-on: macos-latest
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -37,7 +38,9 @@ jobs:
           flutter-version: '3.44.6'
           channel: stable
           cache: true
-          architecture: 'x64'
+          # macos-latest is Apple Silicon. Running the x64 SDK under Rosetta
+          # made the neural-LUT integration test exceed its normal timeout.
+          architecture: 'arm64'
 
       - name: Check installed Flutter/Dart
         run: |
@@ -70,6 +73,20 @@ jobs:
 
       - name: Build iOS simulator smoke app
         run: flutter build ios --simulator --debug
+
+      - name: Boot iOS simulator
+        run: |
+          IOS_SIMULATOR_ID="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ && /Shutdown/ {print $2; exit}')"
+          test -n "$IOS_SIMULATOR_ID"
+          xcrun simctl boot "$IOS_SIMULATOR_ID" || true
+          xcrun simctl bootstatus "$IOS_SIMULATOR_ID" -b
+          echo "IOS_SIMULATOR_ID=$IOS_SIMULATOR_ID" >> "$GITHUB_ENV"
+
+      - name: Run iOS integration tests
+        run: >-
+          flutter test integration_test
+          --device-id "$IOS_SIMULATOR_ID"
+          --reporter compact
 
       - name: Build unsigned iOS release (no codesign)
         run: |

@@ -20,8 +20,8 @@ baseline = importlib.import_module("18_evaluate_conditional_baselines")
 evaluator = importlib.import_module("17_evaluate_conditional_lut")
 
 
-def load_masks() -> dict[str, np.ndarray]:
-    with np.load(MASK_PATH) as archive:
+def load_masks(path: Path) -> dict[str, np.ndarray]:
+    with np.load(path) as archive:
         return {str(i): m.astype(bool) for i, m in zip(archive["ids"].astype(str), archive["observed_cube_mask"])}
 
 
@@ -36,6 +36,8 @@ def main() -> None:
     semantic_cache_dir = args.semantic_cache_dir or (
         Path(checkpoint["semantic_cache_dir"]) if checkpoint.get("semantic_cache_dir") else None
     )
+    dataset_dir = Path(checkpoint.get("dataset_dir", mvp.DATASET_DIR))
+    mask_path = Path(checkpoint.get("mask_path", MASK_PATH))
     model = mvp.ConditionalLUTMVP(
         style_dim=int(checkpoint["style_dim"]),
         cube_dim=int(checkpoint["cube_dim"]),
@@ -47,8 +49,10 @@ def main() -> None:
     ).to(mvp.DEVICE)
     model.load_state_dict(checkpoint["state_dict"])
     model.eval()
-    masks = load_masks()
-    records = mvp.read_split_records(Path(checkpoint["split_path"]), {args.partition})
+    masks = load_masks(mask_path)
+    records = mvp.read_split_records(
+        Path(checkpoint["split_path"]), {args.partition}, dataset_dir
+    )
     reports = []
     with torch.no_grad():
         for record in records:
@@ -72,7 +76,9 @@ def main() -> None:
         "partition": args.partition,
         "samples": len(reports),
         "training_protocol": {
+            "dataset_dir": str(dataset_dir),
             "split_path": str(checkpoint["split_path"]),
+            "mask_path": str(mask_path),
             "training_sampler": checkpoint.get("training_sampler_protocol", "legacy_or_unspecified"),
             "validation_accuracy": checkpoint.get("validation_accuracy_protocol", "legacy_or_unspecified"),
             "validation_style": checkpoint.get("validation_style_protocol", "legacy_or_unspecified"),

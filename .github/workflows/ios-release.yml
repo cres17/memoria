@@ -34,7 +34,7 @@ jobs:
           flutter-version: '3.44.6'
           channel: stable
           cache: true
-          architecture: 'x64'
+          architecture: 'arm64'
 
       - name: Check installed Flutter/Dart
         run: |
@@ -48,6 +48,31 @@ jobs:
         run: |
           flutter analyze --no-fatal-infos
           flutter test --reporter compact
+
+      - name: Validate store-release configuration
+        env:
+          IOS_CERT_P12: ${{ secrets.IOS_CERT_P12 }}
+          IOS_CERT_PASSWORD: ${{ secrets.IOS_CERT_PASSWORD }}
+          IOS_PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
+          PRIVACY_POLICY_URL: ${{ vars.PRIVACY_POLICY_URL }}
+          PRIVACY_CONTACT_EMAIL: ${{ vars.PRIVACY_CONTACT_EMAIL }}
+          ADVERTISING_RELEASE_MODE: ${{ vars.ADVERTISING_RELEASE_MODE }}
+        run: |
+          missing=0
+          for name in IOS_CERT_P12 IOS_CERT_PASSWORD IOS_PROVISIONING_PROFILE PRIVACY_POLICY_URL PRIVACY_CONTACT_EMAIL ADVERTISING_RELEASE_MODE; do
+            if [ -z "${!name}" ]; then
+              echo "::error title=Missing release configuration::$name must be configured before a signed store build can run."
+              missing=1
+            fi
+          done
+          case "$ADVERTISING_RELEASE_MODE" in
+            disabled) ;;
+            *)
+              echo "::error title=Invalid advertising release mode::v1 is ad-free, so ADVERTISING_RELEASE_MODE must be exactly disabled."
+              missing=1
+              ;;
+          esac
+          exit "$missing"
 
       - name: Import signing identities and provisioning profiles
         uses: apple-actions/import-codesign@v1

@@ -41,6 +41,10 @@ ios/Flutter/Generated.xcconfig
 .claude/
 exampleui/
 .claude/worktrees/
+**/.cxx/
+**/__pycache__/
+**/xcuserdata/
+*.py[cod]
 /.venv-ml-tflite/
 /LUT/
 /dist/

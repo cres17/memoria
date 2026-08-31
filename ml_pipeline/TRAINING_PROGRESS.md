@@ -2,11 +2,11 @@
 
 | 항목 | 현재 상태 |
 |---|---|
-| 프로젝트 상태 | Phase 0 기준선·구조화 target ablation 완료. 선택된 smoothness `0.01` direct MVP는 zero-leakage LUT-family holdout에서 family-trained V2와 interpolation을 이겼고, 구조화 decoder와 병렬 auxiliary 모두 direct MVP 정확도를 개선하지 못했다 |
-| 최근 수정일 | 2026-08-04 |
-| 현재 진행 Phase | Phase 0. 문제 정의 및 기준 모델 설정 |
-| 현재 핵심 문제 | 병렬 auxiliary는 Style/output variance를 소폭 높이고 monotonicity를 개선했지만 direct MVP test sample/LUT-macro ΔE보다 `+0.078/+0.054` 나쁘다. 현재 label 정의는 Style Encoder regularizer의 채택 근거가 없다. |
-| 다음 우선 작업 | 모델 구조 sweep은 중단했다. 선택된 direct MVP는 앱 계약의 float16 TFLite artifact까지 변환·desktop interpreter 검증을 통과했다. 다음은 release candidate를 앱 asset/AI manager 경로에 등록하고 Android·iOS 실기기 end-to-end latency와 이미지별 LUT parity를 측정하는 일이다. |
+| 프로젝트 상태 | axis-v2 G0~G3는 통과했지만 3-seed validation에서 interpolation 대비 LUT-macro paired CI가 모두 0을 포함해 G4 실패. test·배포 승격을 중단했다. |
+| 최근 수정일 | 2026-08-28 |
+| 현재 진행 Phase | G4 실패 후 원인 진단 단계; G5/G6 미진입 |
+| 현재 핵심 문제 | 세 seed 모두 sample 평균은 개선됐지만 미관측 LUT 10개의 macro 우위를 통계적으로 확정하지 못했다. 참조 이미지 정보량·합성 domain gap·source 품질을 분리해야 한다. |
+| 다음 우선 작업 | 추가 epoch/seed 없이 validation의 LUT별 실패를 source group·참조 색역·LUT 식별 가능성으로 진단한다. test 702건은 계속 봉인한다. |
 
 > 참조 이미지에서 관찰된 색감과 톤의 규칙을 Style Latent로 추출하고, 해당 규칙을 이용해 참조 이미지에 나타나지 않은 색상까지 포함하는 전체 RGB 색 공간의 새로운 3D LUT를 생성한다.
 
@@ -1904,6 +1904,262 @@ RuntimeError: basis artifact was fit on a different train LUT split; rerun --fit
   `reports/mvp/mvp-fixed-lr-4epoch-001_validation_protocol_report.json`,
   `reports/baselines/conditional_generation_validation_comparison_report_001.json`.
 
+#### AXIS-V2-DATASET-001
+
+- 상태: G1/G2 통과; 후속 G3 완료, G4 실패
+- 날짜: 2026-08-28
+- 데이터: 기존 `data/dataset`을 보존하고 `data/dataset_axis_v2_001`에 seed 42로 3,000쌍 생성.
+  source group은 crawled/app/Canon 각 1,000건이고 119개 source LUT를 포함한다.
+- 직접 색값 감사: source 및 생성기 SHA-256 전부 일치, float16 양자화 후 저장 오차 `0.0`,
+  256색 보간 probe 최대 절대오차 `0.000243604`, 불필요한 R/B 전치의 LUT별 중앙 MAE `0.213623`.
+  LUT별 대표 neutral/graded JPEG 119쌍은 생성기 재실행 결과와 byte exact였다.
+- 회귀: dataset/evaluator/active V2 baseline loader의 R-fastest 계약을 포함한 Python unit test 5개와
+  strict 축 검사가 통과했다. 교정 전 V2 basis/checkpoint는 새 baseline으로 재사용하지 않는다.
+- split: train/validation/test record `2,024/274/702`, source LUT `94/10/15`, family leakage 0.
+- hue mask: 3,000개, 빈 mask 0, 평균 observed 17³ cube fraction `0.103710`.
+- G2 smoke: CPU 2 samples·4 steps에서 total loss `0.042686 → 0.014806`(-65.3%), export 범위
+  `[0.00009996, 1.0]`, reload RMSE `0.00009758`. 이는 학습 코드와 gradient의 동작성 증거일 뿐
+  validation 또는 제품 품질 개선 증거가 아니다.
+- 고정 SHA-256: manifest `ad2517c66d9af38474143e22df6e0556be9b073e8478f44aaa634f1a1cc1b5a6`,
+  split `b03b8db19015243731f53fe847c60f95455af186a97b23543f9a8c7c3fc4c8b7`, mask
+  `d0acaf51bc9fa5327a60c18bdf56c29c6c4ee0f9ff04e7e6be389141277adfb9`.
+- 다음 조치: 아래 `AXIS-V2-MULTISEED-001` 결과에 따라 동일 설정 추가 학습을 중단하고 원인 진단.
+
+#### AXIS-V2-MULTISEED-001
+
+- 상태: G3 통과, G4 실패, test/G5 미진입
+- 날짜: 2026-08-28
+- 통제 설정: identity-logit, decoder 1024, encoder/decoder LR `5e-5/2e-4`, image `0`,
+  smoothness `0.01`, style `0.25`, cosine 12 epoch, early stopping patience 2. 기존 checkpoint는
+  resume하지 않았다.
+- seed `20260828/29/30`은 각각 epoch `4/5/4`에서 종료되고 best epoch `2/3/2`, validation cube
+  `0.019759/0.020766/0.019848`을 기록했다.
+- interpolation 대비 sample 평균 ΔE 차이는 `-1.9889/-1.2318/-2.0821`로 세 seed 모두 개선됐다.
+  그러나 LUT-macro paired 차이는 `+0.0767/-0.1207/-0.0896`, 20,000회 bootstrap 95% CI는 각각
+  `[-1.2789,+1.3258]`, `[-1.0744,+0.8604]`, `[-1.4538,+1.1737]`로 모두 0을 포함한다.
+- 판정: strict pass `0/3`. 중앙 seed는 `20260830`이지만 프로덕션 후보가 아니다. test 702건은
+  열지 않았고 ONNX/TFLite 변환도 실행하지 않았다.
+- 다음 조치: epoch·seed·capacity 증가는 중단한다. validation LUT별 reference identifiability,
+  색역 coverage, source group 및 합성 domain gap을 분석한다.
+- 산출물: `reports/validation/axis_v2_001_multiseed_validation_summary.json` 및 seed별 train,
+  validation, paired comparison report.
+
+#### AXIS-V2-FAILURE-DIAGNOSIS-001
+
+- 상태: validation-only 탐색 완료; test 미사용
+- 날짜: 2026-08-28
+- 중앙 seed `20260830`에서 app/crawled는 각 1개 LUT 모두 interpolation보다 `-1.416/-4.077 ΔE`
+  개선됐지만 Canon은 8개 중 3개만 이기고 평균 `+0.575 ΔE` 악화했다. Canon의 관찰/비관찰 차이는
+  `+1.257/+0.395`다.
+- interpolation error와 MVP-minus-interpolation Spearman은 `-0.939`, coverage와 차이는 `+0.442`다.
+  n=10이며 Canon 8개로 불균형하므로 가설 생성용으로만 사용한다.
+- 판단: 단순 coverage 부족 또는 epoch 부족보다 Canon CLog→sRGB transfer/gamut 합성, CLog2/CLog3
+  family 중복, 쉬운 look 보존 실패를 먼저 점검한다.
+- 산출물: `reports/validation/axis_v2_001_seed_20260830_failure_diagnosis.json`.
+
+#### CANON-COLOR-CONTRACT-AUDIT-001
+
+- 상태: 원인 확정, 생성 계약 교정 완료
+- 날짜: 2026-08-28
+- 원본 계약: Canon 65³ LUT 82/82가 `Canon Log 2/3 / Cinema Gamut → BT.709`를 선언한다.
+  axis-v2 생성기는 Cinema Gamut 변환을 생략했고 CLog2/3 transfer 계수·piecewise 구간도 ACES Canon
+  참조 transform과 달랐다.
+- 직접 색값: 동일 41개 look의 CLog2/CLog3 macro 평균 차이는 `11.321772 → 0.076504 ΔE2000`,
+  41/41 look이 개선됐다. 구형 타깃과 교정 타깃의 macro 평균 차이는 CLog2 `13.905690`,
+  CLog3 `10.330872 ΔE2000`이다.
+- 판단: axis-v2 Canon 타깃은 유효하지 않아 폐기한다. `canon_color_contract.py`에 Cinema Gamut primaries,
+  sRGB→Cinema Gamut matrix, ACES CLog2/3 full-range 수식을 고정하고 단위 테스트 5개를 추가했다.
+- 산출물: `43_audit_canon_color_contract.py`,
+  `reports/validation/canon_color_contract_audit.json`.
+
+#### COLOR-V3-DATASET-001
+
+- 상태: G1 통과, family threshold 재교정 완료
+- 날짜: 2026-08-28
+- 데이터: `data/dataset_color_v3_001`, 3,000건, 119 source LUT, crawled/app/Canon 각 1,000건.
+  오류 0, source checksum 119/119, 대표 neutral/graded JPEG 119/119 byte exact, float16 저장 오차 0,
+  256 probe 최대 절대오차 `0.000243485`.
+- family calibration: 동일 CLog2/3 look RMSE 최대 `0.003618`, 다른 look 최소 `0.017395`라 임계값을
+  `0.01`로 고정했다. 78 family(단독 37, CLog 쌍 41), CLog 쌍 41/41 동일 family, source-group 교차와
+  leakage 0. split record는 train/validation/test `2,318/339/343`.
+- SHA-256: manifest `e60bf8971293d5e0d090ef4763cac726fa91c7c56be6712d9c1ac3ceefb49dfb`,
+  split `f8f2b2e206e8a4560888195d07a60b03a7d47b60824f67b771287b3ad19b8644`, mask
+  `3c677fd9aebe240593eed48cc8a0edb52ee4f2705cf9edb64ac59e727c8a4ce2`.
+
+#### COLOR-V3-PILOT-001
+
+- 상태: Canon 개선 확인, G4 전체 실패, test/G5 미진입
+- 날짜: 2026-08-28
+- 통제 설정: axis-v2 seed `20260830`과 identity-logit 1024, encoder/decoder LR `5e-5/2e-4`,
+  image `0`, smoothness `0.01`, style `0.25`, cosine 12 epoch, patience 2를 고정했다.
+- 학습: epoch 6 종료, best epoch 4, validation cube `0.009078`.
+- 품질: validation sample/LUT-macro MVP `13.412063/13.425439`, interpolation
+  `10.091518/10.422167 ΔE2000`. paired 차이 `+3.003272`, 20,000회 bootstrap 95% CI
+  `[-1.215095,+7.793562]`, MVP 우세 7/12로 strict G4 실패.
+- group: Canon 8개 중 6개 우세·평균 `-1.333457`, crawled 1개 `-2.588759` 개선. app 3개는
+  평균 `+16.431893` 악화했고 `fuji_mono_g/ye`, `leica_chocolate_hc`가 각각
+  `+15.513829/+16.660382/+17.121468 ΔE`였다.
+- 판단: Canon 합성 교정은 원래 차단 원인을 해결했지만 모델의 app low-coverage/monochrome family
+  일반화 실패가 새 차단 원인이다. 같은 모델의 epoch·seed·capacity 증가는 중단한다. 별도 calibration
+  family에서 interpolation fallback 또는 app-family 보강을 한 변경씩 검증하기 전 test를 열지 않는다.
+- 산출물: `checkpoints/conditional_lut_color-v3-smooth010-seed-20260830.pt`,
+  `reports/mvp/color-v3-smooth010-seed-20260830_{train,validation}_report.json`,
+  `reports/validation/color_v3_001_seed_20260830_{paired_comparison,failure_diagnosis}.json`.
+
+#### COLOR-V3-CANDIDATE-SELECTION-002
+
+- 상태: 2개 10분 제한 pilot 완료, coverage fallback 선발·보류
+- 날짜: 2026-08-28
+- 후보 A: style consistency weight만 `0.25 → 0.10`, 최대 6 epoch. best epoch 5 validation cube
+  `0.009004`. validation sample/LUT-macro 차이는 interpolation 대비 `+3.138377/+2.658945 ΔE`,
+  LUT paired CI `[-1.523984,+7.426862]`, app 평균 `+15.846832`라 탈락했다.
+- 후보 B: 기존 MVP와 interpolation을 reference hue coverage threshold로 선택. source LUT 하나를 평가할 때
+  나머지 11개로 threshold를 고르는 LOO pilot에서 4/12 LUT에 interpolation을 사용했다. LUT-macro
+  `9.685693`, interpolation `10.422167`, 차이 `-0.736474`, CI `[-1.691714,+0.216757]`다.
+- group: 후보 B는 app 3개를 모두 interpolation으로 보호해 차이 0, Canon/crawled은 각각
+  `-0.781116/-2.588759 ΔE`다. 선택 threshold는 11 fold에서 `0.03`, 1 fold에서 `0.05`였다.
+- 결정: 후보 A 추가 seed/epoch는 중단한다. 후보 B를 다음 calibration 대상으로 선발하지만 CI 상한이 0보다
+  크므로 G4 통과가 아니다. 별도 app monochrome/강한 tone LUT에서 fixed threshold를 정하기 전 test를
+  열거나 배포 로직을 구현하지 않는다.
+- 산출물: `44_evaluate_coverage_fallback.py`,
+  `reports/validation/color_v3_001_coverage_fallback_loo.json`,
+  `reports/mvp/color-v3-style010-seed-20260830_{train,validation}_report.json`,
+  `reports/validation/color_v3_style010_seed_20260830_{paired_comparison,failure_diagnosis}.json`.
+
+#### COLOR-V3-FALLBACK-READINESS-003
+
+- 상태: fixed threshold 동작 확인, 독립 calibration 부재로 승격 보류
+- 날짜: 2026-08-28
+- 로컬 catalog 감사: `assets/luts`, `data/luts`, `data/synthetic_luts`의 물리 LUT 67개는 SHA-256
+  기준 37개 고유 내용이며 67/67 모두 `color-v3-001`에 이미 포함된 내용이다. 독립 보정 가능 LUT는 0개다.
+- app 분할: train/validation/test source LUT는 `24/3/3`. threshold `0.03` 미만은 train 10개,
+  validation 3개지만 각각 모델 fitting과 threshold 탐색에 이미 사용됐다. test 3개는 coverage와 score를
+  읽지 않고 예약 상태를 유지했다.
+- 동결 적용: LOO에서 11/12 fold가 선택한 `0.03`을 더 조정하지 않고 기존 validation 12 LUT에 한 번
+  적용했다. 3개 app LUT에만 interpolation을 사용했고 LUT-macro는 `9.317466`, interpolation은
+  `10.422167`, paired 차이는 `-1.104701`, bootstrap 95% CI는 `[-2.213332,-0.006943]`였다.
+- 판정: 수치상 개선이나 동일 validation에서 threshold가 유래했으므로 독립 검증이 아니다. 3자 평가는
+  **조건부**이며 G4·test·배포 승격은 계속 보류한다.
+- 다음 진입 조건: 라이선스와 source provenance를 기록한 별도 app-like LUT 세트에서 threshold, coverage
+  extractor, checkpoint, interpolation 구현, family dedup 계약을 scoring 전에 고정한다. low/high coverage와
+  monochrome/strong-tone strata를 모두 포함하고, LUT-macro paired CI 상한 `< 0` 및 strata 비악화를 만족해야 한다.
+- 산출물: `45_audit_coverage_fallback_readiness.py`, `46_evaluate_frozen_coverage_fallback.py`,
+  `reports/validation/color_v3_001_coverage_fallback_{readiness,frozen_003}.json`.
+
+#### EXTERNAL-CALIBRATION-HIGH-COVERAGE-004
+
+- 상태: 후보 B high-coverage 분기 독립 통과, low-coverage 취약 계열 보류
+- 날짜: 2026-08-28
+- 데이터: MIT `t0saki/lumix-original-looks` commit
+  `5694792f25598ec626e3e7527e2352f203a33317`의 sRGB 33³ CUBE 10개를 LUT당 12장, 총 120장으로
+  별도 생성했다. source SHA-256은 color-v3 train과 0/10 중복이다.
+- 범위: source LUT 평균 coverage `0.068119~0.108708`로 모두 fixed threshold `0.03` 이상이다.
+  따라서 이 세트는 MVP high-coverage route만 검증하며 monochrome/low-coverage route는 검증하지 않는다.
+- 결과: 10 LUT 중 MVP 9개 우세. selected/MVP LUT-macro `9.284110`, interpolation `11.612427`,
+  paired 차이 `-2.328317`, bootstrap 95% CI `[-3.418580,-1.167311]`로 high branch는 통과했다.
+- 결정: 후보 B 전체 평가는 계속 **조건부**다. high branch의 독립 우위는 확인됐지만 별도 monochrome·strong-tone
+  low-coverage LUT가 없어 threshold의 취약 계열 재현성과 분기 안정성을 승인하지 않는다. test는 열지 않는다.
+- 산출물: `47_generate_external_lut_calibration.py`, `48_evaluate_external_coverage_calibration.py`,
+  `reports/validation/external_calibration_001_coverage_fallback.json`.
+
+#### EXTERNAL-MONOCHROME-CALIBRATION-005
+
+- 상태: low-coverage 분기 독립 통과, 결합 calibration gate 통과
+- 날짜: 2026-08-28
+- 데이터: RawTherapee Film Simulation Collection의 CC BY-SA 4.0 흑백 HaldCLUT 31개,
+  `cedeber/hald-clut` commit `3b3180f82d4dcea1e6e8c5648473539a910d7f49`. 평가 전용이며 원본은
+  저장소에 포함하거나 학습에 사용하지 않았다. LUT당 12장, 총 372장, train SHA 중복 0개다.
+- coverage: source LUT 평균 `0.003274~0.003460`, 31/31이 fixed threshold `0.03` 아래다.
+- 결과: 31/31 interpolation 선택, selected와 interpolation ΔE가 exact 동일(`8.617983`), 차이와 CI는
+  `0/[0,0]`. 강제 MVP는 `22.315603`, 기준선 대비 평균 `+13.697620`, 31/31 패배했다.
+- 결합 gate: high 10 + low 31 = 41 LUT에서 routing recall 각각 100%, selected/interpolation
+  `8.780453/9.348335`, 차이 `-0.567882`, CI `[-1.011339,-0.188623]`로 통과했다.
+- 산출물: `49_generate_hald_monochrome_calibration.py`, `50_combine_external_fallback_calibration.py`,
+  `reports/validation/external_{monochrome,combined}_calibration_001_*.json`.
+
+#### COLOR-V3-FALLBACK-ONE-TIME-TEST-006
+
+- 상태: one-time test G4 통과, 재평가·재튜닝 금지, G5만 진입
+- 날짜: 2026-08-28
+- 고정 계약: checkpoint SHA `3674a5a79bc68235bf80c99f8592933d3f83f92f84e016fc189a84bf8385cf47`,
+  split SHA `f8f2b2e206e8a4560888195d07a60b03a7d47b60824f67b771287b3ad19b8644`, mask SHA
+  `3c677fd9aebe240593eed48cc8a0edb52ee4f2705cf9edb64ac59e727c8a4ce2`, threshold `0.03`.
+- 결과: test 12 source LUT 중 interpolation 5, MVP 7. selected/interpolation LUT-macro
+  `12.041410/12.872148`, 차이 `-0.830738`, bootstrap CI `[-1.821283,-0.109400]`로 strict G4 통과.
+- group 차이: app `-0.488930`(fallback 1/3), Canon `-0.727863`(4/8), crawled `-2.679160`(0/1).
+  forced MVP는 app/Canon에서 각각 평균 `+4.898114/+0.739976` 악화해 routing 필요성을 재확인했다.
+- 결정: 색값 품질 후보는 G5 deployment parity로 승격한다. test는 다시 평가하거나 threshold/model 튜닝에
+  사용하지 않는다. G5/G6 미완료이므로 제품 릴리스 3자 평가는 계속 **조건부**다.
+- 산출물: `51_summarize_fallback_one_time_test.py`,
+  `reports/validation/color_v3_001_coverage_fallback_one_time_test{,_summary}.json`.
+
+#### COLOR-V3-FALLBACK-G5-PARITY-007
+
+- 상태: desktop G5 배포 동등성 통과, 실기기 G6 보류
+- 날짜: 2026-08-28
+- 고정 checkpoint SHA: `3674a5a79bc68235bf80c99f8592933d3f83f92f84e016fc189a84bf8385cf47`.
+- ONNX: opset 17, 72,494,561 bytes, SHA
+  `62a6f8683474802c6ac059c0c2e97686e268d922551ddecd8a2a0cd43e53fcbc`, PyTorch 최대 절대오차
+  `2.682209e-6`로 허용치 `1e-5` 통과.
+- FP16 TFLite: 36,264,272 bytes, SHA
+  `a1b8ecf00632ba359b2d4dec603de6e35fc031aed9af978b14658422e02241a6`, PyTorch 최대 절대오차
+  `0.000838310`로 허용치 `0.002`의 41.9% 사용, 통과.
+- 계약: ONNX/TFLite 모두 float32 NCHW `[1,3,256,256]` 입력과 `[1,17,17,17,3]` 출력, R-fastest
+  65³ persistence 축 검사가 통과했다.
+- desktop benchmark: TFLite/XNNPACK 2 threads, 50회 평균/p50/p95 `3.171/3.171/3.239ms`.
+- Flutter wrapper: 새 TFLite 경로를 dart-define으로 주입해 실제 `LutPredictor` load, JPEG→65³ LUT,
+  deterministic recipe 2개 테스트가 통과했다. wrapper 전체는 `440ms`; 모바일 latency 주장이 아니다.
+- 결정: desktop 범위 G5는 통과. 앱 asset/registry에는 아직 교체하지 않았으며 G6 iOS/Android 실기기
+  latency·메모리·내보내기·권한 검증 전 릴리스 3자 평가는 **조건부**다.
+- 산출물: `52_summarize_color_v3_deployment_parity.py`,
+  `reports/deployment/color_v3_fallback_003_{onnx_export,tflite_conversion,tflite_benchmark,g5_summary}.json`,
+  `color_v3_fallback_003.{onnx,fp16.tflite}`.
+
+#### COLOR-V3-FALLBACK-G6-SIM-PROXY-008
+
+- 날짜: 2026-08-29
+- 상태: iOS Simulator 선행 측정 통과, 물리 iOS/Android G6 보류
+- artifact: fixed FP16 SHA-256
+  `a1b8ecf00632ba359b2d4dec603de6e35fc031aed9af978b14658422e02241a6`
+- 환경: iPhone 17 Simulator, iOS 26.5 (23F77), debug. 연결된 물리 모바일 기기 없음.
+- Direct MVP: interpreter cold proxy 5회 generate p95 `454.980ms`; warm 30회 p50/p95
+  `392.202/418.660ms`; peak RSS 증가 `284,672,000 bytes`(`271.5MiB`), 종료 후 baseline 대비
+  `-1,605,632 bytes`.
+- 편집: frame 38개 p95 `11.172ms`, warm preview 36개 p95 `33.972ms`.
+- 내보내기: 첫 진행 표시 `211.397ms`, 취소 복귀 `281.006ms`; 완주·저장·공유는 측정하지 않음.
+- 검증: 전용 후보 측정 1개와 editor performance 2개 모두 통과; 두 파일 모두 `flutter analyze` 통과.
+- 증거: `reports/device/color_v3_fallback_003_ios_simulator_g6_proxy.json`.
+- 제한: debug Simulator, same-process cold proxy, runner 포함 RSS이므로 실기기 성능·jetsam·LMK 주장이 아님.
+  물리 iOS/Android release/profile, 4K export 완주, 권한 matrix, background resume 전까지 **조건부** 유지.
+
+#### COLOR-V3-BUNDLE-SWAP-BRANCH-009
+
+- 날짜: 2026-08-29
+- 브랜치: `test/color-v3-fallback-routing`, base `964e14cac61bb7ff5a3588bd7390bebd9acbf335`
+- 변경: 앱 번들 TFLite와 model ID/version/SHA를 G5 고정 후보
+  `a1b8ecf00632ba359b2d4dec603de6e35fc031aed9af978b14658422e02241a6`로 교체.
+- 검증: 관련 50개 및 전체 504개 Flutter 테스트 통과, analyze 0건. wrapper `437ms`.
+- iOS Simulator: cold proxy p95 `229.520ms`, warm p95 `129.699ms`, peak RSS 증가 `120.2MiB`,
+  종료 후 증분 `-5.2MiB`; debug 선행값이며 실기기 주장이 아님.
+- 차단: 앱에 fixed coverage `<0.03`와 G4 동일 top-3 interpolation asset/runtime이 없어 현재는 pure MVP다.
+  low-coverage 강제 MVP 위험이 남으므로 모델 교체만으로는 승격하지 않고 **교체보류**.
+
+#### COLOR-V3-RUNTIME-FALLBACK-REJECTION-010
+
+- 날짜: 2026-08-29
+- 범위: 외부 흑백 31 LUT, LUT당 대표 reference 1장, Dart 65³ algorithmic output 직접 색값 평가.
+- routing: Dart coverage 분석기가 대표 high/boundary/monochrome 사례의 fixed `<0.03` 분기를 재현했다.
+- 결과: algorithmic/interpolation/identity LUT-macro ΔE `26.1940/8.9159/26.6727`.
+- paired algorithmic-minus-interpolation `+17.2781`, 95% CI `[+15.1380,+19.1832]`, 우세 `0/31`.
+- 결정: 기존 algorithmic 및 identity fallback 모두 거부. 실패한 제품 연결은 제거하고 coverage 분석기와
+  수동 품질 fixture만 유지한다.
+- 원래 top-3 차단: train-only 94 LUT에는 재배포 권리가 확인되지 않은 Canon/수집 source가 포함되며,
+  앱 LUT로 대체하면 test leakage 위험이 있다. 그대로 번들링하지 않는다.
+- 다음 선택: 라이선스가 명확한 fallback 모델/asset을 새로 만들거나, 당장은 저 coverage 생성을 차단하고
+  다른 reference를 요청한다. 전체 모델 교체 판정은 **교체보류**.
+- 산출물: `53_evaluate_runtime_algorithmic_fallback.py`,
+  `reports/validation/color_v3_runtime_algorithmic_monochrome_001.json`.
+
 ---
 
 ## 8. Ablation Study
@@ -2358,3 +2614,33 @@ Tone Curve
   동일한 preprocessing, LUT shape/axis order, output parity, cold/warm latency, 메모리 사용량을 측정한다.
   현재 `kModelColorTransfer.url`이 비어 있으므로, model hosting URL과 release SHA-256이 결정되기 전에는
   download registry를 채우거나 사용자에게 배포 모델을 노출하지 않는다.
+
+### 2026-08-29 Color-v3 low-coverage product gate
+
+- 브랜치: `test/color-v3-fallback-routing`
+- 결정: 재배포 가능한 품질 fallback이 준비될 때까지 단일 reference coverage `<0.03` 입력은 생성하지 않는다.
+- 구현: Dart coverage extractor를 백그라운드 분석 isolate에서 실행하고 모델·생성 worker·artifact 생성 전에
+  검사해 typed exception으로 중단한다. 분석 중 취소도 생성 진입 전에 반영한다.
+- UX: 한국어·영어 원인 설명과 다른 사진 선택 action을 제공한다. 일반 오류나 성공으로 표시하지 않는다.
+- 정상 경로: coverage `>=0.03`은 기존 neural 생성 계약을 유지하고 결과 metadata에 coverage를 기록한다.
+- 회귀 검증: `flutter analyze` 0건, Flutter 508 pass/fixture 1 skip, ML 계약 13 pass,
+  `git diff --check` 통과.
+- 객관 판정: 저 coverage는 지원된 것이 아니라 안전하게 거부된다. 실제 사용자 분포의 오탐·미탐과 물리
+  iOS/Android G6가 남아 있으므로 릴리스 평가는 **조건부**다.
+
+### 2026-08-31 Color-v3 iPhone 17 physical Profile G6
+
+- 기기: iPhone 17 (`iPhone18,3`), iOS 26.6.1 (23G83), USB, Profile build.
+- 후보 생성: cold interpreter proxy 5회 p95 `158.671ms`, warm 30회 p50/p95
+  `130.158/135.138ms`, peak RSS delta `160.8MiB`, after delta `51.7MiB`.
+- 편집: frame p95 `0.808ms`, warm preview p95 `34.045ms`, 첫 export progress `473.294ms`,
+  cancel 복귀 `266.527ms`; preview와 export-cancel gate 통과.
+- 4K: production isolate가 3840×2160 JPEG를 `2,466.671ms`에 완주했고 signature·크기 검증 통과.
+  peak RSS delta `141.7MiB`, 2초 후 `-11.5MiB`로 회수됐다.
+- 실패: 4K progress update 최대 공백 `1,192.904ms`로 500ms full-export 기준 초과.
+- 상태 계약: 편집 적용/초기화/back, crop reset, v3 draft 복원 5/5 통과.
+- 권한: 실제 첫 실행에서 전체 사진 library 권한 선요청 없음. Profile 전용 local-network 팝업만 관측.
+- 신규 위험: 실제 앱 시작 시 `LiteRtMetalAccelerator`/`LiteRt` Objective-C class 중복 경고 다수. 앱은
+  실행됐지만 경고가 casting/crash 가능성을 명시하므로 릴리스 전 제거 또는 upstream 고정이 필요하다.
+- 미측정: PhotoKit picker·limited/denied/re-authorize·실제 저장, Android 전체 G6.
+- 판정: iOS 성능은 좁은 범위 통과이나 전체 릴리스는 **조건부**.

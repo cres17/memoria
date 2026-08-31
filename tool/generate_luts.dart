@@ -1,3 +1,6 @@
+// This command-line generator intentionally reports generated asset paths.
+// ignore_for_file: avoid_print
+
 /// Run: dart run tool/generate_luts.dart
 /// Generates 7 built-in 65³ LUT .bin files (float16, RGB row-major).
 library;
@@ -12,11 +15,11 @@ void main() {
   final outDir = Directory('assets/luts');
   outDir.createSync(recursive: true);
 
-  _generate('vivid',  _vivid);
-  _generate('cool',   _cool);
-  _generate('warm',   _warm);
-  _generate('fade',   _fade);
-  _generate('noir',   _noir);
+  _generate('vivid', _vivid);
+  _generate('cool', _cool);
+  _generate('warm', _warm);
+  _generate('fade', _fade);
+  _generate('noir', _noir);
   _generate('pastel', _pastel);
   _generate('golden', _golden);
 
@@ -43,7 +46,8 @@ void _generate(String name, _LutFn fn) {
   print('  [$name] written (${data.lengthInBytes} bytes)');
 }
 
-typedef _LutFn = (double, double, double) Function(double r, double g, double b);
+typedef _LutFn = (double, double, double) Function(
+    double r, double g, double b);
 
 // ── Vivid: 채도+명암 강화 ─────────────────────────────────
 (double, double, double) _vivid(double r, double g, double b) {
@@ -145,10 +149,10 @@ int _f32ToF16(double value) {
   if (value == 0.0) return 0;
 
   final bits = ByteData(4)..setFloat32(0, value, Endian.little);
-  final i32  = bits.getUint32(0, Endian.little);
+  final i32 = bits.getUint32(0, Endian.little);
   final sign = (i32 >> 31) & 0x1;
-  int exp    = ((i32 >> 23) & 0xFF) - 127 + 15;
-  int mant   = (i32 >> 13) & 0x3FF;
+  int exp = ((i32 >> 23) & 0xFF) - 127 + 15;
+  int mant = (i32 >> 13) & 0x3FF;
 
   if (exp <= 0) return sign << 15;
   if (exp >= 31) return (sign << 15) | 0x7C00;

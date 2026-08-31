@@ -1,3 +1,6 @@
+// This command-line diagnostic intentionally writes a human-readable report.
+// ignore_for_file: avoid_print
+
 import 'dart:io';
 import 'package:image/image.dart' as img;
 
@@ -67,16 +70,20 @@ ChannelStats measure(img.Image pred, img.Image target) {
 }
 
 void printStats(String label, ChannelStats s) {
-  final blueRatio = s.totalPixels > 0 ? (100.0 * s.bluePixels / s.totalPixels) : 0.0;
+  final blueRatio =
+      s.totalPixels > 0 ? (100.0 * s.bluePixels / s.totalPixels) : 0.0;
   print('[$label]');
-  print('Global MAE: R=${s.maeR.toStringAsFixed(2)} G=${s.maeG.toStringAsFixed(2)} B=${s.maeB.toStringAsFixed(2)}');
+  print(
+      'Global MAE: R=${s.maeR.toStringAsFixed(2)} G=${s.maeG.toStringAsFixed(2)} B=${s.maeB.toStringAsFixed(2)}');
   print('Blue pixels: ${s.bluePixels} (${blueRatio.toStringAsFixed(2)}%)');
-  print('Blue MAE  : R=${s.blueMaeR.toStringAsFixed(2)} G=${s.blueMaeG.toStringAsFixed(2)} B=${s.blueMaeB.toStringAsFixed(2)}');
+  print(
+      'Blue MAE  : R=${s.blueMaeR.toStringAsFixed(2)} G=${s.blueMaeG.toStringAsFixed(2)} B=${s.blueMaeB.toStringAsFixed(2)}');
 }
 
 void main(List<String> args) {
   if (args.length < 3) {
-    print('Usage: dart run tool/channel_compare.dart <target.jpg> <before.jpg> <after.jpg>');
+    print(
+        'Usage: dart run tool/channel_compare.dart <target.jpg> <before.jpg> <after.jpg>');
     exit(1);
   }
 

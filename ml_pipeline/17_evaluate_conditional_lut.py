@@ -9,6 +9,8 @@ from pathlib import Path
 
 import numpy as np
 
+from lut_axis_contract import load_float16_lut
+
 
 PIPELINE_DIR = Path(__file__).resolve().parent
 DEFAULT_MASK_ARCHIVE = PIPELINE_DIR / "reports" / "hue_masks" / "hue_coverage_17.npz"
@@ -25,12 +27,7 @@ def identity_lut(dim: int) -> np.ndarray:
 
 
 def load_lut(path: Path) -> np.ndarray:
-    values = np.fromfile(path, dtype=np.float16).astype(np.float32)
-    points = values.size // 3
-    dim = round(points ** (1.0 / 3.0))
-    if dim ** 3 * 3 != values.size:
-        raise ValueError(f"{path} is not a cubic float16 RGB LUT")
-    return values.reshape(dim, dim, dim, 3)
+    return load_float16_lut(path)
 
 
 def apply_lut(colors: np.ndarray, lut: np.ndarray) -> np.ndarray:
