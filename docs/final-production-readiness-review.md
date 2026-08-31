@@ -366,7 +366,7 @@ README에는 Android, iOS, Windows, Web을 지원한다고 적혀 있다. 현재
 
 - `segmenter.dart`가 실제 사용된다. `segmenter_native.dart`, `segmenter_stub.dart`는 조건부 export 없이 남아 있다.
 - `depth_estimator.dart`, `depth_estimator_native.dart`, `depth_estimator_stub.dart`는 모두 production 미사용이다.
-- `lut_predictor_native.dart`, `lut_predictor_stub.dart`도 production 미사용이다.
+- `lut_predictor_native.dart`, `lut_predictor_stub.dart`도 production 미사용이었다. 후속 정리에서 제거하고 검증된 단일 `lut_predictor.dart` 계약만 유지했다.
 - `kModelMulticlass`, `kModelDepth`, `MulticlassSegmenter`, `DepthEstimator`는 제품 기능에 연결되지 않는다.
 
 Web 조건부 구현을 의도했다면 실제 conditional import/export를 완성해야 한다. 현재는 중복만 있고 Web build는 실패한다.

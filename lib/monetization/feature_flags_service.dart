@@ -2,12 +2,12 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Feature flags stored locally via SharedPreferences.
-/// All fullscreen-ad flags default to OFF per spec.
-/// Banner ad is always disabled on web (kIsWeb) regardless of the stored flag.
+/// All ad flags default to OFF and are disabled in release builds.
+/// v1 ships ad-free; the flags exist only for debug integration testing.
 class FeatureFlagsService {
-  static const _keyBanner         = 'flag_banner_ad';
+  static const _keyBanner = 'flag_banner_ad';
   static const _keyFullCreateFilter = 'flag_fullscreen_create';
-  static const _keyFullApplyExport  = 'flag_fullscreen_apply_export';
+  static const _keyFullApplyExport = 'flag_fullscreen_apply_export';
 
   final SharedPreferences _prefs;
   FeatureFlagsService(this._prefs);
@@ -19,17 +19,16 @@ class FeatureFlagsService {
 
   // ── Getters ──────────────────────────────────────────────────
   bool get enableBannerAd =>
-      !kIsWeb && (_prefs.getBool(_keyBanner) ?? false); // web always OFF
+      !kIsWeb && !kReleaseMode && (_prefs.getBool(_keyBanner) ?? false);
 
   bool get enableFullScreenAdsForCreateFilter =>
-      _prefs.getBool(_keyFullCreateFilter) ?? false; // default OFF
+      !kReleaseMode && (_prefs.getBool(_keyFullCreateFilter) ?? false);
 
   bool get enableFullScreenAdsForApplyOrExport =>
-      _prefs.getBool(_keyFullApplyExport) ?? false;  // default OFF
+      !kReleaseMode && (_prefs.getBool(_keyFullApplyExport) ?? false);
 
   // ── Setters ──────────────────────────────────────────────────
-  Future<void> setBannerAd(bool value) =>
-      _prefs.setBool(_keyBanner, value);
+  Future<void> setBannerAd(bool value) => _prefs.setBool(_keyBanner, value);
 
   Future<void> setFullScreenAdsForCreateFilter(bool value) =>
       _prefs.setBool(_keyFullCreateFilter, value);
@@ -38,8 +37,10 @@ class FeatureFlagsService {
       _prefs.setBool(_keyFullApplyExport, value);
 
   Map<String, bool> toMap() => {
-    'enableBannerAd':                       enableBannerAd,
-    'enableFullScreenAdsForCreateFilter':   enableFullScreenAdsForCreateFilter,
-    'enableFullScreenAdsForApplyOrExport':  enableFullScreenAdsForApplyOrExport,
-  };
+        'enableBannerAd': enableBannerAd,
+        'enableFullScreenAdsForCreateFilter':
+            enableFullScreenAdsForCreateFilter,
+        'enableFullScreenAdsForApplyOrExport':
+            enableFullScreenAdsForApplyOrExport,
+      };
 }

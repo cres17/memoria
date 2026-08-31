@@ -7,6 +7,7 @@ import '../../features/editor/editor_page.dart';
 import '../../features/filters/filters_page.dart';
 import '../../features/create_filter/create_filter_page.dart';
 import '../../features/settings/settings_page.dart';
+import '../../features/settings/legal_support_pages.dart';
 import '../../features/settings/dev_panel_page.dart';
 import '../../features/splash/splash_page.dart';
 import '../shell/main_shell.dart';
@@ -76,6 +77,18 @@ final appRouter = GoRouter(
       name: 'settings',
       pageBuilder: (context, state) =>
           _adaptivePage(state, const SettingsPage()),
+    ),
+    GoRoute(
+      path: '/privacy',
+      name: 'privacy',
+      pageBuilder: (context, state) =>
+          _adaptivePage(state, const PrivacyPolicyPage()),
+    ),
+    GoRoute(
+      path: '/support',
+      name: 'support',
+      pageBuilder: (context, state) =>
+          _adaptivePage(state, const SupportPage()),
     ),
     if (kDebugMode)
       GoRoute(
