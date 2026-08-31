@@ -45,7 +45,8 @@ void main() {
       );
     }
 
-    testWidgets('renders all channel buttons and default active channel is luminance',
+    testWidgets(
+        'renders all channel buttons and default active channel is luminance',
         (tester) async {
       await tester.pumpWidget(buildTestWidget());
 
@@ -60,7 +61,8 @@ void main() {
       expect(find.byIcon(Icons.replay_rounded), findsOneWidget);
     });
 
-    testWidgets('switching channels updates active curve view and invokes callbacks',
+    testWidgets(
+        'switching channels updates active curve view and invokes callbacks',
         (tester) async {
       await tester.pumpWidget(buildTestWidget());
 
@@ -77,7 +79,8 @@ void main() {
       expect(find.text('R'), findsOneWidget);
     });
 
-    testWidgets('tapping canvas adds a new control point and triggers onChanged',
+    testWidgets(
+        'tapping canvas adds a new control point and triggers onChanged',
         (tester) async {
       await tester.pumpWidget(buildTestWidget());
 
@@ -88,7 +91,7 @@ void main() {
       expect(canvasFinder, findsOneWidget);
 
       final center = tester.getCenter(canvasFinder);
-      
+
       // Drag down by 30px to exceed slop, then drag back to center, then release
       final gesture = await tester.startGesture(center);
       await gesture.moveBy(const Offset(0, 30));
@@ -99,7 +102,8 @@ void main() {
       await tester.pumpAndSettle();
 
       // onChanged should have been called when adding point
-      final changeEvents = callbackHistory.where((e) => e['type'] == 'changed').toList();
+      final changeEvents =
+          callbackHistory.where((e) => e['type'] == 'changed').toList();
       expect(changeEvents, isNotEmpty);
 
       final CurveData lastData = changeEvents.last['data'];
@@ -107,7 +111,8 @@ void main() {
       expect(lastData.points[1].x, closeTo(0.5, 0.05));
     });
 
-    testWidgets('dragging control point changes its coordinates and invokes onChangeEnd on release',
+    testWidgets(
+        'dragging control point changes its coordinates and invokes onChangeEnd on release',
         (tester) async {
       await tester.pumpWidget(buildTestWidget());
 
@@ -127,7 +132,7 @@ void main() {
       await tester.pumpAndSettle();
       callbackHistory.clear();
 
-      // Drag the added point (which is at center). 
+      // Drag the added point (which is at center).
       // Start gesture there and drag upwards (y gets larger, dy gets smaller)
       final gesture2 = await tester.startGesture(center);
       await gesture2.moveBy(const Offset(0, -30));
@@ -137,7 +142,8 @@ void main() {
       await gesture2.up();
       await tester.pumpAndSettle();
 
-      final endEvents = callbackHistory.where((e) => e['type'] == 'changedEnd').toList();
+      final endEvents =
+          callbackHistory.where((e) => e['type'] == 'changedEnd').toList();
       expect(endEvents, isNotEmpty);
 
       final CurveData finalData = endEvents.last['data'];
@@ -170,7 +176,8 @@ void main() {
       await tester.tapAt(center);
       await tester.pumpAndSettle();
 
-      final endEvents = callbackHistory.where((e) => e['type'] == 'changedEnd').toList();
+      final endEvents =
+          callbackHistory.where((e) => e['type'] == 'changedEnd').toList();
       expect(endEvents, isNotEmpty);
 
       final CurveData finalData = endEvents.last['data'];
@@ -178,7 +185,8 @@ void main() {
       expect(finalData.points.length, equals(2));
     });
 
-    testWidgets('tapping reset button returns the active curve to linear identity state',
+    testWidgets(
+        'tapping reset button returns the active curve to linear identity state',
         (tester) async {
       // Set initial curve with an edited point (e.g. S-curve)
       initialCurves[CurveChannel.luminance] = const CurveData(
@@ -194,7 +202,8 @@ void main() {
       await tester.tap(resetFinder);
       await tester.pumpAndSettle();
 
-      final changeEvents = callbackHistory.where((e) => e['type'] == 'changed').toList();
+      final changeEvents =
+          callbackHistory.where((e) => e['type'] == 'changed').toList();
       expect(changeEvents, isNotEmpty);
 
       final CurveData resetData = changeEvents.last['data'];

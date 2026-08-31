@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
 import '../../../core/theme/app_colors.dart';
+import '../../../core/l10n/strings.dart';
 import '../../../core/utils/platform_utils.dart';
 import '../../../domain/models/filter_preset.dart';
 
@@ -211,9 +212,9 @@ class IntensitySlider extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Row(
         children: [
-          const Text(
-            '강도',
-            style: TextStyle(
+          Text(
+            S.get('editor.effect_strength'),
+            style: const TextStyle(
               fontFamily: 'NotoSerif',
               fontSize: 13,
               fontWeight: FontWeight.w500,

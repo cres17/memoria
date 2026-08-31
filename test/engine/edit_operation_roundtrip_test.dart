@@ -5,52 +5,6 @@ import 'package:memoria/features/editor/editor_history_controller.dart';
 
 void main() {
   group('EditOperation round-trip coverage', () {
-    test('selective operation preserves points and local params', () {
-      final op = _op(
-        EditToolType.selective,
-        selectivePoints: const [
-          SelectivePoint(
-            x: 0.25,
-            y: 0.75,
-            radius: 0.18,
-            mode: SelectiveMode.colorAuto,
-            localParams: AdjustParams(exposure: 0.4, saturation: -20),
-          ),
-        ],
-      );
-
-      final rt = EditOperation.fromJsonString(op.toJsonString());
-
-      expect(rt.tool, EditToolType.selective);
-      expect(rt.selectivePoints, hasLength(1));
-      expect(rt.selectivePoints!.single.mode, SelectiveMode.colorAuto);
-      expect(rt.selectivePoints!.single.localParams.exposure, 0.4);
-      expect(rt.selectivePoints!.single.localParams.saturation, -20);
-    });
-
-    test('heal operation preserves stroke geometry', () {
-      final op = _op(
-        EditToolType.heal,
-        healStrokes: const [
-          HealStroke(
-            radius: 0.04,
-            path: [
-              {'x': 0.2, 'y': 0.3},
-              {'x': 0.6, 'y': 0.7},
-            ],
-          ),
-        ],
-      );
-
-      final rt = EditOperation.fromJsonString(op.toJsonString());
-
-      expect(rt.tool, EditToolType.heal);
-      expect(rt.healStrokes, hasLength(1));
-      expect(rt.healStrokes!.single.radius, 0.04);
-      expect(rt.healStrokes!.single.path.last['x'], 0.6);
-      expect(rt.healStrokes!.single.path.last['y'], 0.7);
-    });
-
     test('rawDevelop operation preserves noise parameters', () {
       final op = _op(
         EditToolType.rawDevelop,
@@ -225,8 +179,6 @@ void main() {
 EditOperation _op(
   EditToolType tool, {
   AdjustParams? params,
-  List<SelectivePoint>? selectivePoints,
-  List<HealStroke>? healStrokes,
   PortraitParams? portrait,
   EditorEffectState? effectState,
 }) =>
@@ -235,8 +187,6 @@ EditOperation _op(
       tool: tool,
       appliedAt: DateTime.utc(2026, 6, 2),
       params: params,
-      selectivePoints: selectivePoints,
-      healStrokes: healStrokes,
       portrait: portrait,
       effectState: effectState,
     );

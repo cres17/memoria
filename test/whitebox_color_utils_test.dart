@@ -112,12 +112,12 @@ void main() {
     ];
 
     for (final c in testColors) {
-      test('round-trip (${c.r.toStringAsFixed(1)}, '
+      test(
+          'round-trip (${c.r.toStringAsFixed(1)}, '
           '${c.g.toStringAsFixed(1)}, '
           '${c.b.toStringAsFixed(1)})', () {
         final back = labToRgb(rgbToLab(c));
-        expectRgbClose(back, c.r, c.g, c.b, tol: 0.002,
-            reason: 'round-trip');
+        expectRgbClose(back, c.r, c.g, c.b, tol: 0.002, reason: 'round-trip');
       });
     }
   });
@@ -155,8 +155,8 @@ void main() {
     final lab = rgbToLab(const RgbColor(0.4, 0.6, 0.8));
     final dE = math.sqrt(
       (lab.l - lab.l) * (lab.l - lab.l) +
-      (lab.a - lab.a) * (lab.a - lab.a) +
-      (lab.b - lab.b) * (lab.b - lab.b),
+          (lab.a - lab.a) * (lab.a - lab.a) +
+          (lab.b - lab.b) * (lab.b - lab.b),
     );
     expect(dE, closeTo(0.0, 1e-12));
   });

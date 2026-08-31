@@ -440,7 +440,7 @@ class _CropPainter extends CustomPainter {
     final bottomPx = bottom * H;
 
     // 1. Draw outer dimmed mask
-    final maskPaint = Paint()..color = Colors.black.withOpacity(0.65);
+    final maskPaint = Paint()..color = Colors.black.withValues(alpha: 0.65);
     final outerPath = Path()
       ..addRect(Rect.fromLTWH(0, 0, W, H))
       ..addRect(Rect.fromLTRB(leftPx, topPx, rightPx, bottomPx));
@@ -523,7 +523,7 @@ class _CropPainter extends CustomPainter {
     if (gridMode == CropGridMode.none) return;
 
     final gridPaint = Paint()
-      ..color = Colors.white.withOpacity(0.4)
+      ..color = Colors.white.withValues(alpha: 0.4)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 0.8;
 

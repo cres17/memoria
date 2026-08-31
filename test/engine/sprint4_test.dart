@@ -24,6 +24,7 @@ img.Image _noiseImage(int w, int h, {int seed = 42}) {
     rng = (rng * 1664525 + 1013904223) & 0x7FFFFFFF;
     return rng & 0xFF;
   }
+
   for (int y = 0; y < h; y++) {
     for (int x = 0; x < w; x++) {
       im.setPixelRgb(x, y, lcg(), lcg(), lcg());
@@ -61,7 +62,7 @@ double _channelStdDev(img.Image im, int ch) {
   final mean = sum / n;
   return (sumSq / n - mean * mean > 0)
       ? (sumSq / n - mean * mean).toDouble()
-      : 0.0;  // return variance for comparison
+      : 0.0; // return variance for comparison
 }
 
 void main() {
@@ -151,7 +152,8 @@ void main() {
   group('applyImagePipeline noise reduction', () {
     test('NR inactive: pipeline output equals non-NR output (solid image)', () {
       final im = _solidImage(128, 100, 80);
-      final withoutNR = applyImagePipeline(image: im, params: AdjustParams.zero);
+      final withoutNR =
+          applyImagePipeline(image: im, params: AdjustParams.zero);
       final withNR = applyImagePipeline(
         image: im,
         params: AdjustParams.zero.copyWith(luminanceNR: 0.0, colourNR: 0.0),
@@ -183,7 +185,7 @@ void main() {
         params: AdjustParams.zero.copyWith(luminanceNR: 60.0, colourNR: 50.0),
       );
       final avgBefore = _avgBrightness(im);
-      final avgAfter  = _avgBrightness(result);
+      final avgAfter = _avgBrightness(result);
       expect((avgAfter - avgBefore).abs(), lessThan(5.0));
     });
 
@@ -209,7 +211,8 @@ void main() {
       );
     });
 
-    test('detail recovery: higher detail → result closer to original luminance', () {
+    test('detail recovery: higher detail → result closer to original luminance',
+        () {
       final noisy = _noiseImage(16, 16, seed: 7);
 
       // With NR only (no detail recovery)
@@ -226,12 +229,12 @@ void main() {
       // Detail recovery brings back some luminance contrast — average pixel
       // difference vs. original should be lower with detail than without.
       double diffNoDetail = 0, diffWithDetail = 0;
-      final srcBytes  = noisy.data!.buffer.asUint8List();
-      final ndBytes   = noDetail.data!.buffer.asUint8List();
-      final wdBytes   = withDetail.data!.buffer.asUint8List();
+      final srcBytes = noisy.data!.buffer.asUint8List();
+      final ndBytes = noDetail.data!.buffer.asUint8List();
+      final wdBytes = withDetail.data!.buffer.asUint8List();
       final nc = noisy.numChannels;
       for (int i = 0; i < srcBytes.length; i += nc) {
-        diffNoDetail   += (srcBytes[i] - ndBytes[i]).abs().toDouble();
+        diffNoDetail += (srcBytes[i] - ndBytes[i]).abs().toDouble();
         diffWithDetail += (srcBytes[i] - wdBytes[i]).abs().toDouble();
       }
       // Detail recovery should bring result closer to original (smaller diff).

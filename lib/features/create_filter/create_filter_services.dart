@@ -9,10 +9,12 @@ import 'package:photo_manager/photo_manager.dart';
 
 import '../../ai/ai_manager.dart';
 import '../../core/error/error_handler.dart';
+import '../../core/services/media_permission_service.dart';
 import '../../domain/models/filter_preset.dart';
 import '../../domain/repositories/filter_repository.dart';
 import '../../engine/lut_engine.dart';
 import '../../engine/personal_filter_core.dart';
+import '../../engine/reference_coverage_router.dart';
 
 typedef CreateFilterProgressCallback = void Function(
   String stage,
@@ -63,12 +65,14 @@ class _StyleWorkerArgs {
   final List<String> styleImagePaths;
   final String basePath;
   final String? neuralModelPath;
+  final double? referenceCoverage;
   final SendPort sendPort;
 
   const _StyleWorkerArgs(
     this.styleImagePaths,
     this.basePath,
     this.neuralModelPath,
+    this.referenceCoverage,
     this.sendPort,
   );
 }
@@ -102,6 +106,9 @@ Future<void> _styleWorker(_StyleWorkerArgs args) async {
     onProgress: (stage, progress) =>
         args.sendPort.send(_WorkerProgress(stage, progress)),
   );
+  if (args.referenceCoverage != null) {
+    result['referenceCoverage'] = args.referenceCoverage;
+  }
   args.sendPort.send(result);
 }
 
@@ -130,6 +137,7 @@ class IsolateCreateFilterGenerator implements CreateFilterGenerator {
 
   Isolate? _activeIsolate;
   Completer<Map<String, dynamic>>? _activeCompleter;
+  int _cancelVersion = 0;
 
   @override
   Future<Map<String, dynamic>> generateStyle(
@@ -137,11 +145,37 @@ class IsolateCreateFilterGenerator implements CreateFilterGenerator {
     required String basePath,
     required CreateFilterProgressCallback onProgress,
   }) async {
+    final generationVersion = _cancelVersion;
     String? neuralModelPath;
+    double? referenceCoverage;
     if (styleImagePaths.length == 1) {
       try {
-        neuralModelPath = await AiManager.instance.require(kModelColorTransfer);
+        final referencePath = styleImagePaths.first;
+        final coverage = await Isolate.run(
+          () => analyzeReferenceCoverage(referencePath),
+        );
+        _throwIfCancelled(generationVersion);
+        referenceCoverage = coverage.fraction;
+        if (coverage.belowCandidateThreshold) {
+          throw LowReferenceCoverageException(coverage.fraction);
+        }
+      } on LowReferenceCoverageException {
+        rethrow;
+      } on CreateFilterCancelledException {
+        rethrow;
       } catch (error, stackTrace) {
+        // Invalid or unavailable files keep the existing worker error contract.
+        ErrorLogger.log(
+          'Reference coverage analysis failed before generation',
+          error.runtimeType,
+          stackTrace,
+        );
+      }
+      try {
+        neuralModelPath = await AiManager.instance.require(kModelColorTransfer);
+        _throwIfCancelled(generationVersion);
+      } catch (error, stackTrace) {
+        if (error is CreateFilterCancelledException) rethrow;
         // The engine records the unavailable-model fallback in its recipe.
         ErrorLogger.log(
           'Color-transfer model unavailable; using algorithmic generation',
@@ -153,12 +187,14 @@ class IsolateCreateFilterGenerator implements CreateFilterGenerator {
     return _run(
       basePath: basePath,
       onProgress: onProgress,
+      generationVersion: generationVersion,
       spawn: (port) => Isolate.spawn<_StyleWorkerArgs>(
         _styleWorker,
         _StyleWorkerArgs(
           styleImagePaths,
           basePath,
           neuralModelPath,
+          referenceCoverage,
           port,
         ),
         onError: port,
@@ -175,9 +211,11 @@ class IsolateCreateFilterGenerator implements CreateFilterGenerator {
     required String basePath,
     required CreateFilterProgressCallback onProgress,
   }) {
+    final generationVersion = _cancelVersion;
     return _run(
       basePath: basePath,
       onProgress: onProgress,
+      generationVersion: generationVersion,
       spawn: (port) => Isolate.spawn<_PairWorkerArgs>(
         _pairWorker,
         _PairWorkerArgs(beforePath, afterPath, basePath, port),
@@ -191,6 +229,7 @@ class IsolateCreateFilterGenerator implements CreateFilterGenerator {
   Future<Map<String, dynamic>> _run({
     required String basePath,
     required CreateFilterProgressCallback onProgress,
+    required int generationVersion,
     required Future<Isolate> Function(SendPort port) spawn,
   }) async {
     if (_activeCompleter != null) {
@@ -198,6 +237,7 @@ class IsolateCreateFilterGenerator implements CreateFilterGenerator {
     }
 
     final existingFilterDirectories = await _filterDirectoryNames(basePath);
+    _throwIfCancelled(generationVersion);
     final receivePort = ReceivePort();
     final completer = Completer<Map<String, dynamic>>();
     _activeCompleter = completer;
@@ -304,11 +344,18 @@ class IsolateCreateFilterGenerator implements CreateFilterGenerator {
 
   @override
   Future<void> cancel() async {
+    _cancelVersion++;
     final completer = _activeCompleter;
     if (completer != null && !completer.isCompleted) {
       completer.completeError(const CreateFilterCancelledException());
     }
     _activeIsolate?.kill(priority: Isolate.immediate);
+  }
+
+  void _throwIfCancelled(int generationVersion) {
+    if (generationVersion != _cancelVersion) {
+      throw const CreateFilterCancelledException();
+    }
   }
 }
 
@@ -351,12 +398,18 @@ abstract class RecentPhotoSource {
 
 class PhotoManagerRecentPhotoSource implements RecentPhotoSource {
   final Map<String, AssetEntity> _assetsById = {};
+  final Future<PhotoLibraryAccessState> Function() _requestAccess;
+
+  PhotoManagerRecentPhotoSource({
+    Future<PhotoLibraryAccessState> Function()? requestAccess,
+  }) : _requestAccess =
+            requestAccess ?? MediaPermissionService.requestRecentPhotoAccess;
 
   @override
   Future<RecentPhotoPage> loadRecent({int page = 0, int size = 30}) async {
     try {
-      final permission = await PhotoManager.requestPermissionExtend();
-      if (!permission.hasAccess) {
+      final permission = await _requestAccess();
+      if (!permission.canReadLibrary) {
         return RecentPhotoPage(
           state: RecentPhotoLoadState.denied,
           page: page,
@@ -489,14 +542,22 @@ class CreateFilterCommitTransaction {
   Future<CommittedFilterResult> commit({
     required FilterPreset preset,
     required String? sourcePath,
+    bool Function()? isCancelled,
   }) async {
     String? previewPath;
     try {
+      _throwIfCancelled(isCancelled);
       previewPath = await previewRenderer.render(preset, sourcePath);
+      _throwIfCancelled(isCancelled);
       if (previewPath == null || !await File(previewPath).exists()) {
         throw const CreateFilterPreviewException();
       }
+      _throwIfCancelled(isCancelled);
       await repository.savePreset(preset);
+      // Cancellation may arrive while the repository write is in flight. In
+      // that case compensate the completed write instead of exposing a preset
+      // whose success UI was never reached.
+      _throwIfCancelled(isCancelled);
       return CommittedFilterResult(
         preset: preset,
         previewPath: previewPath,
@@ -505,6 +566,12 @@ class CreateFilterCommitTransaction {
       // Preserve the original commit failure after compensating cleanup.
       await rollback(preset, previewPath: previewPath);
       rethrow;
+    }
+  }
+
+  static void _throwIfCancelled(bool Function()? isCancelled) {
+    if (isCancelled?.call() ?? false) {
+      throw const CreateFilterCancelledException();
     }
   }
 

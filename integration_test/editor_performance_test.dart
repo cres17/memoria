@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:ui';
 
@@ -155,6 +156,10 @@ void main() {
         firstProgressStopwatch.elapsedMicroseconds / 1000;
     metrics['exportCancelMs'] = cancelStopwatch.elapsedMicroseconds / 1000;
     metrics['exportCompleted'] = false;
+    // Preserve the complete device-side report when no custom host driver is
+    // attached to `flutter test`.
+    // ignore: avoid_print
+    print('EDITOR_G6_RESULT=${jsonEncode(report)}');
   });
 }
 

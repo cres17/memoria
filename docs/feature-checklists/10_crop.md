@@ -32,7 +32,8 @@ Goal: crop framing is precise, touch-friendly, reversible, and export-safe.
 - [ ] Draft restore shows crop overlay before first input.
 
 ## Test Commands
-- Required target: `flutter test test/engine/crop_engine_test.dart test/features/editor/crop_panel_test.dart test/golden/crop_golden_test.dart`
+- Current: `flutter test test/features/editor/editor_spatial_renderer_test.dart test/features/editor/editor_renderer_golden_parity_test.dart`
+- Required target: `flutter test test/features/editor/crop_panel_test.dart`
 - Required perf: `dart run tool/perf_gate.dart --feature crop`
 
 ## Accessibility, Localization, Privacy

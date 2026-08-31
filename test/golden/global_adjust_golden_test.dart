@@ -8,9 +8,12 @@ void main() {
     final cases = <String, AdjustParams>{
       'identity': AdjustParams.zero,
       'exposure_contrast': const AdjustParams(exposure: 0.5, contrast: 15),
-      'saturation_temp_tint': const AdjustParams(saturation: 25, temperature: -30, tint: 20),
-      'highlights_shadows_ambiance': const AdjustParams(highlights: 30, shadows: -20, ambiance: 40),
-      'tonal_contrast': const AdjustParams(tonalShadows: 40, tonalMidtones: -30, tonalHighlights: 20),
+      'saturation_temp_tint':
+          const AdjustParams(saturation: 25, temperature: -30, tint: 20),
+      'highlights_shadows_ambiance':
+          const AdjustParams(highlights: 30, shadows: -20, ambiance: 40),
+      'tonal_contrast': const AdjustParams(
+          tonalShadows: 40, tonalMidtones: -30, tonalHighlights: 20),
       'mixed_realistic': const AdjustParams(
         exposure: 0.25,
         contrast: 10,
@@ -25,7 +28,8 @@ void main() {
 
     // Placeholders to be updated after first run
     final expected = <String, String>{
-      'identity': '139359,137574,140986,2956847176', // Should match filter original
+      'identity':
+          '139359,137574,140986,2956847176', // Should match filter original
       'exposure_contrast': '205019,192382,198007,1825787345',
       'saturation_temp_tint': '128938,142007,148757,1763503120',
       'highlights_shadows_ambiance': '143157,140683,145345,918998027',

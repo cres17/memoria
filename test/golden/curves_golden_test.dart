@@ -66,7 +66,7 @@ void main() {
           params: entry.value,
         );
         final signature = _signature(out);
-        
+
         // Assert matching signature (or print to make updating them easy if parameters change)
         expect(
           signature,

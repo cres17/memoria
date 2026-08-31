@@ -272,9 +272,9 @@ class _SplitSlider extends StatelessWidget {
         SliderTheme(
           data: SliderTheme.of(context).copyWith(
             activeTrackColor: color,
-            inactiveTrackColor: AppColors.textTertiary.withOpacity(0.15),
+            inactiveTrackColor: AppColors.textTertiary.withValues(alpha: 0.15),
             thumbColor: color,
-            overlayColor: color.withOpacity(0.15),
+            overlayColor: color.withValues(alpha: 0.15),
             trackHeight: 2.5,
             thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
           ),

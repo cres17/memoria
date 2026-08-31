@@ -129,13 +129,13 @@ void main() {
       final pNoEffect = AdjustParams.zero.copyWith(
         splitShadowHue: 240.0,
         splitShadowSat: 80.0,
-        splitBalance: -50.0,  // splitPoint = 0.25, mid-grey lum=0.5 → shadowW=0
+        splitBalance: -50.0, // splitPoint = 0.25, mid-grey lum=0.5 → shadowW=0
       );
       // balance=+50 → splitPoint=0.75, highlight zone above it, so bright pixel fires
       final pHighEffect = AdjustParams.zero.copyWith(
         splitHighHue: 240.0,
         splitHighSat: 80.0,
-        splitBalance: 50.0,   // splitPoint=0.75, bright pixel (lum=0.9) → highW>0
+        splitBalance: 50.0, // splitPoint=0.75, bright pixel (lum=0.9) → highW>0
       );
       const mid = RgbColor(0.5, 0.5, 0.5);
       const bright = RgbColor(0.9, 0.9, 0.9);
@@ -173,8 +173,10 @@ void main() {
     });
 
     test('grain size affects cacheKey', () {
-      final p1 = AdjustParams.zero.copyWith(grainStrength: 50.0, grainSize: 1.0);
-      final p2 = AdjustParams.zero.copyWith(grainStrength: 50.0, grainSize: 2.0);
+      final p1 =
+          AdjustParams.zero.copyWith(grainStrength: 50.0, grainSize: 1.0);
+      final p2 =
+          AdjustParams.zero.copyWith(grainStrength: 50.0, grainSize: 2.0);
       expect(p1.cacheKey, isNot(p2.cacheKey));
     });
   });

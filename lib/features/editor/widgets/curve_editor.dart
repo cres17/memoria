@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/l10n/strings.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/platform_utils.dart';
 import '../../../domain/models/curve_data.dart';
@@ -21,7 +22,7 @@ class CurveEditor extends StatefulWidget {
 
 class _CurveEditorState extends State<CurveEditor> {
   static const double _canvasSize = 240.0;
-  static const double _hitRadius  = 32.0;
+  static const double _hitRadius = 32.0;
 
   int? _draggingIndex;
   late List<CurvePoint> _points;
@@ -44,9 +45,9 @@ class _CurveEditorState extends State<CurveEditor> {
       Offset(p.x * _canvasSize, (1.0 - p.y) * _canvasSize);
 
   CurvePoint _fromCanvas(Offset o) => CurvePoint(
-    (o.dx / _canvasSize).clamp(0.0, 1.0),
-    (1.0 - o.dy / _canvasSize).clamp(0.0, 1.0),
-  );
+        (o.dx / _canvasSize).clamp(0.0, 1.0),
+        (1.0 - o.dy / _canvasSize).clamp(0.0, 1.0),
+      );
 
   int? _hitTest(Offset pos) {
     for (int i = 0; i < _points.length; i++) {
@@ -65,8 +66,7 @@ class _CurveEditorState extends State<CurveEditor> {
       final p = _fromCanvas(d.localPosition);
       if (p.x > 0.02 && p.x < 0.98) {
         hapticLight();
-        final newPoints = [..._points, p]
-          ..sort((a, b) => a.x.compareTo(b.x));
+        final newPoints = [..._points, p]..sort((a, b) => a.x.compareTo(b.x));
         setState(() {
           _points = newPoints;
           _draggingIndex = newPoints.indexOf(p);
@@ -137,15 +137,15 @@ class _CurveEditorState extends State<CurveEditor> {
             borderRadius: BorderRadius.circular(12),
           ),
           child: GestureDetector(
-            onPanStart:      _onPanStart,
-            onPanUpdate:     _onPanUpdate,
-            onPanEnd:        _onPanEnd,
+            onPanStart: _onPanStart,
+            onPanUpdate: _onPanUpdate,
+            onPanEnd: _onPanEnd,
             onDoubleTapDown: _onDoubleTap,
             child: CustomPaint(
               size: const Size(_canvasSize, _canvasSize),
               painter: _CurvePainter(
-                points:        _points,
-                channel:       widget.curve.channel,
+                points: _points,
+                channel: widget.curve.channel,
                 draggingIndex: _draggingIndex,
               ),
             ),
@@ -164,17 +164,30 @@ class _CurveEditorState extends State<CurveEditor> {
               final name = CurvePresets.presetNames[i];
               String displayName = name;
               switch (name) {
-                case 'Neutral': displayName = '기본'; break;
-                case 'Brighten': displayName = '밝게'; break;
-                case 'Darken': displayName = '어둡게'; break;
-                case 'Faded': displayName = '바랜 느낌'; break;
-                case 'Soft Contrast': displayName = '부드러운 대비'; break;
-                case 'Hard Contrast': displayName = '강한 대비'; break;
+                case 'Neutral':
+                  displayName = S.get('curve.neutral');
+                  break;
+                case 'Brighten':
+                  displayName = S.get('curve.brighten');
+                  break;
+                case 'Darken':
+                  displayName = S.get('curve.darken');
+                  break;
+                case 'Faded':
+                  displayName = S.get('curve.faded');
+                  break;
+                case 'Soft Contrast':
+                  displayName = S.get('curve.soft_contrast');
+                  break;
+                case 'Hard Contrast':
+                  displayName = S.get('curve.hard_contrast');
+                  break;
               }
               return GestureDetector(
                 onTap: () {
                   hapticLight();
-                  final newCurve = CurvePresets.fromPresetName(name, widget.curve.channel);
+                  final newCurve =
+                      CurvePresets.fromPresetName(name, widget.curve.channel);
                   setState(() => _points = [...newCurve.points]);
                   widget.onChanged(newCurve);
                   if (widget.onChangeEnd != null) {
@@ -186,7 +199,8 @@ class _CurveEditorState extends State<CurveEditor> {
                   decoration: BoxDecoration(
                     color: AppColors.oceanMid,
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: AppColors.oceanFoam.withOpacity(0.2)),
+                    border: Border.all(
+                        color: AppColors.oceanFoam.withValues(alpha: 0.2)),
                   ),
                   alignment: Alignment.center,
                   child: Text(
@@ -223,23 +237,28 @@ class _CurvePainter extends CustomPainter {
 
   Color get _curveColor {
     switch (channel) {
-      case CurveChannel.red:       return const Color(0xFFFF6B6B);
-      case CurveChannel.green:     return const Color(0xFF6BFF8E);
-      case CurveChannel.blue:      return const Color(0xFF6BB5FF);
-      case CurveChannel.rgb:       return AppColors.cloudWhite;
-      case CurveChannel.luminance: return AppColors.oceanFoam;
+      case CurveChannel.red:
+        return const Color(0xFFFF6B6B);
+      case CurveChannel.green:
+        return const Color(0xFF6BFF8E);
+      case CurveChannel.blue:
+        return const Color(0xFF6BB5FF);
+      case CurveChannel.rgb:
+        return AppColors.cloudWhite;
+      case CurveChannel.luminance:
+        return AppColors.oceanFoam;
     }
   }
 
   @override
   void paint(Canvas canvas, Size size) {
     const pad = 0.0;
-    final W = size.width  - pad * 2;
+    final W = size.width - pad * 2;
     final H = size.height - pad * 2;
 
     // 격자
     final gridPaint = Paint()
-      ..color = AppColors.oceanFoam.withOpacity(0.08)
+      ..color = AppColors.oceanFoam.withValues(alpha: 0.08)
       ..strokeWidth = 0.5;
     for (int i = 1; i < 4; i++) {
       canvas.drawLine(Offset(W * i / 4, 0), Offset(W * i / 4, H), gridPaint);
@@ -250,7 +269,7 @@ class _CurvePainter extends CustomPainter {
     canvas.drawLine(
       Offset(0, H),
       Offset(W, 0),
-      gridPaint..color = AppColors.oceanFoam.withOpacity(0.18),
+      gridPaint..color = AppColors.oceanFoam.withValues(alpha: 0.18),
     );
 
     if (points.isEmpty) return;
@@ -272,7 +291,7 @@ class _CurvePainter extends CustomPainter {
 
     path.moveTo(0, (1 - lut[0] / 255.0) * H);
     for (int i = 1; i <= steps; i++) {
-      final t   = i / steps;
+      final t = i / steps;
       final idx = (t * 255).round().clamp(0, 255);
       path.lineTo(t * W, (1 - lut[idx] / 255.0) * H);
     }
@@ -281,8 +300,8 @@ class _CurvePainter extends CustomPainter {
     // 컨트롤 포인트
     for (int i = 0; i < sorted.length; i++) {
       final isDragging = i == draggingIndex;
-      final center     = toC(sorted[i]);
-      final fillPaint  = Paint()
+      final center = toC(sorted[i]);
+      final fillPaint = Paint()
         ..color = isDragging ? _curveColor : AppColors.cloudWhite
         ..style = PaintingStyle.fill;
       final borderPaint = Paint()
@@ -348,7 +367,9 @@ class _CurveEditorPanelState extends State<CurveEditorPanel> {
                         margin: const EdgeInsets.only(right: 6),
                         padding: const EdgeInsets.symmetric(horizontal: 14),
                         decoration: BoxDecoration(
-                          color: selected ? _channelColor(ch) : AppColors.oceanNavy,
+                          color: selected
+                              ? _channelColor(ch)
+                              : AppColors.oceanNavy,
                           borderRadius: BorderRadius.circular(10),
                         ),
                         alignment: Alignment.center,
@@ -367,7 +388,8 @@ class _CurveEditorPanelState extends State<CurveEditorPanel> {
                 ),
               ),
               IconButton(
-                icon: const Icon(Icons.replay_rounded, color: AppColors.textOnDarkSub),
+                icon: const Icon(Icons.replay_rounded,
+                    color: AppColors.textOnDarkSub),
                 onPressed: () {
                   hapticLight();
                   final cleanCurve = CurveData.linear(_activeChannel);
@@ -384,8 +406,8 @@ class _CurveEditorPanelState extends State<CurveEditorPanel> {
         const SizedBox(height: 12),
         // 현재 채널 커브 에디터
         CurveEditor(
-          curve: widget.curves[_activeChannel] ??
-              CurveData.linear(_activeChannel),
+          curve:
+              widget.curves[_activeChannel] ?? CurveData.linear(_activeChannel),
           onChanged: (data) => widget.onChanged(_activeChannel, data),
           onChangeEnd: widget.onChangeEnd != null
               ? (data) => widget.onChangeEnd!(_activeChannel, data)
@@ -412,11 +434,16 @@ class _CurveEditorPanelState extends State<CurveEditorPanel> {
 
   Color _channelColor(CurveChannel ch) {
     switch (ch) {
-      case CurveChannel.red:       return const Color(0xFFD94F4F);
-      case CurveChannel.green:     return const Color(0xFF3D9B5A);
-      case CurveChannel.blue:      return const Color(0xFF3A72C8);
-      case CurveChannel.rgb:       return AppColors.textOnDarkSub;
-      case CurveChannel.luminance: return AppColors.oceanTeal;
+      case CurveChannel.red:
+        return const Color(0xFFD94F4F);
+      case CurveChannel.green:
+        return const Color(0xFF3D9B5A);
+      case CurveChannel.blue:
+        return const Color(0xFF3A72C8);
+      case CurveChannel.rgb:
+        return AppColors.textOnDarkSub;
+      case CurveChannel.luminance:
+        return AppColors.oceanTeal;
     }
   }
 }

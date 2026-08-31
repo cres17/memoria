@@ -39,7 +39,8 @@ class _BrushOverlayWidgetState extends State<BrushOverlayWidget> {
     final y = ((scene.dy - rect.top) / rect.height).clamp(0.0, 1.0);
     final radius = (widget.brushSize / 2.0 / math.min(rect.width, rect.height))
         .clamp(0.001, 0.5);
-    widget.onStroke(DodgeBurnStroke(x: x, y: y, radius: radius, strength: 1.0, isDodge: true));
+    widget.onStroke(DodgeBurnStroke(
+        x: x, y: y, radius: radius, strength: 1.0, isDodge: true));
   }
 
   @override
@@ -118,10 +119,10 @@ class _BrushOverlayPainter extends CustomPainter {
     canvas.transform(transform.storage);
 
     final maskPaint = Paint()
-      ..color = const Color(0xFFFF4F7A).withOpacity(0.24)
+      ..color = const Color(0xFFFF4F7A).withValues(alpha: 0.24)
       ..style = PaintingStyle.fill;
     final edgePaint = Paint()
-      ..color = const Color(0xFFFFD5DD).withOpacity(0.78)
+      ..color = const Color(0xFFFFD5DD).withValues(alpha: 0.78)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.2;
     final minSide = math.min(rect.width, rect.height);

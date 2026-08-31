@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:gal/gal.dart';
 import 'package:memoria/core/error/error_handler.dart';
 import 'package:memoria/core/services/export_preferences.dart';
+import 'package:memoria/core/services/media_permission_service.dart';
 import 'package:memoria/engine/engine_channel.dart';
 import 'package:memoria/engine/export_encoder.dart';
 import 'package:memoria/features/editor/editor_export_failure.dart';
@@ -80,6 +81,7 @@ class EditorMediaExportCoordinator {
   final bool Function() _isIos;
   final Future<Directory> Function() _temporaryDirectory;
   final Future<void> Function(String path) _saveToGallery;
+  final Future<bool> Function() _ensureGalleryWriteAccess;
   final Future<void> Function(String path) _share;
   final void Function(String path) _scheduleSharedCleanup;
 
@@ -99,6 +101,7 @@ class EditorMediaExportCoordinator {
     bool Function()? isIos,
     Future<Directory> Function()? temporaryDirectory,
     Future<void> Function(String path)? saveToGallery,
+    Future<bool> Function()? ensureGalleryWriteAccess,
     Future<void> Function(String path)? share,
     void Function(String path)? scheduleSharedCleanup,
   })  : _loadSettings = loadSettings ??
@@ -108,6 +111,10 @@ class EditorMediaExportCoordinator {
         _isIos = isIos ?? (() => Platform.isIOS),
         _temporaryDirectory = temporaryDirectory ?? getTemporaryDirectory,
         _saveToGallery = saveToGallery ?? Gal.putImage,
+        _ensureGalleryWriteAccess = ensureGalleryWriteAccess ??
+            (saveToGallery == null
+                ? MediaPermissionService.ensurePhotoLibraryWriteAccess
+                : () async => true),
         _share = share ??
             ((path) async {
               await Share.shareXFiles([XFile(path)]);
@@ -189,6 +196,13 @@ class EditorMediaExportCoordinator {
             preserveFinalFile = true;
             _scheduleSharedCleanup(finalPath);
           } else {
+            final granted = await _ensureGalleryWriteAccess();
+            if (!granted) {
+              throw const EditorExportFailure(
+                EditorExportFailureKind.permissionDenied,
+                'Photo-library add-only access was denied',
+              );
+            }
             await _saveToGallery(finalPath);
           }
           return EditorMediaExportResult.completed(

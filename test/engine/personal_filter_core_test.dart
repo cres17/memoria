@@ -6,7 +6,8 @@ import 'package:memoria/engine/personal_filter_core.dart';
 
 void main() {
   test('personal filter fit produces a safe LUT and compact recipe', () async {
-    final tempDir = Directory.systemTemp.createTempSync('memoria-personal-fit-');
+    final tempDir =
+        Directory.systemTemp.createTempSync('memoria-personal-fit-');
     addTearDown(() {
       if (tempDir.existsSync()) {
         tempDir.deleteSync(recursive: true);
@@ -27,8 +28,8 @@ void main() {
     final fitReport = Map<String, dynamic>.from(result['fitReport'] as Map);
     final fitMetrics =
         Map<String, dynamic>.from(fitReport['fitMetrics'] as Map);
-    final recipe =
-        Map<String, dynamic>.from(result['filterRecipe'] as Map<String, dynamic>);
+    final recipe = Map<String, dynamic>.from(
+        result['filterRecipe'] as Map<String, dynamic>);
 
     expect(result['generatorType'], 'personalized_pair_fit');
     expect(
