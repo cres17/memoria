@@ -1,77 +1,76 @@
-import 'dart:io' show Platform;
-
+import 'package:gal/gal.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:photo_manager/photo_manager.dart';
 
-/// Keeps iOS media permission handling consistent across all image entry points.
+/// Photo-library authorization as exposed to Memoria workflows.
+enum PhotoLibraryAccessState {
+  notDetermined,
+  restricted,
+  denied,
+  authorized,
+  limited,
+}
+
+extension PhotoLibraryAccessStateX on PhotoLibraryAccessState {
+  bool get canReadLibrary =>
+      this == PhotoLibraryAccessState.authorized ||
+      this == PhotoLibraryAccessState.limited;
+
+  bool get isLimited => this == PhotoLibraryAccessState.limited;
+}
+
+/// Owns the three intentionally different photo authorization paths.
+///
+/// * System picker: never requests whole-library permission.
+/// * Recent-photo browser: requests read/write access only when opened.
+/// * Export: requests add-only access immediately before saving.
+///
+/// iOS treats read/write and add-only as independent authorization levels, so
+/// they must not be collapsed into one generic "photos permission" check.
 class MediaPermissionService {
-  static const _didRequestPhotosOnFirstLaunch =
-      'did_request_photos_on_first_launch';
+  /// The platform picker vends only user-selected files and never needs the
+  /// whole-library authorization represented by this service.
+  static const systemPickerRequiresLibraryAccess = false;
 
-  /// iOS's "Selected Photos" access is sufficient for the system photo picker.
-  static bool hasPhotoAccess(PermissionStatus status) =>
-      status.isGranted || status.isLimited;
+  static const recentPhotoRequestOption = PermissionRequestOption(
+    iosAccessLevel: IosAccessLevel.readWrite,
+    androidPermission: AndroidPermission(
+      type: RequestType.image,
+      mediaLocation: false,
+    ),
+  );
 
-  /// iOS's system photo picker can still return user-selected images without
-  /// full PhotoKit library access. Do not block picker-based workflows merely
-  /// because full library access is denied.
-  static bool allowsSystemPhotoPicker(
-    PermissionStatus status, {
-    bool? isIOS,
-  }) {
-    if (isIOS ?? Platform.isIOS) {
-      return !status.isRestricted;
-    }
-
-    return hasPhotoAccess(status);
+  static Future<PhotoLibraryAccessState> currentRecentPhotoAccess() async {
+    final state = await PhotoManager.getPermissionState(
+      requestOption: recentPhotoRequestOption,
+    );
+    return mapPhotoManagerState(state);
   }
 
-  static Future<PermissionStatus> requestPhotosIfNeeded() async {
-    final current = await Permission.photos.status;
-    if (hasPhotoAccess(current) ||
-        current.isPermanentlyDenied ||
-        current.isRestricted) {
-      return current;
-    }
-    return Permission.photos.request();
+  static Future<PhotoLibraryAccessState> requestRecentPhotoAccess() async {
+    final state = await PhotoManager.requestPermissionExtend(
+      requestOption: recentPhotoRequestOption,
+    );
+    return mapPhotoManagerState(state);
   }
 
-  static Future<bool> ensurePhotoAccess() async {
-    final status = await requestPhotosIfNeeded();
-    return allowsSystemPhotoPicker(status);
+  /// Requests PhotoKit add-only access on iOS. Gal returns true without a
+  /// runtime prompt on Android versions whose MediaStore writes need none.
+  static Future<bool> ensurePhotoLibraryWriteAccess() async {
+    if (await Gal.hasAccess()) return true;
+    return Gal.requestAccess();
   }
 
-  /// Prompts once after the initial app screen is visible, never during splash.
-  static Future<void> requestPhotosOnFirstLaunch() async {
-    final preferences = await SharedPreferences.getInstance();
-    final current = await Permission.photos.status;
-    final didCompleteRequest =
-        preferences.getBool(_didRequestPhotosOnFirstLaunch) ?? false;
-    if (didCompleteRequest && allowsSystemPhotoPicker(current)) return;
-
-    final result = await requestPhotosIfNeeded();
-    // Do not permanently suppress a future request merely because the initial
-    // system dialog did not appear. A previously stored flag from an older
-    // build is also cleared whenever photo access is still unavailable.
-    if (allowsSystemPhotoPicker(result)) {
-      await preferences.setBool(_didRequestPhotosOnFirstLaunch, true);
-    } else {
-      await preferences.remove(_didRequestPhotosOnFirstLaunch);
-    }
+  static PhotoLibraryAccessState mapPhotoManagerState(PermissionState state) {
+    return switch (state) {
+      PermissionState.notDetermined => PhotoLibraryAccessState.notDetermined,
+      PermissionState.restricted => PhotoLibraryAccessState.restricted,
+      PermissionState.denied => PhotoLibraryAccessState.denied,
+      PermissionState.authorized => PhotoLibraryAccessState.authorized,
+      PermissionState.limited => PhotoLibraryAccessState.limited,
+    };
   }
 
-  /// Opens this app's system settings page on both iOS and Android. iOS only
-  /// permits this app-level deep link; Android opens the app details/permission
-  /// page provided by the device Settings app.
+  /// Opens the operating system's app-permission screen from Settings.
   static Future<bool> openAppPermissionSettings() => openAppSettings();
-
-  static Future<bool> ensureCameraAccess() async {
-    var status = await Permission.camera.status;
-    if (!status.isGranted &&
-        !status.isPermanentlyDenied &&
-        !status.isRestricted) {
-      status = await Permission.camera.request();
-    }
-    return status.isGranted;
-  }
 }

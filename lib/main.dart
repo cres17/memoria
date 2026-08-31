@@ -1,12 +1,14 @@
+import 'dart:async';
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'app.dart';
-import 'ai/ai_manager.dart';
 import 'core/l10n/app_locale.dart';
 import 'core/error/error_handler.dart';
+import 'core/startup/app_startup.dart';
 import 'engine/gpu_image_view.dart';
 
 void main() async {
@@ -64,40 +66,40 @@ void main() async {
 
 Future<void> _initializeAfterFirstFrame() async {
   await WidgetsBinding.instance.endOfFrame;
-  try {
-    await ErrorLogger.initialize();
-    await initGpuFallbacks();
-    await loadSavedLocale();
-
-    // Lock to portrait
-    await SystemChrome.setPreferredOrientations([
-      DeviceOrientation.portraitUp,
-      DeviceOrientation.portraitDown,
-    ]);
-
-    // Transparent status/nav bar (immersive)
-    SystemChrome.setSystemUIOverlayStyle(
-      const SystemUiOverlayStyle(
-        statusBarColor: Colors.transparent,
-        statusBarIconBrightness: Brightness.dark,
-        systemNavigationBarColor: Colors.transparent,
-        systemNavigationBarIconBrightness: Brightness.dark,
+  await runStartupTasks(
+    [
+      // Resolve the selected language before the shortened Flutter splash
+      // completes, so the first navigable screen does not change language.
+      const StartupTask('saved_locale', loadSavedLocale),
+      const StartupTask('diagnostics', ErrorLogger.initialize),
+      const StartupTask('gpu_fallbacks', initGpuFallbacks),
+      StartupTask(
+        'preferred_orientations',
+        () => SystemChrome.setPreferredOrientations([
+          DeviceOrientation.portraitUp,
+          DeviceOrientation.portraitDown,
+        ]),
       ),
-    );
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-
-    // The color-transfer model ships with the app. Install and verify that
-    // bundled asset after first paint so filter creation never asks users to
-    // manage a model download from Settings.
-    unawaited(AiManager.instance.preload(kModelColorTransfer));
-
-    // Portrait tools are segmentation-aware. Prepare the small on-device model
-    // automatically so skin smoothing never falls back to a whole-image effect.
-    unawaited(AiManager.instance.preload(kModelSelfie));
-
-    // AdMob initialization can be slow on device; do it after the first frame.
-    unawaited(MobileAds.instance.initialize());
-  } catch (error, stackTrace) {
-    ErrorLogger.log('Post-frame app initialization failed', error, stackTrace);
-  }
+      StartupTask('system_ui', () async {
+        SystemChrome.setSystemUIOverlayStyle(
+          const SystemUiOverlayStyle(
+            statusBarColor: Colors.transparent,
+            statusBarIconBrightness: Brightness.dark,
+            systemNavigationBarColor: Colors.transparent,
+            systemNavigationBarIconBrightness: Brightness.dark,
+          ),
+        );
+        await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+      }),
+      if (!kReleaseMode)
+        StartupTask('debug_mobile_ads', MobileAds.instance.initialize),
+    ],
+    onFailure: (taskName, error, stackTrace) {
+      ErrorLogger.log(
+        'Post-frame startup task failed: $taskName',
+        error,
+        stackTrace,
+      );
+    },
+  );
 }

@@ -5,7 +5,6 @@ import 'package:image_picker/image_picker.dart';
 import '../../core/l10n/app_locale.dart';
 import '../../core/l10n/strings.dart';
 import '../../core/error/error_handler.dart';
-import '../../core/services/media_permission_service.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/platform_utils.dart';
 import '../../data/repositories/filter_repository_impl.dart';
@@ -361,16 +360,6 @@ class _FiltersPageState extends State<FiltersPage> {
 
   Future<void> _openFilter(FilterPreset preset) async {
     hapticLight();
-    if (!await MediaPermissionService.ensurePhotoAccess()) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text(S.get('permission.photos_denied')),
-              behavior: SnackBarBehavior.floating),
-        );
-      }
-      return;
-    }
     final xFile = await ImagePicker().pickImage(source: ImageSource.gallery);
     if (xFile == null || !mounted) return;
     context.pushNamed('editor', extra: {

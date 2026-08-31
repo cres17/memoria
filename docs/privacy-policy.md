@@ -1,21 +1,20 @@
 # Memoria Privacy Policy
 
-Last updated: May 12, 2026
+Last updated: August 27, 2026
 
-This Privacy Policy explains how Memoria handles information when you use the app. Replace the developer name, contact email, and hosted URL before submitting this policy to Google Play or the App Store.
+This Privacy Policy explains how Memoria handles information when you use the app. The public copy is available at https://github.com/cres17/memoria/blob/main/docs/privacy-policy.md.
 
 ## Developer and Contact
 
 - App: Memoria
-- Developer: TODO: developer or company name
-- Privacy contact: TODO: privacy contact email
+- Developer: Memoria project (cres17)
+- Privacy and support contact: https://github.com/cres17/memoria/issues
 
 ## Information We Access or Process
 
 Memoria is a photo editing app. The app may access or process:
 
 - Photos selected by the user from the device photo library
-- Photos captured by the user with the device camera
 - Edited image files exported by the user
 - Custom filter files, LUT files, and thumbnails generated inside the app
 - Device or advertising data processed by advertising SDKs if ads are enabled
@@ -34,27 +33,25 @@ We use photos and generated filter data to:
 - Show ads if advertising features are enabled
 - Improve app stability and performance if diagnostics are collected
 
-## Photo and Camera Data
+## Photo Data
 
-Photos selected from the library or captured with the camera are used for photo editing and filter generation. Photo processing is intended to happen on the user's device unless a future version clearly discloses otherwise.
+Basic editing uses the operating system's system photo picker and does not require access to the user's full photo library. Full-library permission may be requested only when the user explicitly opens the recent-photo browser. Selected photos are used for photo editing and filter generation, and photo processing happens on the user's device.
 
 Custom filters, LUT files, metadata, and thumbnails may be stored in the app's internal storage. Users can remove this data by deleting custom filters, clearing app data where available, or uninstalling the app.
 
 ## Advertising and Third-Party SDKs
 
-Memoria may use third-party advertising SDKs, including Google AdMob. These SDKs may collect or process data such as device identifiers, advertising identifiers, approximate location, product interaction, diagnostics, and other data as described by the SDK provider.
-
-Third-party SDK data handling is governed by the privacy policies of those providers. If ads are disabled before release, update this section and the store declarations accordingly.
+The current v1 release is ad-free. Release builds do not initialize the bundled advertising SDK and do not request or display advertising. Any later advertising release requires a separate policy revision, store privacy declarations, production unit IDs, and an explicit release-configuration change.
 
 ## Data Sharing
 
-Memoria does not sell user photos. Data may be shared with third-party service providers only where necessary to provide app functionality, advertising, analytics, crash reporting, platform services, legal compliance, or security.
+Memoria does not sell or share user photos. The current release does not transmit photos, generated filters, or local diagnostic logs to a server.
 
 ## Data Retention and Deletion
 
 Photo edits and custom filters stored locally remain on the device until the user deletes them, clears app data, or uninstalls the app. Memoria does not currently provide user accounts, so there is no account deletion flow.
 
-For privacy requests, contact: TODO: privacy contact email.
+For privacy requests, use the official issue tracker at https://github.com/cres17/memoria/issues. Do not attach private photos to a report.
 
 ## Security
 

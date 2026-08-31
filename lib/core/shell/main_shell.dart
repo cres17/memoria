@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../features/create_filter/create_filter_page.dart'
     show kPhotoFilterGenerationEnabled, kPhotoFilterGenerationIsBeta;
+import '../l10n/strings.dart';
 import '../theme/app_colors.dart';
 import '../utils/platform_utils.dart';
 
@@ -56,7 +57,7 @@ class _BottomNav extends StatelessWidget {
             _NavItem(
               icon: Icons.home_outlined,
               selectedIcon: Icons.home_rounded,
-              label: 'HOME',
+              label: S.get('nav.home'),
               selected: currentIndex == 0,
               onTap: () => context.go('/'),
             ),
@@ -64,14 +65,18 @@ class _BottomNav extends StatelessWidget {
               _NavItem(
                 icon: Icons.add_circle_outline_rounded,
                 selectedIcon: Icons.add_circle_rounded,
-                label: kPhotoFilterGenerationIsBeta ? 'CREATE β' : 'CREATE',
+                label: S.get(
+                  kPhotoFilterGenerationIsBeta
+                      ? 'nav.create_beta'
+                      : 'nav.create',
+                ),
                 selected: currentIndex == 1,
                 onTap: () => context.pushNamed('createFilter'),
               ),
             _NavItem(
               icon: Icons.tune_outlined,
               selectedIcon: Icons.tune_rounded,
-              label: 'EDIT',
+              label: S.get('nav.edit'),
               selected: currentIndex == 2,
               onTap: () {
                 hapticMedium();
@@ -81,7 +86,7 @@ class _BottomNav extends StatelessWidget {
             _NavItem(
               icon: Icons.photo_library_outlined,
               selectedIcon: Icons.photo_library_rounded,
-              label: 'GALLERY',
+              label: S.get('nav.filters'),
               selected: currentIndex == 3,
               onTap: () => context.go('/filters'),
             ),
@@ -109,35 +114,45 @@ class _NavItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return Semantics(
+      container: true,
+      button: true,
+      selected: selected,
+      label: label,
       onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
-        decoration: BoxDecoration(
-          color: selected ? AppColors.oceanBlue : Colors.transparent,
-          borderRadius: BorderRadius.circular(28),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              selected ? selectedIcon : icon,
-              color: selected ? AppColors.oceanFoam : AppColors.cloudShadow,
-              size: 24,
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: ExcludeSemantics(
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+            decoration: BoxDecoration(
+              color: selected ? AppColors.oceanBlue : Colors.transparent,
+              borderRadius: BorderRadius.circular(28),
             ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                letterSpacing: 1.2,
-                color: selected ? AppColors.oceanFoam : AppColors.cloudShadow,
-              ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  selected ? selectedIcon : icon,
+                  color: selected ? AppColors.oceanFoam : AppColors.cloudShadow,
+                  size: 24,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                    letterSpacing: 1.2,
+                    color:
+                        selected ? AppColors.oceanFoam : AppColors.cloudShadow,
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );

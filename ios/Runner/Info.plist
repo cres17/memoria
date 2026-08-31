@@ -30,12 +30,10 @@
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
-	<key>NSCameraUsageDescription</key>
-	<string>카메라로 사진을 촬영하여 필터를 적용합니다.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>편집한 사진을 사진 라이브러리에 저장합니다.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>사진 라이브러리에 접근하여 필터를 적용할 사진을 선택하고 편집 결과를 저장합니다.</string>
+	<string>최근 사진 탐색을 사용할 때 사진 라이브러리의 이미지를 표시합니다.</string>
 	<key>NSPrivacyAccessedAPITypes</key>
 	<array/>
 	<key>SKAdNetworkItems</key>

@@ -8,6 +8,8 @@ Use this file when filling out App Store Connect metadata for Memoria.
 
 Apple requires a Privacy Policy URL for all apps. Publish `docs/privacy-policy.md` as a public web page and enter that URL in App Store Connect.
 
+Before creating a signed release tag, configure these GitHub repository variables with the same reviewed values: `PRIVACY_POLICY_URL`, `PRIVACY_CONTACT_EMAIL`, and `ADVERTISING_RELEASE_MODE=disabled`. The signed iOS workflow fails before codesigning if any value is absent or inconsistent with the ad-free v1 policy.
+
 Path:
 
 - App Store Connect -> Apps -> Memoria -> App Privacy

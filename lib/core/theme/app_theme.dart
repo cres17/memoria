@@ -55,7 +55,7 @@ class AppTheme {
       ),
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: AppColors.oceanMid,
-        indicatorColor: AppColors.oceanTeal.withOpacity(0.3),
+        indicatorColor: AppColors.oceanTeal.withValues(alpha: 0.3),
         iconTheme: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.selected)) {
             return const IconThemeData(color: AppColors.oceanFoam);
@@ -83,7 +83,7 @@ class AppTheme {
         activeTrackColor: AppColors.oceanFoam,
         inactiveTrackColor: AppColors.oceanNavy,
         thumbColor: AppColors.cloudWhite,
-        overlayColor: AppColors.oceanFoam.withOpacity(0.2),
+        overlayColor: AppColors.oceanFoam.withValues(alpha: 0.2),
         trackHeight: 3,
         thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 10),
       ),
@@ -200,7 +200,7 @@ class AppTheme {
         activeTrackColor: AppColors.oceanFoam,
         inactiveTrackColor: AppColors.oceanNavy,
         thumbColor: AppColors.cloudWhite,
-        overlayColor: AppColors.oceanFoam.withOpacity(0.12),
+        overlayColor: AppColors.oceanFoam.withValues(alpha: 0.12),
         trackHeight: 12,
         thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 16),
       ),
