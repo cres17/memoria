@@ -1136,7 +1136,7 @@ accelerator shim 연결을 제거했다. 최종 상태의 unsigned Release 재�
 제거 후 classic Interpreter 자체도 물리 iPhone Profile에서 다시 실행했다. TensorFlow Lite runtime 초기화와
 35회 LUT 생성이 모두 통과했으며 warm p50/p95는 128.783/133.287ms, cold generate proxy p95는
 158.460ms였다. peak RSS 증가는 187.0MiB다. 원시는
-`build/perf/direct_mvp_iphone_physical_20260831_litert_fix.json`, SHA-256은
+`docs/device-evidence/2026-08-31/perf/direct_mvp_iphone_physical_20260831_litert_fix.json`, SHA-256은
 `0d07aa0130a00d64af66a29d6f2cac6a656f16d49dab866563c51e125e8074f6`다.
 
 #### 4K 진행 표시
@@ -1156,8 +1156,8 @@ worker의 실제 milestone은 그대로 유지하고 메인 isolate가 200ms 간
 | 실기기 peak RSS 증가 | 174.5MiB | ≤500MiB | 통과 |
 | 실기기 종료 2초 후 RSS 증분 | 12.1MiB | 지속 반복 증가 여부 확인 | 단일 실행 참고 |
 
-원시는 `build/perf/editor_4k_export_ios_simulator_20260831_progress_fix.json`과
-`build/perf/editor_4k_export_iphone_physical_20260831_progress_fix.json`이다. 실기기 JSON SHA-256은
+원시는 `docs/device-evidence/2026-08-31/perf/editor_4k_export_ios_simulator_20260831_progress_fix.json`과
+`docs/device-evidence/2026-08-31/perf/editor_4k_export_iphone_physical_20260831_progress_fix.json`이다. 실기기 JSON SHA-256은
 `ad65862184682090740bfe7114df3429f91fa3950502b91c7c94b107508b6a1b`다. 기존 1,192.904ms 실패는
 동일 물리 iPhone Profile 재측정에서 201.209ms로 개선돼 full-export 500ms gate를 통과했다.
 
@@ -1172,7 +1172,7 @@ worker의 실제 milestone은 그대로 유지하고 메인 isolate가 200ms 간
 
 read/write와 add-only를 하나의 generic photo permission으로 합치지 않았다. 물리 iPhone에서는 두 상태가
 모두 `notDetermined`일 때 read-only 진단을 실행했고 권한 프롬프트를 발생시키지 않았다. 실기기 원시는
-`build/test-results/photo_permission_matrix_iphone_physical_20260831.json`, SHA-256은
+`docs/device-evidence/2026-08-31/test-results/photo_permission_matrix_iphone_physical_20260831.json`, SHA-256은
 `a396961e629ea59165528d9c5bbd97c4aa216c7c9d8dd42473e9d26fab4fb195`다.
 
 iPhone 17 Simulator에서는 기대 상태를 명시한 자동 gate로 다음 세 상태를 검증했다.
@@ -1184,9 +1184,9 @@ iPhone 17 Simulator에서는 기대 상태를 명시한 자동 gate로 다음 �
 | 거부 | `denied` | `denied` | 통과 |
 
 원시는 각각
-`build/test-results/photo_permission_matrix_ios_simulator_not_determined_20260831.json`,
-`build/test-results/photo_permission_matrix_ios_simulator_add_only_20260831.json`,
-`build/test-results/photo_permission_matrix_ios_simulator_denied_20260831.json`이다. 이 자동 결과로는 시스템
+`docs/device-evidence/2026-08-31/test-results/photo_permission_matrix_ios_simulator_not_determined_20260831.json`,
+`docs/device-evidence/2026-08-31/test-results/photo_permission_matrix_ios_simulator_add_only_20260831.json`,
+`docs/device-evidence/2026-08-31/test-results/photo_permission_matrix_ios_simulator_denied_20260831.json`이다. 이 자동 결과로는 시스템
 picker 선택·취소, readWrite 전체 허용, limited 선택과 설정에서 재허용하는 사용자 UI 흐름을 증명할 수 없다.
 해당 네 항목은 물리 기기 수동 matrix로 남긴다.
 
@@ -1243,13 +1243,13 @@ iPhone 17, iOS 26.6.1, Profile, `summer_sapporo.jpg`, classic TensorFlow Lite In
 
 원시 파일과 SHA-256은 다음과 같다.
 
-- 기존 run 1: `build/perf/direct_mvp_baseline_iphone_physical_20260831.json`,
+- 기존 run 1: `docs/device-evidence/2026-08-31/perf/direct_mvp_baseline_iphone_physical_20260831.json`,
   `a3fe9fc5b7790865ce49de8934f9e23b2ca4c09e73e60d73ccd8c62bcbe9e151`
-- 기존 run 2: `build/perf/direct_mvp_baseline_iphone_physical_run2_20260831.json`,
+- 기존 run 2: `docs/device-evidence/2026-08-31/perf/direct_mvp_baseline_iphone_physical_run2_20260831.json`,
   `0a4e0b94e9f095b31f7c7fa8b0ff8423449d6def60cbe7c8395c0d59b3e158c6`
-- 후보 run 1: `build/perf/direct_mvp_g5_candidate_iphone_physical_ab_20260831.json`,
+- 후보 run 1: `docs/device-evidence/2026-08-31/perf/direct_mvp_g5_candidate_iphone_physical_ab_20260831.json`,
   `f8868cc0386a101b3455534b81f31cc02936b1e5d5caf43acf0104a00bd81c1a`
-- 후보 run 2: `build/perf/direct_mvp_g5_candidate_iphone_physical_ab_run2_20260831.json`,
+- 후보 run 2: `docs/device-evidence/2026-08-31/perf/direct_mvp_g5_candidate_iphone_physical_ab_run2_20260831.json`,
   `a88887d20da06adea509e68f2f0fc099f4689508d84efb14443d7898bd0c00dd`
 
 실기기 성능만 보면 두 모델은 제품 의사결정을 바꿀 수준의 차이가 없다. 기술 선택의 근거는 성능이 아니라
@@ -1285,7 +1285,7 @@ gate를 통과했기 때문이다. 다만 앱에는 라이선스가 확인된 in
 저장됐다. 이는 생성·차단 gate의 합격 조건은 아니며, 수동 이름 편집을 보존해야 하는
 제품 정책인지는 별도 UI 요구사항으로 확인할 필요가 있다.
 
-원시 결과는 `build/test-results/create_filter_blackbox_iphone_physical_20260831.json`,
+원시 결과는 `docs/device-evidence/2026-08-31/test-results/create_filter_blackbox_iphone_physical_20260831.json`,
 SHA-256은 `87642f6fca0bd5f5acac59886be828e3d2c9f60fdfc023b60ddef640ba5e4c7e`다. 시스템
 사진 picker와 PhotoKit 권한은 fixture 주입 경계 밖이므로 이 테스트로 합격을 주지 않는다.
 또한 RSS는 integration-test runner가 포함된 단일 실행 프로세스 증분으로 반복 누수를
