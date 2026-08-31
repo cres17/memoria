@@ -115,7 +115,7 @@
 | 입력 layout | 앱 래퍼 NHWC, 학습 NCHW | export 산출물과 앱 계약을 자동 테스트 |
 | 입력 정규화 | 앱은 ImageNet 정규화, 학습·평가는 0~1 RGB | 학습·평가·Dart에서 같은 전처리 함수 사용 |
 | LUT 축 순서 | 현재 래퍼의 순회 순서와 `r + gD + bD²` 인덱스가 다름 | `b → g → r` 순회 또는 명시 인덱스 대입으로 통일 |
-| 구현 중복 | `lut_predictor.dart`와 `lut_predictor_native.dart`의 계약이 다름 | 하나만 유지하고 공통 tensor contract 테스트 추가 |
+| 구현 중복 | 해결: 검증된 `lut_predictor.dart`만 유지 | 공통 tensor contract 테스트 유지 |
 | 테스트 | 모델이나 샘플 이미지가 없으면 smoke test가 성공처럼 종료 | CI fixture 모델을 포함하거나 명시적 skip 처리 및 별도 필수 잡 구성 |
 
 모델 경로는 위 항목이 모두 통과하기 전까지 제품 품질 개선 수단으로 계산하지 않는다.
@@ -545,7 +545,7 @@ ML output
 
 ### P0. 현재 결함 제거와 진단 기반 구축
 
-- `lut_predictor.dart`와 `lut_predictor_native.dart`의 계약을 하나로 통합한다.
+- 완료: 중복 native/stub 구현을 제거하고 `lut_predictor.dart`의 단일 계약으로 통합했다.
 - 모델 output dimension을 런타임 검증한다.
 - LUT 축 저장 순서를 수정하고 단색 ramp 테스트를 추가한다.
 - 학습·평가·Dart 전처리를 동일하게 만든다.
@@ -589,8 +589,9 @@ ML output
 coefficient 예측기를 학습한다. `9_benchmark_basis.py`는 coefficient RMSE,
 CPU p50/p95, Python-visible peak memory를 JSON으로 기록하고,
 `10_export_basis.py`는 coefficient-only TFLite와 basis binary를 내보낸다.
-앱 제품 경로에는 아직 연결하지 않으며, 연결 시에는
-`synthesizeAndConstrainBasisLut`의 공통 LUT safety gate를 반드시 거쳐야 한다.
+앱 제품 경로에는 아직 연결하지 않으며, 입력 asset과 coefficient 모델 계약이
+확정되지 않은 runtime scaffold도 제거했다. 향후 다시 도입할 때는 현재
+`constrainCustomLut`과 동일한 deterministic safety gate를 통과해야 한다.
 
 외부 후보의 2026-07 검토 결과는 다음과 같다.
 

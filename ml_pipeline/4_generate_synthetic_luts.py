@@ -17,6 +17,8 @@ from pathlib import Path
 
 import numpy as np
 
+from lut_axis_contract import save_float16_lut
+
 OUT_DIR  = Path("data/synthetic_luts")
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -36,7 +38,7 @@ GRID = _make_grid()  # 공유 상수
 
 
 def save_lut(lut: np.ndarray, path: Path):
-    lut.astype(np.float16).tofile(path)
+    save_float16_lut(lut, path)
 
 
 # ── 색공간 변환 유틸 ──────────────────────────────────────────────────────────

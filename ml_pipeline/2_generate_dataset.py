@@ -8,13 +8,17 @@
 """
 
 import argparse
+import hashlib
 import json
-import os
 import shutil
 import numpy as np
 from pathlib import Path
 from PIL import Image
 from tqdm import tqdm
+
+import canon_color_contract
+from canon_color_contract import srgb_to_canon_log as convert_srgb_to_canon_log
+from lut_axis_contract import from_r_fastest_values, load_float16_lut, save_float16_lut
 
 # ── 설정 ──────────────────────────────────────────────
 PIPELINE_DIR       = Path(__file__).resolve().parent
@@ -26,10 +30,6 @@ OUTPUT_DIR         = PIPELINE_DIR / "data/dataset"
 TARGET_SIZE        = (256, 256)
 TARGET_TOTAL_PAIRS = 3000
 LUT_DIM            = 65
-
-os.makedirs(OUTPUT_DIR / "neutral", exist_ok=True)
-os.makedirs(OUTPUT_DIR / "graded",  exist_ok=True)
-os.makedirs(OUTPUT_DIR / "luts",    exist_ok=True)
 
 REQUIRED_LUT_KINDS = ("cube", "bin", "canon_clog2", "canon_clog3")
 SOURCE_GROUP_BY_KIND = {
@@ -95,15 +95,40 @@ def allocate_pairs(sources, total_pairs: int, pairs_per_lut: int | None):
     return pairs_by_lut, "balanced_source"
 
 
-def clear_output_dataset():
+def clear_output_dataset(output_dir: Path):
     """Remove only generated triplets so an old dataset cannot leak into training."""
-    output = Path(OUTPUT_DIR)
     for directory in ("neutral", "graded", "luts"):
-        target = output / directory
+        target = output_dir / directory
         if target.exists():
             shutil.rmtree(target)
         target.mkdir(parents=True, exist_ok=True)
-    (output / "manifest.jsonl").unlink(missing_ok=True)
+    (output_dir / "manifest.jsonl").unlink(missing_ok=True)
+
+
+def prepare_output_dataset(output_dir: Path, clean: bool) -> None:
+    """Create a dataset target without implicitly overwriting prior artifacts."""
+    manifest = output_dir / "manifest.jsonl"
+    populated_directories = [
+        output_dir / name for name in ("neutral", "graded", "luts")
+        if (output_dir / name).exists() and any((output_dir / name).iterdir())
+    ]
+    if (manifest.exists() or populated_directories) and not clean:
+        raise FileExistsError(
+            f"refusing to overwrite populated dataset {output_dir}; pass --clean with this exact output path"
+        )
+    if clean:
+        clear_output_dataset(output_dir)
+    else:
+        for directory in ("neutral", "graded", "luts"):
+            (output_dir / directory).mkdir(parents=True, exist_ok=True)
+
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def load_cube_lut(path: str) -> np.ndarray:
@@ -122,13 +147,12 @@ def load_cube_lut(path: str) -> np.ndarray:
                     data.append(vals)
             except ValueError:
                 continue
-    return np.array(data, dtype=np.float32).reshape(dim, dim, dim, 3)
+    return from_r_fastest_values(np.array(data, dtype=np.float32), dim=dim)
 
 
 def load_bin_lut(path: str) -> np.ndarray:
     """float16 binary .bin → (65,65,65,3) float32"""
-    lut = np.fromfile(path, dtype=np.float16).astype(np.float32)
-    return lut.reshape(LUT_DIM, LUT_DIM, LUT_DIM, 3)
+    return load_float16_lut(path, expected_dim=LUT_DIM)
 
 
 def resample_lut(lut: np.ndarray, target_dim: int = 65) -> np.ndarray:
@@ -211,22 +235,8 @@ def apply_lut_to_image(img: np.ndarray, lut: np.ndarray) -> np.ndarray:
 
 
 def srgb_to_canon_log(img: np.ndarray, log_version: str) -> np.ndarray:
-    """Adapts an sRGB image to the transfer domain expected by Canon LUTs.
-
-    Canon LUTs are camera-log transforms, unlike the other LUT sources. This
-    applies the documented positive-range transfer approximation after sRGB
-    linearisation; it does not claim to convert the image's camera gamut.
-    """
-    linear = np.where(
-        img <= 0.04045, img / 12.92, ((img + 0.055) / 1.055) ** 2.4
-    )
-    if log_version == "canon_clog2":
-        encoded = 0.529136 * np.log10(10.1596 * linear + 1.0) + 0.0730597
-    elif log_version == "canon_clog3":
-        encoded = 0.42889912 * np.log10(14.98325 * linear + 1.0) + 0.12783901
-    else:
-        raise ValueError(f"unsupported Canon log version: {log_version}")
-    return np.clip(encoded, 0.0, 1.0).astype(np.float32)
+    """Convert sRGB to the Canon Log / Cinema Gamut domain declared by Canon."""
+    return convert_srgb_to_canon_log(img, log_version)
 
 
 def compose_canon_srgb_lut(canon_lut: np.ndarray, log_version: str) -> np.ndarray:
@@ -245,8 +255,7 @@ def compose_canon_srgb_lut(canon_lut: np.ndarray, log_version: str) -> np.ndarra
 
 def save_lut_bin(lut: np.ndarray, path: str):
     """65³ LUT → float16 binary"""
-    lut_f16 = lut.astype(np.float16)
-    lut_f16.tofile(path)
+    save_float16_lut(lut, path)
 
 
 def main():
@@ -265,6 +274,15 @@ def main():
         "--require-all-sources", action="store_true",
         help="Fail unless crawled CUBE, app BIN, Canon CLog2, and Canon CLog3 LUTs are all present.",
     )
+    parser.add_argument(
+        "--output-dir", type=Path, default=OUTPUT_DIR,
+        help="Dataset output directory. A populated directory requires --clean.",
+    )
+    parser.add_argument(
+        "--dataset-version", default="axis-v2-001",
+        help="Version label recorded in every manifest row.",
+    )
+    parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
     if args.pairs_per_lut is not None and args.pairs_per_lut <= 0:
         parser.error("--pairs-per-lut must be positive")
@@ -301,14 +319,18 @@ def main():
                 "통합 학습에 필요한 LUT 소스가 없습니다: " + ", ".join(missing) +
                 ". ml_pipeline/data/luts(크롤링 CUBE), assets/luts(기존 앱 BIN), LUT(Canon)를 확인하세요."
             )
-    if args.clean:
-        clear_output_dataset()
+    output_dir = args.output_dir.resolve()
+    prepare_output_dataset(output_dir, args.clean)
+    np.random.seed(args.seed)
+    generator_code_sha256 = sha256(Path(__file__).resolve())
+    canon_color_contract_sha256 = sha256(Path(canon_color_contract.__file__).resolve())
 
-    manifest_path = Path(OUTPUT_DIR) / "manifest.jsonl"
+    manifest_path = output_dir / "manifest.jsonl"
     idx = 0
     manifest_rows = []
     for lut_type, lut_path in tqdm(all_luts, desc="LUT 처리"):
         try:
+            source_lut_sha256 = sha256(lut_path)
             source_lut = (load_cube_lut(str(lut_path)) if lut_type != "bin"
                           else load_bin_lut(str(lut_path)))
             if source_lut.shape != (LUT_DIM, LUT_DIM, LUT_DIM, 3):
@@ -331,16 +353,30 @@ def main():
 
                 img_id = f"{idx:06d}"
                 Image.fromarray((img_np * 255).astype(np.uint8)).save(
-                OUTPUT_DIR / "neutral" / f"{img_id}.jpg", quality=95)
+                output_dir / "neutral" / f"{img_id}.jpg", quality=95)
                 Image.fromarray((graded * 255).astype(np.uint8)).save(
-                OUTPUT_DIR / "graded" / f"{img_id}.jpg",  quality=95)
-                save_lut_bin(lut_65, OUTPUT_DIR / "luts" / f"{img_id}.bin")
+                output_dir / "graded" / f"{img_id}.jpg",  quality=95)
+                save_lut_bin(lut_65, output_dir / "luts" / f"{img_id}.bin")
                 manifest_rows.append({
                     "id": img_id,
+                    "datasetVersion": args.dataset_version,
+                    "generationSeed": args.seed,
+                    "generatorCodeSha256": generator_code_sha256,
+                    "canonColorContractSha256": (
+                        canon_color_contract_sha256
+                        if lut_type.startswith("canon_") else None
+                    ),
+                    "lutAxisOrder": "r_fastest_rgb",
+                    "lutTensorAxes": "rgb_channel",
                     "sourceImage": neutral_paths[ni].name,
                     "sourceLut": str(lut_path),
+                    "sourceLutSha256": source_lut_sha256,
                     "lutKind": lut_type,
                     "inputDomain": "srgb_composed" if lut_type.startswith("canon_") else "srgb",
+                    "colorTransform": (
+                        "srgb_to_cinema_gamut_to_canon_log_aces_v2"
+                        if lut_type.startswith("canon_") else "identity"
+                    ),
                     "samplingGroup": source_group(lut_type),
                     "samplingMode": sampling_mode,
                 })
@@ -349,9 +385,8 @@ def main():
                 continue
 
     manifest_path.write_text("".join(json.dumps(row) + "\n" for row in manifest_rows))
-    print(f"\n완료: 총 {idx}쌍 생성 → {OUTPUT_DIR}/ (manifest: {manifest_path})")
+    print(f"\n완료: 총 {idx}쌍 생성 → {output_dir}/ (manifest: {manifest_path})")
 
 
 if __name__ == "__main__":
-    np.random.seed(42)
     main()

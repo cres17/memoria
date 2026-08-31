@@ -29,15 +29,15 @@ baseline = importlib.import_module("18_evaluate_conditional_baselines")
 POLICIES = ("lut_holdout", "image_holdout", "lut_family_holdout")
 
 
-def load_records(path: Path, partitions: set[str]) -> list[dict]:
+def load_records(path: Path, partitions: set[str], dataset_dir: Path = DATASET_DIR) -> list[dict]:
     records = []
     for line in path.read_text().splitlines():
         if not line:
             continue
         record = json.loads(line)
         if record["split"] in partitions:
-            record["image_path"] = DATASET_DIR / "graded" / f"{record['id']}.jpg"
-            record["lut_path"] = DATASET_DIR / "luts" / f"{record['id']}.bin"
+            record["image_path"] = dataset_dir / "graded" / f"{record['id']}.jpg"
+            record["lut_path"] = dataset_dir / "luts" / f"{record['id']}.bin"
             records.append(record)
     records.sort(key=lambda item: item["id"])
     if not records:
@@ -103,8 +103,8 @@ def retrieval_predictions(feature: np.ndarray, centroids: np.ndarray, source_lut
     return nearest, np.clip(interpolated, 0.0, 1.0)
 
 
-def load_masks() -> dict[str, np.ndarray]:
-    with np.load(MASK_PATH) as archive:
+def load_masks(path: Path = MASK_PATH) -> dict[str, np.ndarray]:
+    with np.load(path) as archive:
         if int(archive["cube_dim"]) != CUBE_DIM:
             raise RuntimeError("mask dimension does not match retrieval evaluator")
         return {str(sample): mask.astype(bool) for sample, mask in zip(archive["ids"].astype(str), archive["observed_cube_mask"])}
@@ -116,8 +116,10 @@ def evaluate_policy(
     max_samples: int | None,
     top_k: int,
     masks: dict[str, np.ndarray],
+    dataset_dir: Path,
+    split_path: Path,
 ) -> dict:
-    all_records = load_records(SPLIT_DIR / f"conditional_{policy}.jsonl", {"train", "validation", "test"})
+    all_records = load_records(split_path, {"train", "validation", "test"}, dataset_dir)
     train_records = [record for record in all_records if record["split"] == "train"]
     query_records = [record for record in all_records if record["split"] in partitions]
     if max_samples is not None:
@@ -168,19 +170,41 @@ def main() -> None:
         default=("validation", "test"),
     )
     parser.add_argument("--max-samples", type=int)
+    parser.add_argument("--dataset-dir", type=Path, default=DATASET_DIR)
+    parser.add_argument("--split-dir", type=Path, default=SPLIT_DIR)
+    parser.add_argument(
+        "--family-split-path",
+        type=Path,
+        help="override conditional_lut_family_holdout.jsonl for versioned datasets",
+    )
+    parser.add_argument("--mask-path", type=Path, default=MASK_PATH)
     parser.add_argument("--output", type=Path, default=REPORT_DIR / "retrieval_baseline_report.json")
     args = parser.parse_args()
     if args.top_k <= 0 or args.max_samples is not None and args.max_samples <= 0:
         parser.error("top-k and max-samples must be positive")
-    masks = load_masks()
+    masks = load_masks(args.mask_path)
     report = {
         "schema_version": 1,
         "feature": "normalized 12x4x3 HSV histogram plus RGB mean/std on graded reference",
         "candidate_contract": "each policy searches only source LUTs present in that policy's train partition",
+        "dataset_dir": str(args.dataset_dir),
+        "mask_path": str(args.mask_path),
         "interpolation_top_k": args.top_k,
         "partitions": list(args.partitions),
         "policies": {
-            policy: evaluate_policy(policy, set(args.partitions), args.max_samples, args.top_k, masks)
+            policy: evaluate_policy(
+                policy,
+                set(args.partitions),
+                args.max_samples,
+                args.top_k,
+                masks,
+                args.dataset_dir,
+                (
+                    args.family_split_path
+                    if policy == "lut_family_holdout" and args.family_split_path is not None
+                    else args.split_dir / f"conditional_{policy}.jsonl"
+                ),
+            )
             for policy in args.policies
         },
     }

@@ -1,0 +1,162 @@
+#
+# To learn more about a Podspec see http://guides.cocoapods.org/syntax/podspec.html.
+# Run `pod lib lint flutter_litert.podspec` to validate before publishing.
+#
+Pod::Spec.new do |s|
+  s.name             = 'flutter_litert'
+  s.version          = '3.6.0'
+  s.summary          = 'LiteRT (formerly TensorFlow Lite) plugin for Flutter apps.'
+  s.description      = <<-DESC
+LiteRT (formerly TensorFlow Lite) plugin for Flutter apps.
+                       DESC
+  s.homepage         = 'https://github.com/hugocornellier/flutter_litert'
+  s.license          = { :file => '../LICENSE' }
+  s.author           = { 'Hugo Cornellier' => 'hugo@hugocornellier.com' }
+
+  # This will ensure the source files in Classes/ are included in the native
+  # builds of apps using this FFI plugin. Podspec does not support relative
+  # paths, so Classes contains a forwarder C file that relatively imports
+  # `../src/*` so that the C sources can be shared among all target platforms.
+  s.source           = { :path => '.' }
+
+  # Include only the classic Interpreter plugin and its symbol/custom-op
+  # forwarders. The CompiledModel accelerator shims are intentionally omitted.
+  s.source_files = 'Classes/Tflite*', 'Classes/tflite_*'
+
+  s.dependency 'Flutter'
+
+  # System frameworks required by TFLite and its delegates
+  s.frameworks = 'Metal', 'CoreML', 'Accelerate'
+  s.weak_frameworks = 'CoreML'
+
+  s.platform = :ios, '13.0'
+  s.static_framework = true
+
+  # Common xcconfig shared between local and published builds
+  common_xcconfig = {
+    'DEFINES_MODULE' => 'YES',
+    'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386',
+    'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited) TFLITE_USE_FRAMEWORK_HEADERS=1 FLUTTER_LITERT_COCOAPODS=1',
+    'GCC_SYMBOLS_PRIVATE_EXTERN' => 'NO',
+    'HEADER_SEARCH_PATHS' => '"${PODS_TARGET_SRCROOT}/../src" "${PODS_TARGET_SRCROOT}/../src/custom_ops"',
+  }
+
+  # Download iOS xcframeworks if not present (pub.dev packages exclude them to
+  # stay under the 100 MB size limit; ~85 MB download, cached after first run).
+  framework_dir = __dir__
+  marker = File.join(framework_dir, 'TensorFlowLiteC.xcframework',
+                     'ios-arm64', 'TensorFlowLiteC.framework', 'TensorFlowLiteC')
+
+  # The Core ML NPU entry points are added by patches/litert_coreml_npu_ios.patch
+  # and exist in no upstream build at any version, so their absence is a reliable
+  # signal that a stale bundle is present. This checks the symbol rather than mere
+  # file existence because libs-v0.1.8 shipped a complete-looking Core ML
+  # framework that silently lacked NPU support: `pod install` succeeded, the app
+  # built, and accelerator registration then failed at runtime with
+  # kLiteRtStatusErrorUnsupported for every model. A file-existence check cannot
+  # tell those two cases apart; a symbol check re-downloads and self-heals.
+  coreml_binary = File.join(framework_dir, 'TensorFlowLiteCCoreML.xcframework',
+                            'ios-arm64', 'TensorFlowLiteCCoreML.framework',
+                            'TensorFlowLiteCCoreML')
+  coreml_has_npu = File.exist?(coreml_binary) &&
+                   `xcrun nm -gU '#{coreml_binary}' 2>/dev/null`
+                     .include?('_FlutterTfLiteCoreMlNpuDelegateCreate')
+
+  unless File.exist?(marker) && coreml_has_npu
+    puts '[flutter_litert] Downloading TensorFlow Lite iOS frameworks...'
+    zip = File.join(framework_dir, '_tflite_ios.zip')
+    system("curl -sL 'https://github.com/hugocornellier/flutter_litert/releases/download/libs-v0.1.9/ios-frameworks.zip' -o '#{zip}'")
+    abort '[flutter_litert] ERROR: Failed to download TFLite iOS frameworks. Check your internet connection.' unless $?.success?
+    system("unzip -qo '#{zip}' -d '#{framework_dir}'")
+    File.delete(zip) if File.exist?(zip)
+    puts '[flutter_litert] TensorFlow Lite iOS frameworks installed.'
+  end
+
+  # When flutter_litert_flex is present, TensorFlowLiteFlex needs -all_load to
+  # pull in C++ static initializers for TF op registration. TFLiteC and TFLiteFlex
+  # share 15 symbols (XNNPack delegate + AcquireFlexDelegate). Make those symbols
+  # local in TFLiteC so TFLiteFlex's versions are used (important for
+  # AcquireFlexDelegate which must return the real flex delegate, not a stub).
+  flex_detected = false
+  flex_xcfw_mono = File.join(framework_dir, '..', 'flutter_litert_flex',
+                             'ios', 'TensorFlowLiteFlex.xcframework')
+  flex_detected = File.exist?(flex_xcfw_mono)
+  unless flex_detected
+    parent_dir = File.expand_path(File.join(framework_dir, '..', '..'))
+    Dir.glob(File.join(parent_dir, 'flutter_litert_flex*', 'ios',
+                       'TensorFlowLiteFlex.xcframework')).each do |_|
+      flex_detected = true
+      break
+    end
+  end
+  unless flex_detected
+    [Dir.pwd, File.join(Dir.pwd, '..')].each do |dir|
+      deps_file = File.join(dir, '.flutter-plugins-dependencies')
+      if File.exist?(deps_file)
+        flex_detected = File.read(deps_file).include?('flutter_litert_flex')
+        break if flex_detected
+      end
+    end
+  end
+
+  if flex_detected
+    dedup_marker = File.join(framework_dir, 'TensorFlowLiteC.xcframework', '.flex_deduped')
+    tflc_arm64 = File.join(framework_dir, 'TensorFlowLiteC.xcframework', 'ios-arm64',
+                           'TensorFlowLiteC.framework', 'TensorFlowLiteC')
+    # The marker can survive an xcframework re-download (it isn't inside the zip),
+    # so verify the symbols are actually local before skipping nmedit.
+    symbols_still_global = File.exist?(tflc_arm64) &&
+                           `xcrun nm -gj '#{tflc_arm64}' 2>/dev/null`.include?('_TfLiteXNNPackDelegateOptionsDefault')
+    unless File.exist?(dedup_marker) && !symbols_still_global
+      puts '[flutter_litert] FlexDelegate detected, hiding overlapping symbols in TensorFlowLiteC...'
+      syms_file = File.join(framework_dir, '_overlap_syms.txt')
+      File.write(syms_file, <<~SYMS)
+        _TfLiteXNNPackDelegateCanUseInMemoryWeightCacheProvider
+        _TfLiteXNNPackDelegateCreate
+        _TfLiteXNNPackDelegateCreateWithThreadpool
+        _TfLiteXNNPackDelegateDelete
+        _TfLiteXNNPackDelegateGetFlags
+        _TfLiteXNNPackDelegateGetOptions
+        _TfLiteXNNPackDelegateGetThreadPool
+        _TfLiteXNNPackDelegateInMemoryFilePath
+        _TfLiteXNNPackDelegateOptionsDefault
+        _TfLiteXNNPackDelegateWeightsCacheCreate
+        _TfLiteXNNPackDelegateWeightsCacheCreateWithSize
+        _TfLiteXNNPackDelegateWeightsCacheDelete
+        _TfLiteXNNPackDelegateWeightsCacheFinalizeHard
+        _TfLiteXNNPackDelegateWeightsCacheFinalizeSoft
+        __ZN6tflite19AcquireFlexDelegateEv
+      SYMS
+
+      ['ios-arm64', 'ios-arm64_x86_64-simulator'].each do |arch|
+        tflc_binary = File.join(framework_dir, 'TensorFlowLiteC.xcframework', arch,
+                                'TensorFlowLiteC.framework', 'TensorFlowLiteC')
+        next unless File.exist?(tflc_binary)
+        system("xcrun nmedit -R '#{syms_file}' '#{tflc_binary}'")
+      end
+
+      File.delete(syms_file)
+      File.write(dedup_marker, 'done')
+      puts '[flutter_litert] Symbol deduplication complete.'
+    end
+  end
+
+  s.vendored_frameworks = 'TensorFlowLiteC.xcframework',
+                           'TensorFlowLiteCMetal.xcframework',
+                           'TensorFlowLiteCCoreML.xcframework'
+
+  s.pod_target_xcconfig = common_xcconfig.merge({
+    'OTHER_LDFLAGS' => '$(inherited) -ObjC -all_load'
+  })
+
+  # TFLite's C symbols are resolved at runtime via dlsym(RTLD_DEFAULT, ...).
+  # Classes/tflite_ffi_symbols.c provides compile-time references for every
+  # packaged C API. Keep these app-target settings as defense in depth against
+  # App Store / TestFlight post-processing stripping global symbols (#8, #9).
+  s.user_target_xcconfig = {
+    'OTHER_LDFLAGS' => '$(inherited) -ObjC',
+    'DEAD_CODE_STRIPPING' => 'NO',
+    'STRIP_STYLE' => 'non-global'
+  }
+  s.swift_version = '5.0'
+end

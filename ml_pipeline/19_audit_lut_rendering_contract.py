@@ -9,6 +9,8 @@ from pathlib import Path
 
 import numpy as np
 
+from lut_axis_contract import load_float16_lut
+
 
 PIPELINE_DIR = Path(__file__).resolve().parent
 DATASET_DIR = PIPELINE_DIR / "data" / "dataset"
@@ -72,10 +74,7 @@ def read_unique_luts(dataset_dir: Path) -> dict[str, dict]:
 
 
 def load_lut(path: Path) -> np.ndarray:
-    values = np.fromfile(path, dtype=np.float16).astype(np.float32)
-    if values.size != 65 ** 3 * 3:
-        raise ValueError(f"{path} has {values.size} values; expected {65 ** 3 * 3}")
-    return values.reshape(65, 65, 65, 3)
+    return load_float16_lut(path, expected_dim=65)
 
 
 def audit_lut(lut: np.ndarray, colors: np.ndarray) -> dict:

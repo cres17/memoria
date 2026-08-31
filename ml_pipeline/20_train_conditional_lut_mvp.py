@@ -34,6 +34,7 @@ from conditional_lut_mvp_model import (
     StyleEncoder,
     rgb_to_hsv_numpy,
 )
+from lut_axis_contract import save_float16_lut
 
 
 PIPELINE_DIR = Path(__file__).resolve().parent
@@ -86,7 +87,11 @@ def freeze_batch_norm(module: nn.Module) -> None:
             child.eval()
 
 
-def read_split_records(path: Path, partitions: set[str]) -> list[dict]:
+def read_split_records(
+    path: Path,
+    partitions: set[str],
+    dataset_dir: Path = DATASET_DIR,
+) -> list[dict]:
     if not path.exists():
         raise FileNotFoundError(f"split manifest is missing: {path}")
     records = []
@@ -101,9 +106,9 @@ def read_split_records(path: Path, partitions: set[str]) -> list[dict]:
         if record["split"] not in partitions:
             continue
         sample_id = record["id"]
-        record["reference_path"] = DATASET_DIR / "graded" / f"{sample_id}.jpg"
-        record["neutral_path"] = DATASET_DIR / "neutral" / f"{sample_id}.jpg"
-        record["lut_path"] = DATASET_DIR / "luts" / f"{sample_id}.bin"
+        record["reference_path"] = dataset_dir / "graded" / f"{sample_id}.jpg"
+        record["neutral_path"] = dataset_dir / "neutral" / f"{sample_id}.jpg"
+        record["lut_path"] = dataset_dir / "luts" / f"{sample_id}.bin"
         if not all(record[key].exists() for key in ("reference_path", "neutral_path", "lut_path")):
             raise FileNotFoundError(f"dataset triplet missing for sample {sample_id}")
         records.append(record)
@@ -459,7 +464,7 @@ def evaluate_single_prediction(prediction: np.ndarray, target: np.ndarray, obser
 
 def export_lut_smoke(lut: np.ndarray, output: Path) -> dict:
     output.parent.mkdir(parents=True, exist_ok=True)
-    lut.astype(np.float16).tofile(output)
+    save_float16_lut(lut, output)
     reloaded = evaluator.load_lut(output)
     if reloaded.shape != lut.shape:
         raise RuntimeError("export/reload LUT shape changed")
@@ -475,8 +480,8 @@ def export_lut_smoke(lut: np.ndarray, output: Path) -> dict:
 
 def run_smoke_test(args: argparse.Namespace) -> Path:
     set_seed(args.seed)
-    records = read_split_records(SPLIT_PATH, {"train"})
-    masks = load_masks(MASK_PATH)
+    records = read_split_records(args.split_path, {"train"}, args.dataset_dir)
+    masks = load_masks(args.mask_path)
     dataset = ConditionalLUTDataset(records, masks)
     loader = DataLoader(dataset, batch_size=args.smoke_batch_size, shuffle=False, collate_fn=collate_samples)
     batch = move_batch(next(iter(loader)))
@@ -511,7 +516,8 @@ def run_smoke_test(args: argparse.Namespace) -> Path:
     prediction_np = final_prediction[0].cpu().numpy()
     target_np = batch["target_lut"][0].cpu().numpy()
     metrics = evaluate_single_prediction(prediction_np, target_np, batch["observed_mask"][0].cpu().numpy().astype(bool))
-    export = export_lut_smoke(prediction_np, REPORT_DIR / "mvp_smoke_generated_17.bin")
+    output = args.report_path or REPORT_DIR / "mvp_skeleton_smoke_report.json"
+    export = export_lut_smoke(prediction_np, output.with_suffix(".generated_17.bin"))
     report = {
         "schema_version": 1,
         "experiment_id": "MVP-SKELETON-001",
@@ -519,6 +525,9 @@ def run_smoke_test(args: argparse.Namespace) -> Path:
         "renderer_contract": "bounded_generated_lut; target_accuracy_compares_clamped_srgb_render",
         "samples": batch["id"],
         "groups": batch["group"],
+        "dataset_dir": str(args.dataset_dir),
+        "split_path": str(args.split_path),
+        "mask_path": str(args.mask_path),
         "style_code_shape": list(style_code.shape),
         "initial_losses": initial_losses,
         "final_losses": final_losses,
@@ -528,17 +537,16 @@ def run_smoke_test(args: argparse.Namespace) -> Path:
     }
     if final_losses["total"] > initial_losses["total"]:
         raise RuntimeError("one-batch smoke loss did not decrease; do not treat MVP as trainable")
-    REPORT_DIR.mkdir(parents=True, exist_ok=True)
-    output = REPORT_DIR / "mvp_skeleton_smoke_report.json"
+    output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
     return output
 
 
 def run_style_consistency_smoke_test(args: argparse.Namespace) -> Path:
     set_seed(args.seed)
-    records = read_split_records(SPLIT_PATH, {"train"})
+    records = read_split_records(args.split_path, {"train"}, args.dataset_dir)
     selected_records = select_style_consistency_records(records)
-    masks = load_masks(MASK_PATH)
+    masks = load_masks(args.mask_path)
     batch = move_batch(collate_samples([ConditionalLUTDataset(selected_records, masks)[index] for index in range(len(selected_records))]))
     # Preserve source LUT IDs outside the tensor batch for the positive/negative pair contract.
     source_luts = [record["sourceLut"] for record in selected_records]
@@ -583,6 +591,7 @@ def run_style_consistency_smoke_test(args: argparse.Namespace) -> Path:
     )
     prediction_np = final_prediction[0].cpu().numpy()
     target_np = batch["target_lut"][0].cpu().numpy()
+    output = args.report_path or REPORT_DIR / "style_consistency_smoke_v6_report.json"
     report = {
         "schema_version": 1,
         "experiment_id": "STYLE-CONSISTENCY-SMOKE-006",
@@ -590,6 +599,9 @@ def run_style_consistency_smoke_test(args: argparse.Namespace) -> Path:
         "renderer_contract": "bounded_generated_lut; target_accuracy_compares_clamped_srgb_render",
         "samples": batch["id"],
         "source_luts": source_luts,
+        "dataset_dir": str(args.dataset_dir),
+        "split_path": str(args.split_path),
+        "mask_path": str(args.mask_path),
         "style_code_shape": list(final_style_code.shape),
         "decoder_learning_rate": args.consistency_smoke_learning_rate,
         "style_encoder_learning_rate": args.consistency_encoder_learning_rate,
@@ -603,10 +615,9 @@ def run_style_consistency_smoke_test(args: argparse.Namespace) -> Path:
         "first_sample_cube_metrics": evaluate_single_prediction(
             prediction_np, target_np, batch["observed_mask"][0].cpu().numpy().astype(bool)
         ),
-        "export_reload": export_lut_smoke(prediction_np, REPORT_DIR / "style_consistency_smoke_v6_generated_17.bin"),
+        "export_reload": export_lut_smoke(prediction_np, output.with_suffix(".generated_17.bin")),
     }
-    REPORT_DIR.mkdir(parents=True, exist_ok=True)
-    output = REPORT_DIR / "style_consistency_smoke_v6_report.json"
+    output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
     if not passed:
         raise RuntimeError(f"Style Consistency smoke failed; inspect preserved report: {output}")
@@ -700,10 +711,10 @@ def train(args: argparse.Namespace) -> Path:
     if not args.experiment_id:
         raise ValueError("--experiment-id is required for --train so existing artifacts cannot be overwritten")
     set_seed(args.seed)
-    train_records = read_split_records(args.split_path, {"train"})
-    validation_records = read_split_records(args.split_path, {"validation"})
+    train_records = read_split_records(args.split_path, {"train"}, args.dataset_dir)
+    validation_records = read_split_records(args.split_path, {"validation"}, args.dataset_dir)
     validation_style_records = select_style_monitor_records(validation_records)
-    masks = load_masks(MASK_PATH)
+    masks = load_masks(args.mask_path)
     semantic_cache_dir = args.semantic_cache_dir
     if semantic_cache_dir is not None and not semantic_cache_dir.exists():
         raise FileNotFoundError(f"semantic cache directory is missing: {semantic_cache_dir}")
@@ -757,17 +768,24 @@ def train(args: argparse.Namespace) -> Path:
         model.load_state_dict(resume["state_dict"])
         best_validation_cube = float(resume["best_validation_cube_loss"])
         completed_epochs = int(resume.get("completed_epochs", 1))
+        best_epoch = int(resume.get("best_epoch", completed_epochs))
+        epochs_without_improvement = int(resume.get("epochs_without_improvement", 0))
         checkpoint_saved = True
         history = json.loads(report_path.read_text())["history"] if report_path.exists() else []
     else:
         best_validation_cube = float("inf")
         completed_epochs = 0
+        best_epoch = 0
+        epochs_without_improvement = 0
         checkpoint_saved = False
         history = []
     if (checkpoint_path.exists() or report_path.exists()) and not args.resume_checkpoint:
         raise FileExistsError(f"refusing to overwrite existing experiment artifacts: {checkpoint_path}, {report_path}")
 
+    stopped_early = False
+    last_epoch = completed_epochs
     for epoch in range(completed_epochs + 1, completed_epochs + args.epochs + 1):
+        last_epoch = epoch
         train_pair_sampler.set_epoch(epoch - 1)
         model.train()
         freeze_batch_norm(model.style_encoder)
@@ -886,8 +904,11 @@ def train(args: argparse.Namespace) -> Path:
             f"epoch={epoch:03d} train={train_mean['total']:.6f} "
             f"validation_cube={validation_mean['cube']:.6f} style_separation={style_separation:.6f}"
         )
-        if validation_mean["cube"] < best_validation_cube and style_separation > 0.0:
+        improved = validation_mean["cube"] < best_validation_cube and style_separation > 0.0
+        if improved:
             best_validation_cube = validation_mean["cube"]
+            best_epoch = epoch
+            epochs_without_improvement = 0
             checkpoint_saved = True
             CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
             torch.save(
@@ -914,7 +935,9 @@ def train(args: argparse.Namespace) -> Path:
                     "encoder_batch_norm_frozen": True,
                     "encoder_learning_rate": args.encoder_learning_rate,
                     "decoder_learning_rate": args.learning_rate,
+                    "dataset_dir": str(args.dataset_dir),
                     "split_path": str(args.split_path),
+                    "mask_path": str(args.mask_path),
                     "renderer_contract": "bounded_generated_lut; target_accuracy_compares_clamped_srgb_render",
                     "training_sampler_protocol": "epoch_aware_full_coverage_source_pairs",
                     "validation_accuracy_protocol": "all_validation_records_sample_weighted",
@@ -922,16 +945,22 @@ def train(args: argparse.Namespace) -> Path:
                     "checkpoint_selection_metric": "full_validation_cube_smooth_l1",
                     "checkpoint_style_guardrail": "positive_cosine_minus_negative_cosine_gt_0",
                     "best_validation_cube_loss": best_validation_cube,
+                    "best_epoch": best_epoch,
+                    "early_stopping_patience": args.early_stopping_patience,
                     "validation_records": len(validation_records),
                 },
                 checkpoint_path,
             )
+        elif checkpoint_saved:
+            epochs_without_improvement += 1
         CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
         torch.save(
             {
                 "schema_version": 1,
                 "state_dict": model.state_dict(),
                 "completed_epochs": epoch,
+                "best_epoch": best_epoch,
+                "epochs_without_improvement": epochs_without_improvement,
                 "best_validation_cube_loss": best_validation_cube,
                 "selection_checkpoint": str(checkpoint_path),
                 "experiment_id": args.experiment_id,
@@ -940,6 +969,17 @@ def train(args: argparse.Namespace) -> Path:
         )
         if scheduler is not None:
             scheduler.step()
+        if (
+            args.early_stopping_patience > 0
+            and checkpoint_saved
+            and epochs_without_improvement >= args.early_stopping_patience
+        ):
+            stopped_early = True
+            print(
+                f"early_stopping epoch={epoch:03d} best_epoch={best_epoch:03d} "
+                f"patience={args.early_stopping_patience}"
+            )
+            break
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(
         json.dumps({
@@ -947,7 +987,11 @@ def train(args: argparse.Namespace) -> Path:
             "experiment_id": args.experiment_id,
             "checkpoint": str(checkpoint_path),
             "training_state": str(training_state_path),
-            "completed_epochs": completed_epochs + args.epochs,
+            "completed_epochs": last_epoch,
+            "requested_additional_epochs": args.epochs,
+            "stopped_early": stopped_early,
+            "early_stopping_patience": args.early_stopping_patience,
+            "best_epoch": best_epoch,
             "instrumentation_batches": args.instrumentation_batches,
             "lr_scheduler": args.lr_scheduler,
             "encoder_learning_rate": args.encoder_learning_rate,
@@ -962,7 +1006,9 @@ def train(args: argparse.Namespace) -> Path:
                 "normalized_neutral_luminance_curve_plus_six_saturation_scaled_hue_anchor_labels"
                 if args.structured_target_weight or args.parallel_structured_aux_weight else "none"
             ),
+            "dataset_dir": str(args.dataset_dir),
             "split_path": str(args.split_path),
+            "mask_path": str(args.mask_path),
             "training_sampler_protocol": "epoch_aware_full_coverage_source_pairs",
             "validation_accuracy_protocol": "all_validation_records_sample_weighted",
             "validation_style_protocol": "fixed_two_scenes_per_validation_lut",
@@ -992,6 +1038,12 @@ def main() -> None:
     parser.add_argument("--consistency-smoke-learning-rate", type=float, default=1e-3)
     parser.add_argument("--consistency-encoder-learning-rate", type=float, default=1e-4)
     parser.add_argument("--epochs", type=int, default=10)
+    parser.add_argument(
+        "--early-stopping-patience",
+        type=int,
+        default=0,
+        help="stop after this many non-improving validation epochs; 0 disables",
+    )
     parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
     parser.add_argument("--learning-rate", type=float, default=DEFAULT_LEARNING_RATE)
     parser.add_argument("--encoder-learning-rate", type=float, default=1e-5)
@@ -1005,10 +1057,22 @@ def main() -> None:
     parser.add_argument("--semantic-cache-dir", type=Path, help="checksum-pinned six-class cache; enables semantic pooled Style Code features")
     parser.add_argument("--experiment-id", help="unique ID required for a training run; prevents artifact overwrite")
     parser.add_argument(
+        "--dataset-dir",
+        type=Path,
+        default=DATASET_DIR,
+        help="neutral/graded/luts dataset root for every mode",
+    )
+    parser.add_argument(
         "--split-path",
         type=Path,
         default=SPLIT_PATH,
         help="split JSONL used only for --train; defaults to the LUT-holdout contract",
+    )
+    parser.add_argument(
+        "--mask-path",
+        type=Path,
+        default=MASK_PATH,
+        help="observed-color mask archive for every mode",
     )
     parser.add_argument("--checkpoint-path", type=Path, help="new checkpoint path; defaults to an experiment-ID-specific name")
     parser.add_argument("--report-path", type=Path, help="new report path; defaults to an experiment-ID-specific name")
@@ -1020,7 +1084,7 @@ def main() -> None:
     parser.add_argument("--pretrained", action="store_true", help="allow timm to load pretrained encoder weights")
     args = parser.parse_args()
     positive = (args.smoke_steps, args.smoke_batch_size, args.epochs, args.batch_size)
-    if any(value <= 0 for value in positive) or args.instrumentation_batches < 0 or args.decoder_hidden_dim <= 0:
+    if any(value <= 0 for value in positive) or args.instrumentation_batches < 0 or args.decoder_hidden_dim <= 0 or args.early_stopping_patience < 0:
         parser.error("steps, batch sizes, and epochs must be positive")
     if any(value < 0 for value in (args.learning_rate, args.encoder_learning_rate, args.weight_decay, args.cube_weight, args.image_weight, args.smoothness_weight, args.style_consistency_weight, args.structured_target_weight, args.parallel_structured_aux_weight)):
         parser.error("loss weights and optimizer values must be non-negative")

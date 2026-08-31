@@ -29,8 +29,11 @@ dependencies:
   # Ads
   google_mobile_ads: ^9.1.0
 
-  # AI / LiteRT (SPM-capable successor to tflite_flutter)
-  flutter_litert: ^3.8.0
+  # AI / LiteRT. The local package keeps only the classic Interpreter runtime;
+  # upstream 3.8.0 also embeds unused LiteRT Next runtimes that duplicate
+  # Objective-C classes on iOS and add unused native libraries on Android.
+  flutter_litert:
+    path: third_party/flutter_litert
 
   # Network (model download)
   http: ^1.2.1

@@ -5,10 +5,15 @@ import 'package:memoria/ai/ai_manager.dart';
 import 'package:memoria/ai/models/lut_predictor.dart';
 import 'package:memoria/engine/lut_engine.dart';
 
+const candidateModelPath = String.fromEnvironment(
+  'DIRECT_MVP_TFLITE_PATH',
+  defaultValue: 'assets/models/direct_mvp_color_transfer_fp16.tflite',
+);
+
 void main() {
   test('direct MVP TFLite candidate loads through the app predictor contract',
       () async {
-    const modelPath = 'assets/models/direct_mvp_color_transfer_fp16.tflite';
+    const modelPath = candidateModelPath;
     const imagePath = 'test/원본_1.jpg';
     expect(File(modelPath).existsSync(), isTrue,
         reason: 'the bundled Direct MVP model must be present');
@@ -39,7 +44,7 @@ void main() {
 
   test('single reference uses Direct MVP and persists deterministic recipe',
       () async {
-    const modelPath = 'assets/models/direct_mvp_color_transfer_fp16.tflite';
+    const modelPath = candidateModelPath;
     const imagePath = 'test/원본_1.jpg';
     final outputDirectory =
         await Directory.systemTemp.createTemp('memoria-direct-mvp-e2e-');

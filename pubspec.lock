@@ -190,11 +190,10 @@ packages:
   flutter_litert:
     dependency: "direct main"
     description:
-      name: flutter_litert
-      sha256: "5428e65455b1f8ea01b4b874f39e0e434e9167e052a1218edb8a2e0ec2c7244a"
-      url: "https://pub.dev"
-    source: hosted
-    version: "3.8.0"
+      path: "third_party/flutter_litert"
+      relative: true
+    source: path
+    version: "3.8.0+memoria.3"
   flutter_localizations:
     dependency: "direct main"
     description: flutter

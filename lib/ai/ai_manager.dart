@@ -35,10 +35,11 @@ const kModelSelfie = AiModelInfo(
   sizeBytes: 614000,
 );
 
-const kColorTransferModelId = 'direct_mvp_family_holdout_smooth_010_001_fp16';
-const kColorTransferModelVersion = '2026-08-04-rc1';
+const kColorTransferModelId =
+    'direct_mvp_color_v3_smooth010_seed_20260830_fp16';
+const kColorTransferModelVersion = '2026-08-28-g5-candidate';
 const kColorTransferModelSha256 =
-    '4a9439bd65be4d46e9ac4c3cae3d10e49487be42404a2af2beabcb2b415858f3';
+    'a1b8ecf00632ba359b2d4dec603de6e35fc031aed9af978b14658422e02241a6';
 
 // Direct MVP — style encoder + 17³ LUT decoder.
 // Input : [1, 3, 256, 256] float32 NCHW, ImageNet normalized

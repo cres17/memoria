@@ -28,6 +28,8 @@ import torch.nn.functional as F
 from torch.amp import GradScaler, autocast
 from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 
+from lut_axis_contract import load_float16_lut
+
 
 PIPELINE_DIR = Path(__file__).resolve().parent
 DATASET_DIR = PIPELINE_DIR / "data/dataset"
@@ -71,8 +73,7 @@ def load_image_tensor(path: Path) -> torch.Tensor:
 
 
 def load_lut_tensor(path: Path) -> torch.Tensor:
-    lut = np.fromfile(path, dtype=np.float16).astype(np.float32)
-    return torch.from_numpy(lut).reshape(LUT_DIM, LUT_DIM, LUT_DIM, 3)
+    return torch.from_numpy(load_float16_lut(path, expected_dim=LUT_DIM))
 
 
 def build_encoder(pretrained: bool = True):
@@ -219,11 +220,7 @@ def split_lut_sources(records: list[dict], val_ratio: float, seed: int):
 
 
 def load_small_lut(path: Path) -> np.ndarray:
-    values = np.fromfile(path, dtype=np.float16).astype(np.float32)
-    expected = LUT_DIM * LUT_DIM * LUT_DIM * 3
-    if values.size != expected:
-        raise ValueError(f"{path} contains {values.size} values; expected {expected}")
-    lut = values.reshape(LUT_DIM, LUT_DIM, LUT_DIM, 3)
+    lut = load_float16_lut(path, expected_dim=LUT_DIM)
     indices = np.linspace(0, LUT_DIM - 1, BASIS_DIM).round().astype(np.int64)
     return lut[np.ix_(indices, indices, indices)].reshape(-1).astype(np.float32)
 
