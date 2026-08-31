@@ -33,7 +33,7 @@ Goal: remove small distractions using texture-aware fill without visible blur pa
 - [ ] Undo/redo restores strokes and computed/fallback state.
 
 ## Test Commands
-- Current: `flutter test test/engine/inpainting_test.dart`
+- Current: 제품 경로와 품질 기준을 충족하지 못한 placeholder inpainting 구현은 제거됨.
 - Required target: `flutter test test/features/editor/healing_panel_test.dart test/golden/healing_golden_test.dart`
 - Required no-op: `flutter test test/engine/no_op_guard_test.dart`
 - Required perf: `dart run tool/perf_gate.dart --feature healing`

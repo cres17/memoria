@@ -31,8 +31,8 @@ Goal: perspective correction uses real geometry, feels live, and does not misrep
 - [x] Draft restore recovers future/legacy transform fields safely.
 
 ## Test Commands
-- Current related: `flutter test test/engine/sprint5_test.dart`
-- Required target: `flutter test test/engine/perspective_engine_test.dart test/features/editor/perspective_panel_test.dart test/golden/perspective_golden_test.dart`
+- Current: `flutter test test/features/editor/editor_spatial_renderer_test.dart`
+- Required target: `flutter test test/features/editor/perspective_panel_test.dart`
 - Required perf: `dart run tool/perf_gate.dart --feature perspective`
 
 ## Accessibility, Localization, Privacy

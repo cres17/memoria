@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:typed_data';
 import 'adjust_params.dart';
 import 'crop_ratio_preset.dart';
 import 'curve_data.dart';
@@ -19,7 +18,6 @@ enum EditToolType {
   crop,
   brush,
   selective,
-  heal,
   portrait,
   creative,
   hslAdjust,
@@ -301,124 +299,6 @@ class CreativeParams {
 
 // ???? ?됰슢?????쎈뱜嚥≪뮉寃?筌띾뜆???(Phase 2.1) ??????????????????????????????????????
 
-class BrushStroke {
-  final double x; // 0-1 ?類?뇣??  final double y;
-  final double y;
-  final double radius; // 0-1 (???筌왖 ??? 疫꿸퀣?)
-  final double pressure; // 0-1 (沃섎챶???類ㅼ삢??
-
-  const BrushStroke({
-    required this.x,
-    required this.y,
-    required this.radius,
-    this.pressure = 1.0,
-  });
-
-  Map<String, dynamic> toJson() => {'x': x, 'y': y, 'r': radius, 'p': pressure};
-
-  factory BrushStroke.fromJson(Map<String, dynamic> j) => BrushStroke(
-        x: (j['x'] as num).toDouble(),
-        y: (j['y'] as num).toDouble(),
-        radius: (j['r'] as num).toDouble(),
-        pressure: (j['p'] as num? ?? 1.0).toDouble(),
-      );
-}
-
-class BrushMaskData {
-  final AdjustParams
-      localParams; // ?됰슢????怨몄뒠 嚥≪뮇類?鈺곌퀣?쇿첎?  final String toolName;           // 'expose'|'contrast'|'sat'|'temp'|'sharp'|'clarity'|'eraser'
-  final String toolName;
-  final double hardness; // 0=soft, 1=hard
-  final List<BrushStroke> strokes;
-  final Float32List? cachedMask;
-  // 筌?Ŋ?? null????strokes?癒?퐣 ?????  final Float32List? cachedMask;
-
-  const BrushMaskData({
-    required this.localParams,
-    required this.toolName,
-    this.hardness = 0.5,
-    required this.strokes,
-    this.cachedMask,
-  });
-
-  Map<String, dynamic> toJson() => {
-        'localParams': localParams.toJson(),
-        'toolName': toolName,
-        'hardness': hardness,
-        'strokes': strokes.map((s) => s.toJson()).toList(),
-        // cachedMask?? 筌욊낮?????뽰뇚 (?????揶쎛??
-      };
-
-  factory BrushMaskData.fromJson(Map<String, dynamic> j) => BrushMaskData(
-        localParams:
-            AdjustParams.fromJson(j['localParams'] as Map<String, dynamic>),
-        toolName: j['toolName'] as String? ?? 'expose',
-        hardness: (j['hardness'] as num? ?? 0.5).toDouble(),
-        strokes: (j['strokes'] as List<dynamic>? ?? [])
-            .map((s) => BrushStroke.fromJson(s as Map<String, dynamic>))
-            .toList(),
-      );
-}
-
-// ???? ?醫뤾문 癰귣똻???????(Phase 2.2) ??????????????????????????????????????????????????
-
-enum SelectiveMode { circle, colorAuto, diffusion }
-
-class SelectivePoint {
-  final double x; // 0-1 ?類?뇣??  final double y;
-  final double y;
-  final double radius; // 0-1 (???筌왖 ??? 疫꿸퀣?)
-  final AdjustParams localParams;
-  final SelectiveMode mode;
-
-  const SelectivePoint({
-    required this.x,
-    required this.y,
-    this.radius = 0.25,
-    required this.localParams,
-    this.mode = SelectiveMode.circle,
-  });
-
-  Map<String, dynamic> toJson() => {
-        'x': x,
-        'y': y,
-        'radius': radius,
-        'localParams': localParams.toJson(),
-        'mode': mode.name,
-      };
-
-  factory SelectivePoint.fromJson(Map<String, dynamic> j) => SelectivePoint(
-        x: (j['x'] as num).toDouble(),
-        y: (j['y'] as num).toDouble(),
-        radius: (j['radius'] as num? ?? 0.25).toDouble(),
-        localParams:
-            AdjustParams.fromJson(j['localParams'] as Map<String, dynamic>),
-        mode: SelectiveMode.values.firstWhere(
-          (e) => e.name == (j['mode'] as String? ?? 'circle'),
-          orElse: () => SelectiveMode.circle,
-        ),
-      );
-}
-
-// ???? ?癒?춦 ??쎈뱜嚥≪뮉寃?(Phase 2.5) ??????????????????????????????????????????????????????????
-
-class HealStroke {
-  final List<Map<String, double>> path; // [{x,y}, ...] ?類?뇣???ル슦紐?
-  final double radius;
-
-  const HealStroke({required this.path, required this.radius});
-
-  Map<String, dynamic> toJson() => {'path': path, 'radius': radius};
-
-  factory HealStroke.fromJson(Map<String, dynamic> j) => HealStroke(
-        path: (j['path'] as List<dynamic>)
-            .map((p) => Map<String, double>.from((p as Map)
-                .map((k, v) => MapEntry(k as String, (v as num).toDouble()))))
-            .toList(),
-        radius: (j['radius'] as num).toDouble(),
-      );
-}
-
 /// Snapshot of editor state that does not fit the legacy parameter, crop,
 /// portrait, or creative payloads. Edit operations are cumulative snapshots,
 /// so keeping these values together makes undo/redo and draft restoration
@@ -607,15 +487,6 @@ class EditOperation {
   // crop
   final CropState? cropState;
 
-  // brush
-  final BrushMaskData? brushMask;
-
-  // selective
-  final List<SelectivePoint>? selectivePoints;
-
-  // heal
-  final List<HealStroke>? healStrokes;
-
   // portrait
   final PortraitParams? portrait;
 
@@ -636,9 +507,6 @@ class EditOperation {
     this.intensity,
     this.curves,
     this.cropState,
-    this.brushMask,
-    this.selectivePoints,
-    this.healStrokes,
     this.portrait,
     this.creative,
     this.effectState,
@@ -661,13 +529,6 @@ class EditOperation {
       );
     }
     if (cropState != null) m['crop'] = cropState!.toJson();
-    if (brushMask != null) m['brush'] = brushMask!.toJson();
-    if (selectivePoints != null) {
-      m['selective'] = selectivePoints!.map((p) => p.toJson()).toList();
-    }
-    if (healStrokes != null) {
-      m['heal'] = healStrokes!.map((s) => s.toJson()).toList();
-    }
     if (portrait != null) m['portrait'] = portrait!.toJson();
     if (creative != null) m['creative'] = creative!.toJson();
     if (effectState != null) m['effects'] = effectState!.toJson();
@@ -707,15 +568,6 @@ class EditOperation {
       cropState: j['crop'] != null
           ? CropState.fromJson(j['crop'] as Map<String, dynamic>)
           : null,
-      brushMask: j['brush'] != null
-          ? BrushMaskData.fromJson(j['brush'] as Map<String, dynamic>)
-          : null,
-      selectivePoints: (j['selective'] as List<dynamic>?)
-          ?.map((p) => SelectivePoint.fromJson(p as Map<String, dynamic>))
-          .toList(),
-      healStrokes: (j['heal'] as List<dynamic>?)
-          ?.map((s) => HealStroke.fromJson(s as Map<String, dynamic>))
-          .toList(),
       portrait: j['portrait'] != null
           ? PortraitParams.fromJson(j['portrait'] as Map<String, dynamic>)
           : null,

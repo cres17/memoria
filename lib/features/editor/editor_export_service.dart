@@ -58,13 +58,16 @@ class EditorExportWorkerContext {
 class EditorExportService {
   static const _exitGracePeriod = Duration(milliseconds: 100);
   static const _cancelExitGracePeriod = Duration(milliseconds: 500);
+  static const _defaultProgressPulseInterval = Duration(milliseconds: 200);
 
   final Duration timeout;
+  final Duration progressPulseInterval;
   final EditorExportWorkerEntrypoint _worker;
   _EditorExportJob? _activeJob;
 
   EditorExportService({
     this.timeout = const Duration(minutes: 2),
+    this.progressPulseInterval = _defaultProgressPulseInterval,
     EditorExportWorkerEntrypoint worker = _editorExportWorker,
   }) : _worker = worker;
 
@@ -79,6 +82,7 @@ class EditorExportService {
     _activeJob = job;
     try {
       _listen(job);
+      _startProgressPulse(job);
       job.timeoutTimer = Timer(timeout, () {
         job.completeFailure(
           const EditorExportFailure(
@@ -117,10 +121,7 @@ class EditorExportService {
     job.messageSubscription = job.messagePort.listen((message) {
       if (message is num) {
         final progress = message.toDouble().clamp(0.0, 0.99).toDouble();
-        if (progress > job.lastProgress) {
-          job.lastProgress = progress;
-          job.onProgress?.call(progress);
-        }
+        job.emitProgress(progress);
         return;
       }
       if (message == 'done') {
@@ -154,8 +155,25 @@ class EditorExportService {
     });
   }
 
+  void _startProgressPulse(_EditorExportJob job) {
+    if (job.onProgress == null) return;
+    job.emitProgress(0.01);
+    job.progressTimer = Timer.periodic(progressPulseInterval, (_) {
+      if (job.cancelled || job.terminal.isCompleted) return;
+      // Worker milestones remain authoritative. Between CPU-heavy stages,
+      // advance conservatively so the UI communicates liveness without ever
+      // claiming that encoding or writing has completed.
+      const ceiling = 0.949;
+      if (job.lastProgress >= ceiling) return;
+      final remaining = ceiling - job.lastProgress;
+      final step = remaining > 0.02 ? 0.01 : remaining / 2;
+      job.emitProgress(job.lastProgress + step);
+    });
+  }
+
   Future<void> _dispose(_EditorExportJob job) async {
     job.timeoutTimer?.cancel();
+    job.progressTimer?.cancel();
     if (job.cancelled || !job.terminal.isCompleted) job.kill();
     if (job.isolate != null && !job.exitObserved.isCompleted) {
       await Future.any<void>([
@@ -216,6 +234,7 @@ class _EditorExportJob {
   StreamSubscription<dynamic>? exitSubscription;
   StreamSubscription<dynamic>? errorSubscription;
   Timer? timeoutTimer;
+  Timer? progressTimer;
   Isolate? isolate;
   bool cancelled = false;
   double lastProgress = 0;
@@ -223,14 +242,22 @@ class _EditorExportJob {
 
   _EditorExportJob(this.request, this.onProgress);
 
+  void emitProgress(double value) {
+    if (terminal.isCompleted || value <= lastProgress) return;
+    lastProgress = value;
+    onProgress?.call(value);
+  }
+
   void complete(EditorExportJobResult result) {
     if (!terminal.isCompleted) {
+      progressTimer?.cancel();
       terminal.complete(_EditorExportTerminal.completed(result));
     }
   }
 
   void completeFailure(EditorExportFailure value) {
     if (terminal.isCompleted) return;
+    progressTimer?.cancel();
     failure = value;
     terminal.complete(_EditorExportTerminal.failed(value));
   }

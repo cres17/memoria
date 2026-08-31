@@ -264,7 +264,29 @@ void main() {
     );
 
     expect(result, EditorExportJobResult.completed);
-    expect(progress, <double>[0.6, 0.99]);
+    expect(progress, <double>[0.01, 0.6, 0.99]);
+  });
+
+  test('keeps progress callbacks alive during a long worker stage', () async {
+    final elapsed = <Duration>[];
+    final stopwatch = Stopwatch()..start();
+
+    final result = await EditorExportService(
+      worker: _slowProgressStage,
+      progressPulseInterval: const Duration(milliseconds: 20),
+    ).render(
+      _request(),
+      onProgress: (_) => elapsed.add(stopwatch.elapsed),
+    );
+
+    expect(result, EditorExportJobResult.completed);
+    expect(elapsed.length, greaterThanOrEqualTo(5));
+    for (var index = 1; index < elapsed.length; index++) {
+      expect(
+        elapsed[index] - elapsed[index - 1],
+        lessThan(const Duration(milliseconds: 80)),
+      );
+    }
   });
 }
 
@@ -305,6 +327,13 @@ Future<void> _progressNoise(EditorExportWorkerContext context) async {
   context.sendPort.send(0.6);
   context.sendPort.send(0.2);
   context.sendPort.send(3.0);
+  context.sendPort.send('done');
+}
+
+Future<void> _slowProgressStage(EditorExportWorkerContext context) async {
+  context.sendPort.send(0.4);
+  await Future<void>.delayed(const Duration(milliseconds: 140));
+  context.sendPort.send(0.95);
   context.sendPort.send('done');
 }
 

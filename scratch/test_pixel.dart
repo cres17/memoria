@@ -3,7 +3,7 @@ import 'package:memoria/domain/models/adjust_params.dart';
 import 'package:memoria/engine/lut_engine.dart';
 
 void main() {
-  final p = AdjustParams.zero;
+  const p = AdjustParams.zero;
   double r = 128 / 255.0;
   double g = 128 / 255.0;
   double b = 128 / 255.0;

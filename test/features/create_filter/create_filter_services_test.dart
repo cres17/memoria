@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -7,6 +8,7 @@ import 'package:memoria/domain/models/adjust_params.dart';
 import 'package:memoria/domain/models/filter_preset.dart';
 import 'package:memoria/domain/repositories/filter_repository.dart';
 import 'package:memoria/features/create_filter/create_filter_services.dart';
+import 'package:memoria/engine/reference_coverage_router.dart';
 
 void main() {
   late Directory tempDirectory;
@@ -120,6 +122,72 @@ void main() {
     expect(await generatedDirectory.exists(), isFalse);
   });
 
+  test('WB-CF-ROLLBACK-01 cancellation after preview rolls back without saving',
+      () async {
+    final events = <String>[];
+    final repository = _RecordingRepository(events: events);
+    final previewPath = '${tempDirectory.path}/cancelled-preview.jpg';
+    final renderer = _ControlledPreviewRenderer(
+      events: events,
+      outputPath: previewPath,
+    );
+    final transaction = CreateFilterCommitTransaction(
+      repository: repository,
+      previewRenderer: renderer,
+    );
+    final preset = await makePreset('cancel-before-save');
+    final generatedDirectory = File(preset.lutPath).parent;
+    var cancelled = false;
+
+    final commit = transaction.commit(
+      preset: preset,
+      sourcePath: 'source.jpg',
+      isCancelled: () => cancelled,
+    );
+    await renderer.started.future;
+    cancelled = true;
+    renderer.release.complete();
+
+    await expectLater(commit, throwsA(isA<CreateFilterCancelledException>()));
+    expect(events, ['preview', 'delete']);
+    expect(repository.savedIds, isEmpty);
+    expect(await File(previewPath).exists(), isFalse);
+    expect(await generatedDirectory.exists(), isFalse);
+  });
+
+  test(
+      'WB-CF-ROLLBACK-01 cancellation during save compensates repository write',
+      () async {
+    final events = <String>[];
+    final repository = _ControlledSaveRepository(events: events);
+    final previewPath = '${tempDirectory.path}/cancel-during-save-preview.jpg';
+    final transaction = CreateFilterCommitTransaction(
+      repository: repository,
+      previewRenderer: _RecordingPreviewRenderer(
+        events: events,
+        outputPath: previewPath,
+      ),
+    );
+    final preset = await makePreset('cancel-during-save');
+    final generatedDirectory = File(preset.lutPath).parent;
+    var cancelled = false;
+
+    final commit = transaction.commit(
+      preset: preset,
+      sourcePath: 'source.jpg',
+      isCancelled: () => cancelled,
+    );
+    await repository.saveStarted.future;
+    cancelled = true;
+    repository.releaseSave.complete();
+
+    await expectLater(commit, throwsA(isA<CreateFilterCancelledException>()));
+    expect(events, ['preview', 'save', 'delete']);
+    expect(repository.savedIds, isEmpty);
+    expect(await File(previewPath).exists(), isFalse);
+    expect(await generatedDirectory.exists(), isFalse);
+  });
+
   test('CF-16 temporary preview cleanup is idempotent', () async {
     final preview = File('${tempDirectory.path}/temporary-preview.jpg');
     await preview.writeAsBytes([1, 2, 3]);
@@ -153,6 +221,33 @@ void main() {
         .map((entry) => entry.path)
         .toList();
     expect(remaining, [existing.path]);
+  });
+
+  test('low reference coverage stops before worker and creates no artifact',
+      () async {
+    final generator = IsolateCreateFilterGenerator(
+      timeout: const Duration(seconds: 5),
+    );
+    const reference =
+        'ml_pipeline/data/dataset_external_monochrome_calibration_001/graded/mono_000000.jpg';
+
+    await expectLater(
+      generator.generateStyle(
+        const [reference],
+        basePath: tempDirectory.path,
+        onProgress: (_, __) {},
+      ),
+      throwsA(
+        isA<LowReferenceCoverageException>().having(
+          (error) => error.fraction,
+          'fraction',
+          lessThan(colorV3ReferenceCoverageThreshold),
+        ),
+      ),
+    );
+
+    final filters = Directory('${tempDirectory.path}/filters');
+    expect(await filters.exists(), isFalse);
   });
 
   test('CF-14 cancel kills the worker and cleans its partial directory',
@@ -221,6 +316,10 @@ void main() {
       expect(result['generatorType'], 'neural');
       expect(recipe['modelId'], kColorTransferModelId);
       expect(recipe['modelVersion'], kColorTransferModelVersion);
+      expect(
+        result['referenceCoverage'],
+        greaterThanOrEqualTo(colorV3ReferenceCoverageThreshold),
+      );
       expect(File(result['lutPath'] as String).existsSync(), isTrue);
     } finally {
       AiManager.instance.clearLocalModelForTesting(kModelColorTransfer);
@@ -242,6 +341,27 @@ class _RecordingPreviewRenderer implements CreateFilterPreviewRenderer {
     events.add('preview');
     if (outputPath == null) return null;
     await File(outputPath!).writeAsBytes([9, 8, 7]);
+    return outputPath;
+  }
+}
+
+class _ControlledPreviewRenderer implements CreateFilterPreviewRenderer {
+  final List<String> events;
+  final String outputPath;
+  final started = Completer<void>();
+  final release = Completer<void>();
+
+  _ControlledPreviewRenderer({
+    required this.events,
+    required this.outputPath,
+  });
+
+  @override
+  Future<String?> render(FilterPreset preset, String? sourcePath) async {
+    events.add('preview');
+    started.complete();
+    await release.future;
+    await File(outputPath).writeAsBytes([9, 8, 7]);
     return outputPath;
   }
 }
@@ -277,4 +397,19 @@ class _RecordingRepository implements FilterRepository {
 
   @override
   Future<void> updatePreset(FilterPreset preset) async {}
+}
+
+class _ControlledSaveRepository extends _RecordingRepository {
+  final saveStarted = Completer<void>();
+  final releaseSave = Completer<void>();
+
+  _ControlledSaveRepository({required super.events});
+
+  @override
+  Future<void> savePreset(FilterPreset preset) async {
+    events.add('save');
+    savedIds.add(preset.id);
+    saveStarted.complete();
+    await releaseSave.future;
+  }
 }

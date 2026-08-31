@@ -17,12 +17,18 @@ enum BlendMode {
 extension BlendModeX on BlendMode {
   String get label {
     switch (this) {
-      case BlendMode.normal:   return 'Normal';
-      case BlendMode.add:      return 'Add';
-      case BlendMode.lighten:  return 'Lighten';
-      case BlendMode.darken:   return 'Darken';
-      case BlendMode.overlay:  return 'Overlay';
-      case BlendMode.subtract: return 'Subtract';
+      case BlendMode.normal:
+        return 'Normal';
+      case BlendMode.add:
+        return 'Add';
+      case BlendMode.lighten:
+        return 'Lighten';
+      case BlendMode.darken:
+        return 'Darken';
+      case BlendMode.overlay:
+        return 'Overlay';
+      case BlendMode.subtract:
+        return 'Subtract';
     }
   }
 
@@ -37,9 +43,7 @@ extension BlendModeX on BlendMode {
       case BlendMode.darken:
         return src < dst ? src : dst;
       case BlendMode.overlay:
-        return dst < 0.5
-            ? 2 * src * dst
-            : 1 - 2 * (1 - src) * (1 - dst);
+        return dst < 0.5 ? 2 * src * dst : 1 - 2 * (1 - src) * (1 - dst);
       case BlendMode.subtract:
         return (src - dst).clamp(0.0, 1.0);
     }
@@ -72,10 +76,21 @@ img.Image blendImages({
         return d + (blended - d) * opacity;
       }
 
-      result.setPixelRgb(x, y,
-        (blend(srcPx.rNormalized.toDouble(), dstPx.rNormalized.toDouble()).clamp(0.0, 1.0) * 255).round(),
-        (blend(srcPx.gNormalized.toDouble(), dstPx.gNormalized.toDouble()).clamp(0.0, 1.0) * 255).round(),
-        (blend(srcPx.bNormalized.toDouble(), dstPx.bNormalized.toDouble()).clamp(0.0, 1.0) * 255).round(),
+      result.setPixelRgb(
+        x,
+        y,
+        (blend(srcPx.rNormalized.toDouble(), dstPx.rNormalized.toDouble())
+                    .clamp(0.0, 1.0) *
+                255)
+            .round(),
+        (blend(srcPx.gNormalized.toDouble(), dstPx.gNormalized.toDouble())
+                    .clamp(0.0, 1.0) *
+                255)
+            .round(),
+        (blend(srcPx.bNormalized.toDouble(), dstPx.bNormalized.toDouble())
+                    .clamp(0.0, 1.0) *
+                255)
+            .round(),
       );
     }
   }
@@ -98,13 +113,15 @@ img.Image applyStacksMask({
   for (int y = 0; y < original.height; y++) {
     for (int x = 0; x < original.width; x++) {
       final idx = y * original.width + x;
-      final t   = mask[idx].clamp(0.0, 1.0);
-      final o   = original.getPixel(x, y);
-      final f   = filtered.getPixel(x, y);
-      final r   = o.rNormalized + (f.rNormalized - o.rNormalized) * t;
-      final g   = o.gNormalized + (f.gNormalized - o.gNormalized) * t;
-      final b   = o.bNormalized + (f.bNormalized - o.bNormalized) * t;
-      result.setPixelRgb(x, y,
+      final t = mask[idx].clamp(0.0, 1.0);
+      final o = original.getPixel(x, y);
+      final f = filtered.getPixel(x, y);
+      final r = o.rNormalized + (f.rNormalized - o.rNormalized) * t;
+      final g = o.gNormalized + (f.gNormalized - o.gNormalized) * t;
+      final b = o.bNormalized + (f.bNormalized - o.bNormalized) * t;
+      result.setPixelRgb(
+        x,
+        y,
         (r.clamp(0.0, 1.0) * 255).round(),
         (g.clamp(0.0, 1.0) * 255).round(),
         (b.clamp(0.0, 1.0) * 255).round(),

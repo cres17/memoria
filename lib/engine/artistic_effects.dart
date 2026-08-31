@@ -27,42 +27,42 @@ enum ArtisticEffect {
 }
 
 extension ArtisticEffectX on ArtisticEffect {
-  String get label {
+  String get l10nKey {
     switch (this) {
       case ArtisticEffect.none:
-        return '없음';
+        return 'effect.none';
       case ArtisticEffect.grain:
-        return '그레인';
+        return 'effect.grain';
       case ArtisticEffect.grainyFilm:
-        return '거친 필름';
+        return 'effect.grainy_film';
       case ArtisticEffect.vintage:
-        return '빈티지';
+        return 'effect.vintage';
       case ArtisticEffect.retrolux:
-        return '레트로룩스';
+        return 'effect.retrolux';
       case ArtisticEffect.drama1:
-        return '드라마 1';
+        return 'effect.drama_1';
       case ArtisticEffect.drama2:
-        return '드라마 2';
+        return 'effect.drama_2';
       case ArtisticEffect.dramaBright1:
-        return '밝은 드라마 1';
+        return 'effect.drama_bright_1';
       case ArtisticEffect.dramaBright2:
-        return '밝은 드라마 2';
+        return 'effect.drama_bright_2';
       case ArtisticEffect.dramaDark1:
-        return '어두운 드라마 1';
+        return 'effect.drama_dark_1';
       case ArtisticEffect.dramaDark2:
-        return '어두운 드라마 2';
+        return 'effect.drama_dark_2';
       case ArtisticEffect.hdrFine:
-        return '미세 HDR';
+        return 'effect.hdr_fine';
       case ArtisticEffect.hdrNature:
-        return '풍경 HDR';
+        return 'effect.hdr_nature';
       case ArtisticEffect.hdrPeople:
-        return '인물 HDR';
+        return 'effect.hdr_people';
       case ArtisticEffect.hdrStrong:
-        return '강한 HDR';
+        return 'effect.hdr_strong';
       case ArtisticEffect.glamourGlow:
-        return '글래머 글로우';
+        return 'effect.glamour_glow';
       case ArtisticEffect.grunge:
-        return '그란지';
+        return 'effect.grunge';
     }
   }
 }

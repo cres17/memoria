@@ -29,7 +29,8 @@ class GlowPanel extends StatelessWidget {
             min: 0,
             max: 100,
             onChanged: (v) => onChanged(params.copyWith(glowStrength: v)),
-            onChangeEnd: (v) => onChangeEnd?.call(params.copyWith(glowStrength: v)),
+            onChangeEnd: (v) =>
+                onChangeEnd?.call(params.copyWith(glowStrength: v)),
           ),
           _GlowSlider(
             label: S.get('glow.saturation'),
@@ -38,7 +39,8 @@ class GlowPanel extends StatelessWidget {
             min: -100,
             max: 100,
             onChanged: (v) => onChanged(params.copyWith(glowSaturation: v)),
-            onChangeEnd: (v) => onChangeEnd?.call(params.copyWith(glowSaturation: v)),
+            onChangeEnd: (v) =>
+                onChangeEnd?.call(params.copyWith(glowSaturation: v)),
           ),
           _GlowSlider(
             label: S.get('glow.warmth'),
@@ -47,7 +49,8 @@ class GlowPanel extends StatelessWidget {
             min: -100,
             max: 100,
             onChanged: (v) => onChanged(params.copyWith(glowWarmth: v)),
-            onChangeEnd: (v) => onChangeEnd?.call(params.copyWith(glowWarmth: v)),
+            onChangeEnd: (v) =>
+                onChangeEnd?.call(params.copyWith(glowWarmth: v)),
           ),
         ],
       ),
@@ -96,7 +99,7 @@ class _GlowSlider extends StatelessWidget {
                     width: 28,
                     height: 28,
                     decoration: BoxDecoration(
-                      color: _kAccent.withOpacity(0.14),
+                      color: _kAccent.withValues(alpha: 0.14),
                       borderRadius: BorderRadius.circular(7),
                     ),
                     child: Icon(icon, size: 15, color: _kAccent),
@@ -131,9 +134,9 @@ class _GlowSlider extends StatelessWidget {
           SliderTheme(
             data: SliderTheme.of(context).copyWith(
               activeTrackColor: _kAccent,
-              inactiveTrackColor: AppColors.cloudMist.withOpacity(0.55),
+              inactiveTrackColor: AppColors.cloudMist.withValues(alpha: 0.55),
               thumbColor: _kAccent,
-              overlayColor: _kAccent.withOpacity(0.15),
+              overlayColor: _kAccent.withValues(alpha: 0.15),
               trackHeight: 2.5,
               thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
             ),

@@ -55,18 +55,18 @@ const HslMap _kHslZero = {
 };
 
 class AdjustParams {
-  final double exposure;    // -2.0 ~ +2.0
-  final double contrast;    // -100 ~ +100
-  final double saturation;  // -100 ~ +100
+  final double exposure; // -2.0 ~ +2.0
+  final double contrast; // -100 ~ +100
+  final double saturation; // -100 ~ +100
   final double temperature; // -100 ~ +100
-  final double tint;        // -100 ~ +100
-  final double highlights;  // -100 ~ +100
-  final double shadows;     // -100 ~ +100
-  final double sharpen;     // 0 ~ 100
-  final double vignette;    // 0 ~ 100
-  final double structure;   // -100 ~ +100
-  final double clarity;     // -100 ~ +100
-  final double ambiance;    // -100 ~ +100
+  final double tint; // -100 ~ +100
+  final double highlights; // -100 ~ +100
+  final double shadows; // -100 ~ +100
+  final double sharpen; // 0 ~ 100
+  final double vignette; // 0 ~ 100
+  final double structure; // -100 ~ +100
+  final double clarity; // -100 ~ +100
+  final double ambiance; // -100 ~ +100
 
   // Phase 2: Curves
   final CurveData? luminanceCurve;
@@ -345,8 +345,9 @@ class AdjustParams {
         'halationStrength': halationStrength,
         'halationThreshold': halationThreshold,
         'halationWarmth': halationWarmth,
-      }..remove('glowWarmWarm'); // Clean up typo helper if any, wait, let's write it cleanly:
-      // 'glowWarmth': glowWarmth
+      }..remove(
+          'glowWarmWarm'); // Clean up typo helper if any, wait, let's write it cleanly:
+  // 'glowWarmth': glowWarmth
 
   factory AdjustParams.fromJson(Map<String, dynamic> json) {
     HslMap decodedHsl = _kHslZero;
@@ -355,7 +356,8 @@ class AdjustParams {
       final temp = Map<HslBand, HslBandParams>.from(_kHslZero);
       for (final band in HslBand.values) {
         if (map[band.name] != null) {
-          temp[band] = HslBandParams.fromJson(map[band.name] as Map<String, dynamic>);
+          temp[band] =
+              HslBandParams.fromJson(map[band.name] as Map<String, dynamic>);
         }
       }
       decodedHsl = temp;
@@ -418,7 +420,8 @@ class AdjustParams {
       lightLeakAngle: (json['lightLeakAngle'] as num?)?.toDouble() ?? 35.0,
       lightLeakWarmth: (json['lightLeakWarmth'] as num?)?.toDouble() ?? 55.0,
       halationStrength: (json['halationStrength'] as num?)?.toDouble() ?? 0.0,
-      halationThreshold: (json['halationThreshold'] as num?)?.toDouble() ?? 70.0,
+      halationThreshold:
+          (json['halationThreshold'] as num?)?.toDouble() ?? 70.0,
       halationWarmth: (json['halationWarmth'] as num?)?.toDouble() ?? 70.0,
     );
   }

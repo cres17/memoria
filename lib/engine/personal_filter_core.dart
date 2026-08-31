@@ -37,19 +37,21 @@ Future<Map<String, dynamic>> generateLutFromBeforeAfterPair(
   final base = basePath != null
       ? Directory(basePath)
       : await getApplicationDocumentsDirectory();
-  final dir = Directory('${base.path}/filters/$id')..createSync(recursive: true);
+  final dir = Directory('${base.path}/filters/$id')
+    ..createSync(recursive: true);
 
   onProgress?.call('pair_loading', 0.10);
   final before = _decodeImage(beforePath);
   final afterRaw = _decodeImage(afterPath);
-  final after = before.width == afterRaw.width && before.height == afterRaw.height
-      ? afterRaw
-      : img.copyResize(
-          afterRaw,
-          width: before.width,
-          height: before.height,
-          interpolation: img.Interpolation.linear,
-        );
+  final after =
+      before.width == afterRaw.width && before.height == afterRaw.height
+          ? afterRaw
+          : img.copyResize(
+              afterRaw,
+              width: before.width,
+              height: before.height,
+              interpolation: img.Interpolation.linear,
+            );
 
   onProgress?.call('pair_analyze', 0.22);
   final samples = _collectSamples(
@@ -201,7 +203,8 @@ _SampleBatch _collectSamples({
     final ar = afterPixel.rNormalized.toDouble();
     final ag = afterPixel.gNormalized.toDouble();
     final ab = afterPixel.bNormalized.toDouble();
-    final chroma = math.max(br, math.max(bg, bb)) - math.min(br, math.min(bg, bb));
+    final chroma =
+        math.max(br, math.max(bg, bb)) - math.min(br, math.min(bg, bb));
     final weight = 0.65 + 0.35 * chroma;
 
     xs.addAll([br, bg, bb]);
@@ -427,18 +430,22 @@ _ResidualGridFit _fitResidualGrid(
   for (var cell = 0; cell < cellCount; cell++) {
     final weight = math.max(weightGrid[cell], 1e-8);
     final offset = cell * 3;
-    out[offset] = (sumGrid[offset] / weight).clamp(-residualClip, residualClip).toDouble();
-    out[offset + 1] =
-        (sumGrid[offset + 1] / weight).clamp(-residualClip, residualClip).toDouble();
-    out[offset + 2] =
-        (sumGrid[offset + 2] / weight).clamp(-residualClip, residualClip).toDouble();
+    out[offset] = (sumGrid[offset] / weight)
+        .clamp(-residualClip, residualClip)
+        .toDouble();
+    out[offset + 1] = (sumGrid[offset + 1] / weight)
+        .clamp(-residualClip, residualClip)
+        .toDouble();
+    out[offset + 2] = (sumGrid[offset + 2] / weight)
+        .clamp(-residualClip, residualClip)
+        .toDouble();
   }
 
   final coverage = weightGrid.where((value) => value > 0).length / cellCount;
   final meanSamplesPerCell =
       weightGrid.fold<double>(0.0, (sum, value) => sum + value) / cellCount;
-  final maxSamplesPerCell =
-      weightGrid.fold<double>(0.0, (current, value) => math.max(current, value));
+  final maxSamplesPerCell = weightGrid.fold<double>(
+      0.0, (current, value) => math.max(current, value));
 
   return _ResidualGridFit(
     values: out,
@@ -564,9 +571,11 @@ Float32List _buildLut(
   return out;
 }
 
-RgbColor _sampleResidual(Float32List residualGrid, int residualDim, RgbColor rgb) {
+RgbColor _sampleResidual(
+    Float32List residualGrid, int residualDim, RgbColor rgb) {
   final coords = [rgb.b, rgb.g, rgb.r];
-  final scaled = coords.map((c) => c.clamp(0.0, 1.0) * (residualDim - 1)).toList();
+  final scaled =
+      coords.map((c) => c.clamp(0.0, 1.0) * (residualDim - 1)).toList();
   final base = scaled.map((value) => value.floor()).toList();
   final frac = [
     scaled[0] - base[0],
@@ -677,8 +686,7 @@ Map<String, dynamic> _evaluateFit(
     'affineMAE': affineAbs / denom,
     'lutRMSE': math.sqrt(lutSq / denom),
     'lutMAE': lutAbs / denom,
-    'rmseImprovement':
-        math.sqrt(affineSq / denom) - math.sqrt(lutSq / denom),
+    'rmseImprovement': math.sqrt(affineSq / denom) - math.sqrt(lutSq / denom),
   };
 }
 

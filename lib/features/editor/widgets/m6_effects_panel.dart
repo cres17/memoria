@@ -166,7 +166,7 @@ class _M6Slider extends StatelessWidget {
                     width: 28,
                     height: 28,
                     decoration: BoxDecoration(
-                      color: _accent.withOpacity(0.14),
+                      color: _accent.withValues(alpha: 0.14),
                       borderRadius: BorderRadius.circular(7),
                     ),
                     child: Icon(spec.icon, size: 15, color: _accent),
@@ -197,9 +197,9 @@ class _M6Slider extends StatelessWidget {
           SliderTheme(
             data: SliderTheme.of(context).copyWith(
               activeTrackColor: _accent,
-              inactiveTrackColor: AppColors.cloudMist.withOpacity(0.55),
+              inactiveTrackColor: AppColors.cloudMist.withValues(alpha: 0.55),
               thumbColor: _accent,
-              overlayColor: _accent.withOpacity(0.15),
+              overlayColor: _accent.withValues(alpha: 0.15),
               trackHeight: 2.5,
               thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
             ),

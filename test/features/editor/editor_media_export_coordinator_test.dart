@@ -45,6 +45,73 @@ void main() {
     expect(await File(savedPath!).exists(), isFalse);
   });
 
+  test('requests gallery write access only when publishing a saved export',
+      () async {
+    final directory = await Directory.systemTemp.createTemp('memoria_media_');
+    addTearDown(() => directory.delete(recursive: true));
+    var permissionChecks = 0;
+    var saveCalls = 0;
+    final coordinator = EditorMediaExportCoordinator(
+      isIos: () => true,
+      supportsWebp: () async => false,
+      temporaryDirectory: () async => directory,
+      loadSettings: (_) async =>
+          const ExportSettings(format: ExportFormat.jpeg, quality: 91),
+      render: _writeValidOutput,
+      ensureGalleryWriteAccess: () async {
+        permissionChecks++;
+        return true;
+      },
+      saveToGallery: (_) async => saveCalls++,
+      share: (_) async {},
+    );
+
+    await coordinator.export(
+      share: false,
+      buildRequest: _requestFor,
+      onProgress: (_) {},
+    );
+
+    expect(permissionChecks, 1);
+    expect(saveCalls, 1);
+  });
+
+  test('does not publish and returns a typed failure when add-only is denied',
+      () async {
+    final directory = await Directory.systemTemp.createTemp('memoria_media_');
+    addTearDown(() => directory.delete(recursive: true));
+    var saved = false;
+    final coordinator = EditorMediaExportCoordinator(
+      isIos: () => true,
+      supportsWebp: () async => false,
+      temporaryDirectory: () async => directory,
+      loadSettings: (_) async =>
+          const ExportSettings(format: ExportFormat.jpeg, quality: 91),
+      render: _writeValidOutput,
+      ensureGalleryWriteAccess: () async => false,
+      saveToGallery: (_) async => saved = true,
+      share: (_) async {},
+    );
+
+    await expectLater(
+      () => coordinator.export(
+        share: false,
+        buildRequest: _requestFor,
+        onProgress: (_) {},
+      ),
+      throwsA(
+        isA<EditorExportFailure>().having(
+          (failure) => failure.kind,
+          'kind',
+          EditorExportFailureKind.permissionDenied,
+        ),
+      ),
+    );
+
+    expect(saved, isFalse);
+    expect(await directory.list().toList(), isEmpty);
+  });
+
   test('normalizes a persisted WebP preference when native support is absent',
       () async {
     final directory = await Directory.systemTemp.createTemp('memoria_webp_');
