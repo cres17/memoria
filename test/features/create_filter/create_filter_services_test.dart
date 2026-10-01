@@ -10,6 +10,8 @@ import 'package:memoria/domain/repositories/filter_repository.dart';
 import 'package:memoria/features/create_filter/create_filter_services.dart';
 import 'package:memoria/engine/reference_coverage_router.dart';
 
+import '../../support/reference_coverage_fixtures.dart';
+
 void main() {
   late Directory tempDirectory;
 
@@ -228,12 +230,11 @@ void main() {
     final generator = IsolateCreateFilterGenerator(
       timeout: const Duration(seconds: 5),
     );
-    const reference =
-        'ml_pipeline/data/dataset_external_monochrome_calibration_001/graded/mono_000000.jpg';
+    final reference = await writeCoverageFixture(tempDirectory, 'monochrome');
 
     await expectLater(
       generator.generateStyle(
-        const [reference],
+        [reference],
         basePath: tempDirectory.path,
         onProgress: (_, __) {},
       ),
