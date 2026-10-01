@@ -59,6 +59,14 @@ jobs:
       - name: Test release signing configuration
         run: python3 -m unittest discover -s tool -p 'test_install_ios_provisioning_profile.py'
 
+      - name: Prepare pinned macOS inference test runtime
+        run: |
+          set -euo pipefail
+          dart pub cache add flutter_litert --version 3.8.0
+          TEST_TFLITE_LIB_PATH="${PUB_CACHE:-$HOME/.pub-cache}/hosted/pub.dev/flutter_litert-3.8.0/macos/flutter_litert/Sources/flutter_litert/Resources/libtensorflowlite_c-mac.dylib"
+          printf '%s  %s\n' '6c574eb78a2eb814c6176d0a56967d2240e25706f732a04ad28f27020bb71a4f' "$TEST_TFLITE_LIB_PATH" | shasum -a 256 -c -
+          echo "TFLITE_LIB_PATH=$TEST_TFLITE_LIB_PATH" >> "$GITHUB_ENV"
+
       - name: Run unit and widget tests
         run: flutter test --coverage --reporter compact
 
