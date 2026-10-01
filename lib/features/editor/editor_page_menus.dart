@@ -558,6 +558,7 @@ extension _EditorPageMenus on _EditorPageState {
           ),
           const SizedBox(height: 12),
           _buildExportTile(
+            key: _shareButtonKey,
             title: S.get('editor.share'),
             subtitle: S.get('editor.share_sub'),
             icon: Icons.share_rounded,
@@ -624,12 +625,14 @@ extension _EditorPageMenus on _EditorPageState {
   }
 
   Widget _buildExportTile({
+    Key? key,
     required String title,
     required String subtitle,
     required IconData icon,
     required VoidCallback onTap,
   }) {
     return InkWell(
+      key: key,
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
       child: Container(

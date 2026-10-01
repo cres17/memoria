@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:image/image.dart' as img;
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter_litert/native.dart';
 
 // ─── Result types ─────────────────────────────────────────────────────────────
@@ -17,12 +18,18 @@ class SegmentMask {
 
   /// Resize mask to [targetW × targetH] via bilinear.
   SegmentMask resize(int targetW, int targetH) {
+    if (targetW <= 0 || targetH <= 0) {
+      throw ArgumentError('Mask target dimensions must be positive');
+    }
     if (targetW == width && targetH == height) return this;
     final out = Float32List(targetW * targetH);
     for (int ty = 0; ty < targetH; ty++) {
       for (int tx = 0; tx < targetW; tx++) {
-        final sx = tx * (width - 1) / (targetW - 1);
-        final sy = ty * (height - 1) / (targetH - 1);
+        // A one-pixel axis samples the source center instead of dividing by 0.
+        final sx =
+            targetW == 1 ? (width - 1) / 2 : tx * (width - 1) / (targetW - 1);
+        final sy =
+            targetH == 1 ? (height - 1) / 2 : ty * (height - 1) / (targetH - 1);
         final x0 = sx.floor();
         final x1 = (x0 + 1).clamp(0, width - 1);
         final y0 = sy.floor();
@@ -110,8 +117,26 @@ class SelfieSegmenter {
 
   static Future<SelfieSegmenter> load(String modelPath) async {
     final options = InterpreterOptions()..threads = 2;
-    final interp = Interpreter.fromFile(File(modelPath), options: options);
-    return SelfieSegmenter._(interp);
+    try {
+      options.addMediaPipeCustomOps();
+      final interp = Interpreter.fromFile(File(modelPath), options: options);
+      try {
+        final input = interp.getInputTensor(0);
+        final output = interp.getOutputTensor(0);
+        if (input.type != TensorType.float32 ||
+            output.type != TensorType.float32 ||
+            !listEquals(input.shape, [1, _inH, _inW, 3]) ||
+            !listEquals(output.shape, [1, _inH, _inW, 1])) {
+          throw StateError('Unsupported selfie segmentation tensor contract');
+        }
+        return SelfieSegmenter._(interp);
+      } catch (_) {
+        interp.close();
+        rethrow;
+      }
+    } finally {
+      options.delete();
+    }
   }
 
   /// Returns a subject probability mask (0 = background, 1 = subject).
@@ -145,12 +170,13 @@ class SelfieSegmenter {
 
     _interpreter.run(input, output);
 
-    // Flatten to Float32List and sigmoid
+    // The model already emits probabilities. A second sigmoid would turn
+    // background values near zero into a mask near 0.5.
     final flat = Float32List(_inW * _inH);
     for (int y = 0; y < _inH; y++) {
       for (int x = 0; x < _inW; x++) {
         final raw = output[0][y][x][0];
-        flat[y * _inW + x] = _sigmoid(raw);
+        flat[y * _inW + x] = raw.clamp(0.0, 1.0).toDouble();
       }
     }
 
@@ -159,21 +185,4 @@ class SelfieSegmenter {
   }
 
   void dispose() => _interpreter.close();
-
-  static double _sigmoid(double x) => 1.0 / (1.0 + _safeExp(-x));
-  static double _safeExp(double x) {
-    if (x > 88) return double.maxFinite;
-    if (x < -88) return 0.0;
-    return _expApprox(x);
-  }
-
-  static double _expApprox(double x) {
-    // Reasonable approximation for sigmoid range
-    double r = 1, term = 1;
-    for (int i = 1; i <= 5; i++) {
-      term *= x / i;
-      r += term;
-    }
-    return r.clamp(0.0, double.maxFinite);
-  }
 }

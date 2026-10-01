@@ -16,7 +16,7 @@ jobs:
         with:
           fetch-depth: 0
           lfs: true
-          persist-credentials: true
+          persist-credentials: false
           submodules: false
 
       - name: Ensure Git LFS and full history
@@ -44,8 +44,12 @@ jobs:
       - name: Install locked dependencies
         run: flutter pub get --enforce-lockfile
 
+      - name: Verify required runtime assets
+        run: flutter test --no-pub test/runtime_assets_test.dart --reporter expanded
+
       - name: Analyze and test release source
         run: |
+          python3 -m unittest discover -s tool -p 'test_install_ios_provisioning_profile.py'
           flutter analyze --no-fatal-infos
           flutter test --reporter compact
 
@@ -74,29 +78,18 @@ jobs:
           esac
           exit "$missing"
 
-      - name: Import signing identities and provisioning profiles
-        uses: apple-actions/import-codesign@v1
+      - name: Import signing identities
+        uses: apple-actions/import-codesign-certs@5142e029c445c10ffc7149d172e540235a065466 # v7
         with:
-          p12: ${{ secrets.IOS_CERT_P12 }}
+          p12-file-base64: ${{ secrets.IOS_CERT_P12 }}
           p12-password: ${{ secrets.IOS_CERT_PASSWORD }}
-          mobileprovision: ${{ secrets.IOS_PROVISIONING_PROFILE }}
 
-      - name: Create exportOptions.plist
+      - name: Install profile and configure Runner release signing
+        env:
+          IOS_PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
         run: |
-          cat > exportOptions.plist <<'PL'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>method</key>
-            <string>app-store</string>
-            <key>uploadSymbols</key>
-            <true/>
-            <key>compileBitcode</key>
-            <true/>
-          </dict>
-          </plist>
-          PL
+          set -euo pipefail
+          python3 tool/install_ios_provisioning_profile.py
 
       - name: Check Flutter environment
         run: flutter doctor -v
@@ -115,6 +108,7 @@ jobs:
           path: build/ios/ipa
 
       - name: Upload build logs
+        if: ${{ always() && hashFiles('build_ipa_verbose.log') != '' }}
         uses: actions/upload-artifact@v4
         with:
           name: memoria-ipa-logs

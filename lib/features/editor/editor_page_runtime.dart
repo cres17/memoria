@@ -877,6 +877,11 @@ extension _EditorRuntimeActions on _EditorPageState {
     try {
       final result = await _mediaExportCoordinator.export(
         share: share,
+        shareOrigin: () {
+          final box = _shareButtonKey.currentContext?.findRenderObject();
+          if (box is! RenderBox || !box.attached || !box.hasSize) return null;
+          return box.localToGlobal(Offset.zero) & box.size;
+        },
         buildRequest: _buildExportRequest,
         onProgress: (progress) {
           if (mounted) _mutate(() => _exportProgress = progress);

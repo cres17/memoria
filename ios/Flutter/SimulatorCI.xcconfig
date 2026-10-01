@@ -1,0 +1,5 @@
+// Apply to simulator validation via XCODE_XCCONFIG_FILE so SwiftPM products
+// inherit the same architecture and iOS 15 minimum as Runner.
+ARCHS[sdk=iphonesimulator*] = arm64
+EXCLUDED_ARCHS[sdk=iphonesimulator*] = i386 x86_64
+IPHONEOS_DEPLOYMENT_TARGET[sdk=iphonesimulator*] = 15.0

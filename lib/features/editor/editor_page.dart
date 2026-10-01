@@ -299,6 +299,7 @@ class _EditorPageState extends State<EditorPage> {
 
   final EditorMediaExportCoordinator _mediaExportCoordinator =
       EditorMediaExportCoordinator();
+  final GlobalKey _shareButtonKey = GlobalKey();
   double _textGestureStartSize = 32.0;
   double _textGestureStartRotation = 0.0;
 
