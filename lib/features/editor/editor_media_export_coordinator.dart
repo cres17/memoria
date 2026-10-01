@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' show Rect;
 
 import 'package:gal/gal.dart';
 import 'package:memoria/core/error/error_handler.dart';
@@ -82,7 +83,7 @@ class EditorMediaExportCoordinator {
   final Future<Directory> Function() _temporaryDirectory;
   final Future<void> Function(String path) _saveToGallery;
   final Future<bool> Function() _ensureGalleryWriteAccess;
-  final Future<void> Function(String path) _share;
+  final Future<void> Function(String path, {Rect? sharePositionOrigin}) _share;
   final void Function(String path) _scheduleSharedCleanup;
 
   bool _exporting = false;
@@ -115,10 +116,14 @@ class EditorMediaExportCoordinator {
             (saveToGallery == null
                 ? MediaPermissionService.ensurePhotoLibraryWriteAccess
                 : () async => true),
-        _share = share ??
-            ((path) async {
-              await Share.shareXFiles([XFile(path)]);
-            }),
+        _share = share != null
+            ? ((path, {sharePositionOrigin}) => share(path))
+            : ((path, {sharePositionOrigin}) async {
+                await Share.shareXFiles(
+                  [XFile(path)],
+                  sharePositionOrigin: sharePositionOrigin,
+                );
+              }),
         _scheduleSharedCleanup =
             scheduleSharedCleanup ?? _scheduleDefaultSharedCleanup {
     _exportService = exportService ?? EditorExportService();
@@ -129,6 +134,7 @@ class EditorMediaExportCoordinator {
 
   Future<EditorMediaExportResult> export({
     required bool share,
+    Rect? Function()? shareOrigin,
     required EditorExportRequestBuilder buildRequest,
     required void Function(double progress) onProgress,
     void Function(int maxDimension)? onRetryAtLowerResolution,
@@ -192,7 +198,7 @@ class EditorMediaExportCoordinator {
           await _validateOutput(finalPath, format);
 
           if (share) {
-            await _share(finalPath);
+            await _share(finalPath, sharePositionOrigin: shareOrigin?.call());
             preserveFinalFile = true;
             _scheduleSharedCleanup(finalPath);
           } else {

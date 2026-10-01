@@ -29,10 +29,10 @@ class AiModelInfo {
 const kModelSelfie = AiModelInfo(
   key: 'selfie_segmenter',
   url: 'https://storage.googleapis.com/mediapipe-models/'
-      'image_segmenter/selfie_segmenter/float16/latest/'
-      'selfie_segmenter.tflite',
-  sha256: '',
-  sizeBytes: 614000,
+      'image_segmenter/selfie_segmenter_landscape/float16/1/'
+      'selfie_segmenter_landscape.tflite',
+  sha256: '490e9ea734313e0de10fa0cd9e3c6133e36ea4db2b7a49bde9ef019f72796b8e',
+  sizeBytes: 250177,
 );
 
 const kColorTransferModelId =
@@ -72,8 +72,26 @@ class ModelState {
 // ─── Manager ─────────────────────────────────────────────────────────────────
 
 class AiManager extends ChangeNotifier {
-  AiManager._();
+  AiManager._({
+    http.Client Function()? clientFactory,
+    Duration downloadTimeout = const Duration(seconds: 30),
+  })  : _clientFactory = clientFactory ?? http.Client.new,
+        _downloadTimeout = downloadTimeout;
+
+  @visibleForTesting
+  factory AiManager.forTesting({
+    required http.Client Function() clientFactory,
+    Duration downloadTimeout = const Duration(seconds: 30),
+  }) =>
+      AiManager._(
+        clientFactory: clientFactory,
+        downloadTimeout: downloadTimeout,
+      );
+
   static final AiManager instance = AiManager._();
+
+  final http.Client Function() _clientFactory;
+  final Duration _downloadTimeout;
 
   final _states = <String, ModelState>{};
   final _paths = <String, String>{};
@@ -171,13 +189,16 @@ class AiManager extends ChangeNotifier {
   }
 
   Future<void> _verifyFile(AiModelInfo info, File file) async {
+    if (await file.length() == 0) {
+      throw StateError('${info.key}: model file is empty');
+    }
     if (info.sizeBytes > 0 && await file.length() != info.sizeBytes) {
-      throw StateError('${info.key}: bundled model size mismatch');
+      throw StateError('${info.key}: model size mismatch');
     }
     if (info.sha256.isNotEmpty) {
       final hash = (await sha256.bind(file.openRead()).first).toString();
       if (hash != info.sha256) {
-        throw StateError('${info.key}: bundled model SHA-256 mismatch');
+        throw StateError('${info.key}: model SHA-256 mismatch');
       }
     }
   }
@@ -204,16 +225,11 @@ class AiManager extends ChangeNotifier {
     final p = await _modelPath(info);
     final f = File(p);
     if (!await f.exists()) return null;
-    if (info.sizeBytes > 0 && await f.length() != info.sizeBytes) {
+    try {
+      await _verifyFile(info, f);
+    } on StateError {
       await f.delete();
       return null;
-    }
-    if (info.sha256.isNotEmpty) {
-      final hash = (await sha256.bind(f.openRead()).first).toString();
-      if (hash != info.sha256) {
-        await f.delete();
-        return null;
-      }
     }
     return p;
   }
@@ -222,28 +238,48 @@ class AiManager extends ChangeNotifier {
     _setState(info.key,
         const ModelState(status: ModelStatus.downloading, progress: 0));
 
+    http.Client? client;
+    File? temporary;
     try {
       final dest = await _modelPath(info);
       await File(dest).parent.create(recursive: true);
 
-      final client = http.Client();
+      client = _clientFactory();
       final req = http.Request('GET', Uri.parse(info.url));
-      final resp = await client.send(req);
+      final resp = await client.send(req).timeout(_downloadTimeout);
+      if (resp.statusCode != HttpStatus.ok) {
+        throw StateError('${info.key}: model download HTTP ${resp.statusCode}');
+      }
 
       final total = resp.contentLength ?? info.sizeBytes;
       int received = 0;
-      final sink = File(dest).openWrite();
-
-      await for (final chunk in resp.stream) {
-        sink.add(chunk);
-        received += chunk.length;
-        final progress = total > 0 ? received / total : 0.0;
-        _setState(info.key,
-            ModelState(status: ModelStatus.downloading, progress: progress));
+      temporary = File('$dest.downloading');
+      final sink = temporary.openWrite();
+      try {
+        await sink.addStream(resp.stream.timeout(_downloadTimeout).map((chunk) {
+          received += chunk.length;
+          final progress =
+              total > 0 ? (received / total).clamp(0.0, 1.0).toDouble() : 0.0;
+          _setState(info.key,
+              ModelState(status: ModelStatus.downloading, progress: progress));
+          return chunk;
+        }));
+        await sink.flush();
+      } catch (_) {
+        // addStream may already have closed the sink on a transport failure.
+        // Preserve that failure instead of replacing it with "File closed".
+        try {
+          await sink.close();
+        } catch (_) {}
+        rethrow;
       }
-
       await sink.close();
-      client.close();
+
+      if (resp.contentLength != null && received != resp.contentLength) {
+        throw StateError('${info.key}: model download length mismatch');
+      }
+      await _verifyFile(info, temporary);
+      await temporary.rename(dest);
 
       _paths[info.key] = dest;
       _setState(
@@ -253,6 +289,11 @@ class AiManager extends ChangeNotifier {
       _setState(
           info.key, ModelState(status: ModelStatus.error, error: e.toString()));
       rethrow;
+    } finally {
+      client?.close();
+      if (temporary != null && await temporary.exists()) {
+        await temporary.delete();
+      }
     }
   }
 

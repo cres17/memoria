@@ -51,13 +51,13 @@ jobs:
         run: flutter pub get --enforce-lockfile
 
       - name: Verify required runtime assets
-        run: |
-          test -s assets/models/direct_mvp_color_transfer_fp16.tflite
-          test "$(find assets/luts -name '*.bin' -type f | wc -l | tr -d ' ')" -ge 23
-          test "$(find assets/images -name '*_thumb.jpg' -type f | wc -l | tr -d ' ')" -ge 24
+        run: flutter test --no-pub test/runtime_assets_test.dart --reporter expanded
 
       - name: Analyze production and tests
         run: flutter analyze --no-fatal-infos
+
+      - name: Test release signing configuration
+        run: python3 -m unittest discover -s tool -p 'test_install_ios_provisioning_profile.py'
 
       - name: Run unit and widget tests
         run: flutter test --coverage --reporter compact
@@ -72,6 +72,8 @@ jobs:
         run: flutter doctor -v
 
       - name: Build iOS simulator smoke app
+        env:
+          XCODE_XCCONFIG_FILE: ${{ github.workspace }}/ios/Flutter/SimulatorCI.xcconfig
         run: flutter build ios --simulator --debug
 
       - name: Boot iOS simulator
@@ -82,11 +84,18 @@ jobs:
           xcrun simctl bootstatus "$IOS_SIMULATOR_ID" -b
           echo "IOS_SIMULATOR_ID=$IOS_SIMULATOR_ID" >> "$GITHUB_ENV"
 
-      - name: Run iOS integration tests
-        run: >-
-          flutter test integration_test
-          --device-id "$IOS_SIMULATOR_ID"
-          --reporter compact
+      # Keep physical-device benchmarks and permission matrices out of this
+      # deterministic simulator gate. Those suites require explicit device and
+      # authorization-state inputs and publish separate evidence artifacts.
+      - name: Run iOS simulator integration tests
+        env:
+          XCODE_XCCONFIG_FILE: ${{ github.workspace }}/ios/Flutter/SimulatorCI.xcconfig
+        run: |
+          set -euo pipefail
+          flutter test integration_test/settings_recovery_ui_test.dart --device-id "$IOS_SIMULATOR_ID" --reporter compact
+          flutter test integration_test/editor_whitebox_device_test.dart --device-id "$IOS_SIMULATOR_ID" --reporter compact
+          flutter test integration_test/editor_performance_test.dart --device-id "$IOS_SIMULATOR_ID" --reporter compact
+          flutter test integration_test/ios_native_webp_test.dart --device-id "$IOS_SIMULATOR_ID" --reporter compact
 
       - name: Build unsigned iOS release (no codesign)
         run: |

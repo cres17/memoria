@@ -45,6 +45,9 @@ jobs:
       - name: Install locked dependencies
         run: flutter pub get --enforce-lockfile
 
+      - name: Verify required runtime assets
+        run: flutter test --no-pub test/runtime_assets_test.dart --reporter expanded
+
       - name: Check Flutter environment
         run: flutter doctor -v
 

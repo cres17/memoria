@@ -102,7 +102,7 @@
 
 ### 3.5 메모리·지원 범위: 보류
 
-현재 iOS deployment target은 13.0이고 Android minSdk는 24다. 이 범위를 그대로 공개하면 2GB급 구형 iPhone과 저메모리 Android도 지원 주장에 포함될 수 있다. 이 기기군을 시험할 수 없다면 최소 OS 또는 지원 기기 정책을 현실적으로 올려야 한다.
+2026-10-01 코드 리뷰 수정에서 Xcode 27 빌드 지원 범위에 맞춰 iOS deployment target을 15.0으로 올렸다. Android minSdk는 24다. 최소 OS 상향만으로 2GB급 iPhone과 저메모리 Android의 메모리·내보내기 안전성이 검증되지는 않으므로 해당 기기군의 실기기 검증은 여전히 필요하다.
 
 현재 unsigned iPhoneOS 앱 디렉터리는 약 `147 MiB`, asset은 약 `92 MiB`이며 이 중 LUT가 약 `47 MiB`, 모델이 약 `35 MiB`다. 설치 크기와 실행 중 peak RSS는 다른 지표이므로 용량만으로 메모리 안전성을 추론하지 않는다.
 
@@ -137,7 +137,7 @@
 
 | 계층 | 필수 기기 조건 | 목적 |
 | --- | --- | --- |
-| 최소 지원 | iOS 13 지원 범위의 2GB급 기기 또는 지원 최소 버전 상향 후 새 최소 기기 | jetsam·최초 모델 준비·12MP export |
+| 최소 지원 | iOS 15 지원 범위의 2GB급 기기 | jetsam·최초 모델 준비·12MP export |
 | 대표 | 4GB RAM급 iPhone, 현재 사용자층의 일반 OS | 일반 성능·Photos·iCloud·limited access |
 | 최신 | 최신 iOS의 현행 iPhone | 최신 PhotoKit·share sheet·회귀 확인 |
 
@@ -502,7 +502,7 @@ build/validation/<commit>/<device>/<run-id>/
 
 ## 15. 추가로 답해야 할 질문
 
-- iOS 13과 Android API 24 지원을 실제로 유지할 제품 이유와 검증 기기가 있는가.
+- iOS 15와 Android API 24 지원 범위의 최소 사양 검증 기기가 있는가.
 - 24MP에서 메모리 fallback이 발생할 때 원본 해상도 보존과 빠른 완료 중 어느 쪽을 우선할 것인가.
 - Display P3·HDR 입력을 v1에서 지원할지, SDR sRGB로 명시적으로 제한할지.
 - 실제 카메라 사진 일반화 표본에서 허용할 코호트별 ΔE2000 상한을 어떤 제품 수준으로 고정할 것인가.

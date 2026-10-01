@@ -17,6 +17,8 @@ Memoria가 하려는 일은 단순합니다. 사진에 필터를 한 번 씌우�
 
 현재 release 후보는 iOS를 기준으로 검증합니다. Android 프로젝트도 함께 들어 있지만, 스토어 제출 전에는 Android signing·실기기 export도 별도로 통과해야 합니다. 릴리스 상태와 남은 외부 설정은 [`architecture-connectivity-code-quality-review.md`](docs/architecture-connectivity-code-quality-review.md)에서 관리합니다.
 
+iOS 최소 지원 버전은 **15.0**입니다. Xcode 27 빌드 지원 범위에 맞춰 조정했으며 iOS 13·14는 지원 대상에서 제외했습니다. 최소 사양 실기기의 메모리·내보내기 검증은 별도로 필요합니다.
+
 ## 앱을 켜면 이렇게 흘러갑니다
 
 ```mermaid
