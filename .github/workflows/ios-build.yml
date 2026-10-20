@@ -37,7 +37,8 @@ jobs:
           flutter-version: '3.44.6'
           channel: stable
           cache: true
-          architecture: 'x64'
+          # Run natively on Apple Silicon instead of using Rosetta.
+          architecture: 'arm64'
 
       - name: Check installed Flutter/Dart
         run: |
