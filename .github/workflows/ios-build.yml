@@ -4,9 +4,9 @@ env:
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, test/color-v3-fallback-routing ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, test/color-v3-fallback-routing ]
   workflow_dispatch:
 
 jobs:
