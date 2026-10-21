@@ -62,9 +62,9 @@ Flutter 오류와 플랫폼 오류는 [`ErrorLogger`](lib/core/error/error_handl
 
 체크를 누를 때 만들어지는 [`EditOperation`](lib/domain/models/edit_operation.dart)은 단순히 “밝기 도구를 썼다”는 기록이 아닙니다. 그 시점의 보정값, 필터와 강도, 커브, 크롭·회전·반전, 인물 보정, 텍스트·프레임, 부분 보정 좌표, 브러시 stroke와 블러 상태를 schema v2 snapshot으로 가집니다.
 
-[`EditSession`](lib/domain/models/edit_session.dart)은 operation 목록과 `undoCursor`를 보관합니다. 실행 취소는 목록을 지우는 대신 cursor를 한 칸 뒤로 옮기고, 다시 실행은 앞으로 옮깁니다. 실행 취소 후 새 작업을 적용하면 그 뒤에 있던 redo 구간만 잘라냅니다. operation은 한 사진당 최대 100개를 유지합니다.
+[`EditorHistoryController`](lib/features/editor/editor_history_controller.dart)가 확정한 operation 목록과 cursor를 보관합니다. draft 직렬화에서는 cursor를 `undoCursor` 키로 기록합니다. 실행 취소는 목록을 지우는 대신 cursor를 한 칸 뒤로 옮기고, 다시 실행은 앞으로 옮깁니다. 실행 취소 후 새 작업을 적용하면 그 뒤에 있던 redo 구간만 잘라냅니다. operation은 한 사진당 최대 100개를 유지합니다.
 
-편집 중 앱을 닫아도 돌아올 수 있도록 현재 session과 화면 상태는 500ms debounce 후 `SharedPreferences`에 draft로 저장됩니다. draft에는 선택한 필터뿐 아니라 크롭 영역, 캔버스 확장, 브러시 stroke와 로컬 효과도 포함됩니다.
+편집 중 앱을 닫아도 돌아올 수 있도록 편집 기록과 화면 상태는 500ms debounce 후 [`EditorDraftStore`](lib/features/editor/editor_draft_store.dart)를 통해 `SharedPreferences`에 저장됩니다. 화면은 draft 내용을 구성하고, 저장소는 사진 경로별 키·호환성 확인·읽기와 쓰기를 담당합니다. draft에는 선택한 필터뿐 아니라 크롭 영역, 캔버스 확장, 브러시 stroke와 로컬 효과도 포함됩니다.
 
 ### 5. GALLERY는 사진첩이 아니라 필터 보관함입니다
 
@@ -74,7 +74,7 @@ Flutter 오류와 플랫폼 오류는 [`ErrorLogger`](lib/core/error/error_handl
 
 ## 사진 한 장은 내부에서 어떻게 처리되나요?
 
-편집 화면에는 속도가 필요한 미리보기와 품질이 필요한 내보내기라는 두 경로가 있습니다. 둘은 같은 보정 파라미터와 같은 엔진 함수를 사용하지만, 현재 구현상 하나의 renderer 클래스가 두 경로를 모두 지휘하는 구조는 아닙니다.
+편집 화면에는 속도가 필요한 미리보기와 품질이 필요한 내보내기라는 두 경로가 있습니다. 두 경로는 같은 불변 `EditorRenderRecipe`를 입력으로 사용하고 [`EditorRenderer`](lib/features/editor/editor_renderer.dart)의 preview/export 진입점으로 연결됩니다. 화면은 미리보기 요청을 조정하고, 내보내기의 worker 실행·종료 처리는 별도 서비스가 담당합니다.
 
 ```mermaid
 flowchart TD
@@ -83,7 +83,7 @@ flowchart TD
     PreviewBase --> PreviewCache{같은 상태가<br/>캐시에 있나?}
     PreviewCache -->|있음| Screen[화면 표시]
     PreviewCache -->|없음| PreviewWorker[preview isolate]
-    PreviewWorker --> Pipeline[공통 이미지 엔진 함수]
+    PreviewWorker --> Pipeline[EditorRenderer와 이미지 엔진]
     Pipeline --> Screen
 
     Decode --> ExportWorker[full-resolution export isolate]
@@ -96,7 +96,7 @@ flowchart TD
 
     ToolState[EditorPage 현재 상태] --> PreviewWorker
     ToolState --> ExportWorker
-    ToolState --> History[EditSession history/draft]
+    ToolState --> History[HistoryController와 DraftStore]
 ```
 
 ### 미리보기 경로
@@ -109,7 +109,7 @@ flowchart TD
 
 ### 내보내기 경로
 
-저장할 때는 720px preview를 키우지 않고 원본 파일을 다시 decode합니다. [`_exportWorker`](lib/features/editor/editor_page.dart)가 crop/expand → rotate/flip/perspective → LUT와 색 보정 → 로컬·블러 → 인물 → creative overlay 순으로 전체 해상도에 적용합니다.
+저장할 때는 720px preview를 키우지 않고 원본 파일을 다시 decode합니다. [`EditorExportService`](lib/features/editor/editor_export_service.dart)의 worker가 `EditorRenderer.renderExport`를 호출해 crop/expand → rotate/flip/perspective → LUT와 색 보정 → 로컬·블러 → 인물 → creative overlay 순으로 전체 해상도에 적용합니다.
 
 JPEG·PNG·TIFF는 [`ExportEncoder`](lib/engine/export_encoder.dart)가 worker 안에서 바로 만듭니다. iOS WebP는 worker에서 손실 없는 중간 PNG를 만든 다음 [`EngineChannel`](lib/engine/engine_channel.dart)을 통해 [`LutEnginePlugin.swift`](ios/Runner/LutEnginePlugin.swift)의 ImageIO bridge에서 변환합니다. worker는 플랫폼 채널을 직접 호출할 수 없기 때문에 이 단계만 main isolate로 돌아옵니다.
 
@@ -159,12 +159,12 @@ lib/
 ├── core/                        route, shell, 언어, 테마, 권한·내보내기 설정
 ├── features/
 │   ├── home/                    사진 선택과 시작 화면
-│   ├── editor/                  편집 transaction, preview/export orchestration
+│   ├── editor/                  편집 화면, renderer, history/draft, export 서비스
 │   ├── create_filter/           필터 제작 UI와 worker/commit 서비스
 │   ├── filters/                 내장·사용자 필터 보관함
 │   └── settings/                내보내기와 앱 설정
 ├── domain/
-│   ├── models/                  EditSession, EditOperation, FilterRecipe
+│   ├── models/                  EditOperation, FilterRecipe
 │   └── repositories/            저장 방식과 무관한 repository 계약
 ├── data/repositories/           JSON 파일·SharedPreferences 저장 구현
 ├── engine/                      LUT, 색, crop, local, blur, portrait, export
@@ -188,20 +188,22 @@ integration_test/                실제 EditorPage 화이트박스·성능 시�
 - `ai`는 모델 파일의 생명주기와 tensor 입출력을 감쌉니다. UI는 interpreter shape를 직접 알 필요가 없습니다.
 - iOS native 코드는 플랫폼에서만 가능한 변환과 Core Image 실험 경계를 담당합니다.
 
-## 지금 구조를 솔직히 말하면
+## 현재 편집기 구조
 
-엔진과 도메인 모델은 꽤 잘 분리되어 있지만 편집 화면의 orchestration은 아직 큽니다. [`EditorPage`](lib/features/editor/editor_page.dart)가 약 8천 줄이고 도구 상태, transaction, draft, preview, export와 일부 파일 I/O를 한 `State`에서 조정합니다. 새 기능을 연결하기는 빠르지만, 한 상태를 빠뜨렸을 때 preview·history·export 중 하나만 다르게 움직일 위험이 있습니다.
+편집기의 책임을 화면·기록·저장·렌더링으로 나눴습니다.
 
-[`EditOperationPlayer`](lib/engine/edit_operation_player.dart)는 operation 목록을 순서대로 재생하는 canonical renderer 후보로 구현되어 있고 엔진 테스트에서도 사용합니다. 다만 현재 production `EditorPage`의 preview/export는 이 player를 직접 호출하지 않고 각각 `_PreviewParams`, `_ExportParams`를 구성합니다. README의 이전 버전처럼 “이미 하나의 canonical renderer로 완전히 통합됐다”고 설명하는 것은 정확하지 않습니다.
+| 구성 | 현재 책임 |
+|---|---|
+| [EditorPage](lib/features/editor/editor_page.dart) | 도구 조작과 적용·취소, 화면 상태, 미리보기 요청 |
+| [EditorHistoryController](lib/features/editor/editor_history_controller.dart) | 확정 snapshot, undo/redo, 최대 100개 기록 |
+| [EditorDraftStore](lib/features/editor/editor_draft_store.dart) | 사진별 draft 읽기·쓰기와 복원 호환성 확인 |
+| [EditorRenderRecipe](lib/features/editor/editor_render_recipe.dart) | 렌더링에 전달하는 불변 편집 값 |
+| [EditorRenderer](lib/features/editor/editor_renderer.dart) | preview/export의 공통 렌더링 진입점 |
+| [EditorExportService](lib/features/editor/editor_export_service.dart) | 내보내기 isolate와 성공·실패·취소 수명 관리 |
 
-이전에는 production 경로에 연결되지 않은 Riverpod session notifier와 repository가 함께 있었지만, 2026-08의 정리에서 제거했습니다. 앱의 실제 source of truth는 현재 `EditorPage`의 transaction/draft 상태 하나입니다. 또한 preview와 export는 이제 같은 불변 `EditorRenderRecipe`를 받아 렌더 입력을 조립합니다. 아직 operation 순서를 독립 renderer로 완전히 추출한 것은 아니므로, 다음 구조 개선에서는 아래 순서가 안전합니다.
+도구를 조정 중인 상태는 화면이 관리하고, 적용한 기록은 history controller가 관리합니다. 이전 버전의 EditSession과 EditOperationPlayer는 현재 경로에 없습니다. preview와 export가 공통 renderer를 호출하도록 연결되었지만, 해상도·공간 좌표·인코딩·플랫폼 채널 차이가 있어 결과 일치는 관련 테스트와 실기기에서 계속 확인해야 합니다.
 
-1. `EditorRenderRecipe`의 표현 범위를 history/draft 직렬화까지 넓힙니다.
-2. preview와 export가 같은 recipe를 받아 같은 operation 순서를 사용하게 만듭니다.
-3. session persistence를 별도 controller 한 곳으로 옮깁니다.
-4. 마지막에 도구 panel을 화면 파일에서 작은 feature module로 분리합니다.
-
-이 순서를 거꾸로 하면 파일만 잘게 나뉘고 실제 상태 중복은 그대로 남을 가능성이 큽니다.
+EditorPage는 여전히 약 6천 줄로 화면 조정 책임이 큽니다. 다음 개선은 이미 분리한 history/draft/renderer를 다시 만드는 대신 도구별 UI와 화면의 상태 연결을 정리하는 데 초점을 둡니다.
 
 ## 지원하는 편집 기능
 
@@ -252,7 +254,7 @@ flutter drive --profile \
   -d <physical-ios-device-id> --publish-port
 ```
 
-현재 저장소에서 확인한 기준은 다음과 같습니다.
+아래는 기존 README에 남아 있던 이전 검증 기록입니다. 측정 커밋과 날짜가 함께 적혀 있지 않아 현재 HEAD의 테스트 수·통과 결과로 간주하지 않습니다. 위 명령으로 다시 확인하고 실행 환경·커밋과 함께 기록해야 합니다.
 
 - 전체 unit/widget test 460개 통과, 로컬 fixture 의존 테스트 1개 조건부 skip
 - iPhone 17 Pro 시뮬레이터 EditorPage 화이트박스 3개 시나리오 통과
