@@ -1,8 +1,9 @@
+<div align="center">
+
 # Memoria
 
 [![iOS Build](https://github.com/cres17/memoria/actions/workflows/ios-build.yml/badge.svg?branch=main)](https://github.com/cres17/memoria/actions/workflows/ios-build.yml)
 [![MIT License](https://img.shields.io/badge/License-MIT-2EA44F)](LICENSE)
-
 ![Flutter](https://img.shields.io/badge/Flutter-02569B?style=flat&logoColor=white&logo=flutter)
 ![Dart](https://img.shields.io/badge/Dart-0175C2?style=flat&logoColor=white&logo=dart)
 ![go_router](https://img.shields.io/badge/go__router-02569B?style=flat&logoColor=white)
@@ -18,6 +19,8 @@
 ![ONNX](https://img.shields.io/badge/ONNX-005CED?style=flat&logoColor=white&logo=onnx)
 ![TensorFlow](https://img.shields.io/badge/TensorFlow-FF6F00?style=flat&logoColor=white&logo=tensorflow)
 ![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-2088FF?style=flat&logoColor=white&logo=githubactions)
+
+</div>
 
 사진을 고르고 보정하고, 마음에 드는 사진의 색을 나만의 필터로 만들어 다시 쓰는 모바일 사진 편집 앱입니다. 모든 편집과 필터 생성은 서버 없이 기기 안에서 처리합니다. iOS를 기준으로 개발 중이며 Android 프로젝트도 함께 들어 있습니다.
 

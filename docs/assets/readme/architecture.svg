@@ -1,33 +1,32 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 900" width="1500" height="900" font-family="Pretendard, 'Apple SD Gothic Neo', 'Noto Sans KR', 'Noto Sans CJK KR', 'Malgun Gothic', sans-serif">
-<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#51627d"/></marker></defs>
-<rect x="0" y="0" width="1500" height="900" rx="18" fill="#ffffff"/>
-<rect x="200" y="60" width="800" height="500" rx="16" fill="#f2f7fb" stroke="#c4d5e6" stroke-width="2"/>
-<text x="218" y="88" font-size="15" font-weight="700" fill="#355a85" letter-spacing="0.3">Flutter 앱 · 기기 안에서 처리</text>
-<rect x="1080" y="290" width="330" height="440" rx="16" fill="#f6f7f9" stroke="#d5dae2" stroke-width="2"/>
-<text x="1098" y="318" font-size="15" font-weight="700" fill="#4d5868" letter-spacing="0.3">iOS 네이티브</text>
-<rect x="40" y="620" width="680" height="250" rx="16" fill="#f6f2fa" stroke="#d7c8e8" stroke-width="2"/>
-<text x="58" y="648" font-size="15" font-weight="700" fill="#634a8c" letter-spacing="0.3">ml_pipeline · 학습과 변환</text>
-<path d="M144.0,190.0 L276.0,190.0" fill="none" stroke="#51627d" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#ah)"/>
-<path d="M384.0,190.0 L546.0,190.0" fill="none" stroke="#51627d" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#ah)"/>
-<path d="M600.0,142.0 L600.0,110.0 L1245.0,110.0 L1245.0,362.0" fill="none" stroke="#51627d" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#ah)"/>
-<path d="M330.0,282.0 L330.0,300.0 L860.0,300.0 L860.0,282.0" fill="none" stroke="#51627d" stroke-width="2.2" stroke-linejoin="round" stroke-dasharray="7 6" marker-end="url(#ah)"/>
-<path d="M384.0,410.0 L546.0,410.0" fill="none" stroke="#51627d" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#ah)"/>
-<path d="M600.0,362.0 L600.0,282.0" fill="none" stroke="#51627d" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#ah)"/>
-<path d="M654.0,410.0 L860.0,410.0 L860.0,282.0" fill="none" stroke="#51627d" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#ah)"/>
-<path d="M1245.0,502.0 L1245.0,572.0" fill="none" stroke="#51627d" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#ah)"/>
-<path d="M214.0,730.0 L326.0,730.0" fill="none" stroke="#51627d" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#ah)"/>
-<path d="M434.0,730.0 L546.0,730.0" fill="none" stroke="#51627d" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#ah)"/>
-<path d="M600.0,682.0 L600.0,502.0" fill="none" stroke="#51627d" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#ah)"/>
-<path d="M860.0,682.0 L860.0,525.0 L600.0,525.0 L600.0,502.0" fill="none" stroke="#51627d" stroke-width="2.2" stroke-linejoin="round" marker-end="url(#ah)"/>
-<svg x="60.6" y="160.6" width="58.88" height="58.88" viewBox="0 0 24 24" fill="none" stroke="#51627d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-13 -88 1584 1090" width="1584" height="1090" font-family="Pretendard, 'Apple SD Gothic Neo', 'Noto Sans KR', 'Noto Sans CJK KR', 'Malgun Gothic', sans-serif">
+<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#51627d"/></marker></defs>
+<rect x="-13" y="-88" width="1584" height="1090" rx="20" fill="#ffffff"/>
+<rect x="226.7" y="20.0" width="921.3" height="556.0" rx="18" fill="#f2f7fb" stroke="#c4d5e6" stroke-width="2"/>
+<text x="248.7" y="58.0" font-size="22" font-weight="700" fill="#355a85">Flutter 앱 · 기기 안에서 처리</text>
+<rect x="1254.5" y="358.0" width="291.0" height="478.0" rx="18" fill="#f6f7f9" stroke="#d5dae2" stroke-width="2"/>
+<rect x="13.4" y="720.0" width="758.8" height="256.0" rx="18" fill="#f6f2fa" stroke="#d7c8e8" stroke-width="2"/>
+<text x="35.4" y="758.0" font-size="22" font-weight="700" fill="#634a8c">ml_pipeline · 학습과 변환</text>
+<path d="M146.0,130.0 L304.0,130.0" fill="none" stroke="#51627d" stroke-width="2.6" stroke-linejoin="round" marker-end="url(#ah)"/>
+<path d="M416.0,130.0 L624.0,130.0" fill="none" stroke="#51627d" stroke-width="2.6" stroke-linejoin="round" marker-end="url(#ah)"/>
+<path d="M680.0,78.0 L680.0,-30.0 L1400.0,-30.0 L1400.0,378.0" fill="none" stroke="#51627d" stroke-width="2.6" stroke-linejoin="round" marker-end="url(#ah)"/>
+<path d="M360.0,256.0 L360.0,300.0 L1010.0,300.0 L1010.0,256.0" fill="none" stroke="#51627d" stroke-width="2.6" stroke-linejoin="round" stroke-dasharray="8 7" marker-end="url(#ah)"/>
+<path d="M416.0,430.0 L624.0,430.0" fill="none" stroke="#51627d" stroke-width="2.6" stroke-linejoin="round" marker-end="url(#ah)"/>
+<path d="M680.0,378.0 L680.0,256.0" fill="none" stroke="#51627d" stroke-width="2.6" stroke-linejoin="round" marker-end="url(#ah)"/>
+<path d="M736.0,430.0 L1010.0,430.0 L1010.0,256.0" fill="none" stroke="#51627d" stroke-width="2.6" stroke-linejoin="round" marker-end="url(#ah)"/>
+<path d="M1400.0,556.0 L1400.0,638.0" fill="none" stroke="#51627d" stroke-width="2.6" stroke-linejoin="round" marker-end="url(#ah)"/>
+<path d="M206.0,830.0 L374.0,830.0" fill="none" stroke="#51627d" stroke-width="2.6" stroke-linejoin="round" marker-end="url(#ah)"/>
+<path d="M486.0,830.0 L624.0,830.0" fill="none" stroke="#51627d" stroke-width="2.6" stroke-linejoin="round" marker-end="url(#ah)"/>
+<path d="M680.0,778.0 L680.0,556.0" fill="none" stroke="#51627d" stroke-width="2.6" stroke-linejoin="round" marker-end="url(#ah)"/>
+<path d="M1010.0,778.0 L1010.0,600.0 L680.0,600.0 L680.0,556.0" fill="none" stroke="#51627d" stroke-width="2.6" stroke-linejoin="round" marker-end="url(#ah)"/>
+<svg x="55.0" y="95.0" width="69.92" height="69.92" viewBox="0 0 24 24" fill="none" stroke="#51627d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
   <path d="m22 11-1.296-1.296a2.4 2.4 0 0 0-3.408 0L11 16" />
   <path d="M4 8a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2" />
   <circle cx="13" cy="7" r="1" fill="#51627d" />
   <rect x="8" y="2" width="14" height="14" rx="2" />
 </svg>
-<text x="90" y="252.0" text-anchor="middle" font-size="21" font-weight="700" fill="#2b3443">사진 보관함</text>
-<text x="90" y="274.0" text-anchor="middle" font-size="13.5" fill="#6b7686">image_picker</text>
-<svg x="300.6" y="160.6" width="58.88" height="58.88" viewBox="0 0 24 24" fill="none" stroke="#51627d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+<text x="90" y="208.0" text-anchor="middle" font-size="30" font-weight="700" fill="#2b3443">사진</text>
+<text x="90" y="238.0" text-anchor="middle" font-size="21" fill="#5f6b7a">image_picker</text>
+<svg x="325.0" y="95.0" width="69.92" height="69.92" viewBox="0 0 24 24" fill="none" stroke="#51627d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
   <path d="M10 5H3" />
   <path d="M12 19H3" />
   <path d="M14 3v4" />
@@ -38,20 +37,20 @@
   <path d="M8 10v4" />
   <path d="M8 12H3" />
 </svg>
-<text x="330" y="252.0" text-anchor="middle" font-size="21" font-weight="700" fill="#2b3443">편집기</text>
-<text x="330" y="274.0" text-anchor="middle" font-size="13.5" fill="#6b7686">EditorPage · History</text>
-<g transform="translate(568.0,158.0) scale(2.6667)"><path d="M4.105 4.105S9.158 1.58 11.684.316a3.079 3.079 0 0 1 1.481-.315c.766.047 1.677.788 1.677.788L24 9.948v9.789h-4.263V24H9.789l-9-9C.303 14.5 0 13.795 0 13.105c0-.319.18-.818.316-1.105l3.789-7.895zm.679.679v11.787c.002.543.021 1.024.498 1.508L10.204 23h8.533v-4.263L4.784 4.784zm12.055-.678c-.899-.896-1.809-1.78-2.74-2.643-.302-.267-.567-.468-1.07-.462-.37.014-.87.195-.87.195L6.341 4.105l10.498.001z" fill="#0175C2"/></g>
-<text x="600" y="252.0" text-anchor="middle" font-size="21" font-weight="700" fill="#0175C2">이미지 엔진</text>
-<text x="600" y="274.0" text-anchor="middle" font-size="13.5" fill="#6b7686">LUT · 보정 · isolate</text>
-<svg x="830.6" y="160.6" width="58.88" height="58.88" viewBox="0 0 24 24" fill="none" stroke="#51627d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+<text x="360" y="208.0" text-anchor="middle" font-size="30" font-weight="700" fill="#2b3443">편집기</text>
+<text x="360" y="238.0" text-anchor="middle" font-size="21" fill="#5f6b7a">Page · History</text>
+<g transform="translate(642.0,92.0) scale(3.1667)"><path d="M4.105 4.105S9.158 1.58 11.684.316a3.079 3.079 0 0 1 1.481-.315c.766.047 1.677.788 1.677.788L24 9.948v9.789h-4.263V24H9.789l-9-9C.303 14.5 0 13.795 0 13.105c0-.319.18-.818.316-1.105l3.789-7.895zm.679.679v11.787c.002.543.021 1.024.498 1.508L10.204 23h8.533v-4.263L4.784 4.784zm12.055-.678c-.899-.896-1.809-1.78-2.74-2.643-.302-.267-.567-.468-1.07-.462-.37.014-.87.195-.87.195L6.341 4.105l10.498.001z" fill="#0175C2"/></g>
+<text x="680" y="208.0" text-anchor="middle" font-size="30" font-weight="700" fill="#0175C2">이미지 엔진</text>
+<text x="680" y="238.0" text-anchor="middle" font-size="21" fill="#5f6b7a">LUT · 보정 · isolate</text>
+<svg x="975.0" y="95.0" width="69.92" height="69.92" viewBox="0 0 24 24" fill="none" stroke="#51627d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
   <path d="M10 16h.01" />
   <path d="M2.212 11.577a2 2 0 0 0-.212.896V18a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-5.527a2 2 0 0 0-.212-.896L18.55 5.11A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
   <path d="M21.946 12.013H2.054" />
   <path d="M6 16h.01" />
 </svg>
-<text x="860" y="252.0" text-anchor="middle" font-size="21" font-weight="700" fill="#4d5868">로컬 저장</text>
-<text x="860" y="274.0" text-anchor="middle" font-size="13.5" fill="#6b7686">JSON · SharedPreferences</text>
-<svg x="300.6" y="380.6" width="58.88" height="58.88" viewBox="0 0 24 24" fill="none" stroke="#634a8c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+<text x="1010" y="208.0" text-anchor="middle" font-size="30" font-weight="700" fill="#4d5868">로컬 저장</text>
+<text x="1010" y="238.0" text-anchor="middle" font-size="21" fill="#5f6b7a">JSON · SharedPrefs</text>
+<svg x="325.0" y="395.0" width="69.92" height="69.92" viewBox="0 0 24 24" fill="none" stroke="#634a8c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
   <path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72" />
   <path d="m14 7 3 3" />
   <path d="M5 6v4" />
@@ -61,55 +60,49 @@
   <path d="M21 16h-4" />
   <path d="M11 3H9" />
 </svg>
-<text x="330" y="472.0" text-anchor="middle" font-size="21" font-weight="700" fill="#634a8c">필터 제작</text>
-<text x="330" y="494.0" text-anchor="middle" font-size="13.5" fill="#6b7686">참조 사진 · Before/After</text>
-<g transform="translate(568.0,378.0) scale(2.6667)"><path d="M1.292 5.856L11.54 0v24l-4.095-2.378V7.603l-6.168 3.564.015-5.31zm21.43 5.311l-.014-5.31L12.46 0v24l4.095-2.378V14.87l3.092 1.788-.018-4.618-3.074-1.756V7.603l6.168 3.564z" fill="#FF6F00"/></g>
-<text x="600" y="472.0" text-anchor="middle" font-size="21" font-weight="700" fill="#FF6F00">LiteRT</text>
-<text x="600" y="494.0" text-anchor="middle" font-size="13.5" fill="#6b7686">flutter_litert</text>
-<g transform="translate(1213.0,378.0) scale(2.6667)"><path d="M7.508 0c-.287 0-.573 0-.86.002-.241.002-.483.003-.724.01-.132.003-.263.009-.395.015A9.154 9.154 0 0 0 4.348.15 5.492 5.492 0 0 0 2.85.645 5.04 5.04 0 0 0 .645 2.848c-.245.48-.4.972-.495 1.5-.093.52-.122 1.05-.136 1.576a35.2 35.2 0 0 0-.012.724C0 6.935 0 7.221 0 7.508v8.984c0 .287 0 .575.002.862.002.24.005.481.012.722.014.526.043 1.057.136 1.576.095.528.25 1.02.495 1.5a5.03 5.03 0 0 0 2.205 2.203c.48.244.97.4 1.498.495.52.093 1.05.124 1.576.138.241.007.483.009.724.01.287.002.573.002.86.002h8.984c.287 0 .573 0 .86-.002.241-.001.483-.003.724-.01a10.523 10.523 0 0 0 1.578-.138 5.322 5.322 0 0 0 1.498-.495 5.035 5.035 0 0 0 2.203-2.203c.245-.48.4-.972.495-1.5.093-.52.124-1.05.138-1.576.007-.241.009-.481.01-.722.002-.287.002-.575.002-.862V7.508c0-.287 0-.573-.002-.86a33.662 33.662 0 0 0-.01-.724 10.5 10.5 0 0 0-.138-1.576 5.328 5.328 0 0 0-.495-1.5A5.039 5.039 0 0 0 21.152.645 5.32 5.32 0 0 0 19.654.15a10.493 10.493 0 0 0-1.578-.138 34.98 34.98 0 0 0-.722-.01C17.067 0 16.779 0 16.492 0H7.508zm6.035 3.41c4.114 2.47 6.545 7.162 5.549 11.131-.024.093-.05.181-.076.272l.002.001c2.062 2.538 1.5 5.258 1.236 4.745-1.072-2.086-3.066-1.568-4.088-1.043a6.803 6.803 0 0 1-.281.158l-.02.012-.002.002c-2.115 1.123-4.957 1.205-7.812-.022a12.568 12.568 0 0 1-5.64-4.838c.649.48 1.35.902 2.097 1.252 3.019 1.414 6.051 1.311 8.197-.002C9.651 12.73 7.101 9.67 5.146 7.191a10.628 10.628 0 0 1-1.005-1.384c2.34 2.142 6.038 4.83 7.365 5.576C8.69 8.408 6.208 4.743 6.324 4.86c4.436 4.47 8.528 6.996 8.528 6.996.154.085.27.154.36.213.085-.215.16-.437.224-.668.708-2.588-.09-5.548-1.893-7.992z" fill="#F05138"/></g>
-<text x="1245" y="472.0" text-anchor="middle" font-size="21" font-weight="700" fill="#F05138">Swift</text>
-<text x="1245" y="494.0" text-anchor="middle" font-size="13.5" fill="#6b7686">Core Image · ImageIO</text>
-<svg x="1215.6" y="590.6" width="58.88" height="58.88" viewBox="0 0 24 24" fill="none" stroke="#51627d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+<text x="360" y="508.0" text-anchor="middle" font-size="30" font-weight="700" fill="#634a8c">필터 제작</text>
+<text x="360" y="538.0" text-anchor="middle" font-size="21" fill="#5f6b7a">참조 · Before/After</text>
+<g transform="translate(642.0,392.0) scale(3.1667)"><path d="M1.292 5.856L11.54 0v24l-4.095-2.378V7.603l-6.168 3.564.015-5.31zm21.43 5.311l-.014-5.31L12.46 0v24l4.095-2.378V14.87l3.092 1.788-.018-4.618-3.074-1.756V7.603l6.168 3.564z" fill="#FF6F00"/></g>
+<text x="680" y="508.0" text-anchor="middle" font-size="30" font-weight="700" fill="#FF6F00">LiteRT</text>
+<text x="680" y="538.0" text-anchor="middle" font-size="21" fill="#5f6b7a">flutter_litert</text>
+<g transform="translate(1362.0,392.0) scale(3.1667)"><path d="M7.508 0c-.287 0-.573 0-.86.002-.241.002-.483.003-.724.01-.132.003-.263.009-.395.015A9.154 9.154 0 0 0 4.348.15 5.492 5.492 0 0 0 2.85.645 5.04 5.04 0 0 0 .645 2.848c-.245.48-.4.972-.495 1.5-.093.52-.122 1.05-.136 1.576a35.2 35.2 0 0 0-.012.724C0 6.935 0 7.221 0 7.508v8.984c0 .287 0 .575.002.862.002.24.005.481.012.722.014.526.043 1.057.136 1.576.095.528.25 1.02.495 1.5a5.03 5.03 0 0 0 2.205 2.203c.48.244.97.4 1.498.495.52.093 1.05.124 1.576.138.241.007.483.009.724.01.287.002.573.002.86.002h8.984c.287 0 .573 0 .86-.002.241-.001.483-.003.724-.01a10.523 10.523 0 0 0 1.578-.138 5.322 5.322 0 0 0 1.498-.495 5.035 5.035 0 0 0 2.203-2.203c.245-.48.4-.972.495-1.5.093-.52.124-1.05.138-1.576.007-.241.009-.481.01-.722.002-.287.002-.575.002-.862V7.508c0-.287 0-.573-.002-.86a33.662 33.662 0 0 0-.01-.724 10.5 10.5 0 0 0-.138-1.576 5.328 5.328 0 0 0-.495-1.5A5.039 5.039 0 0 0 21.152.645 5.32 5.32 0 0 0 19.654.15a10.493 10.493 0 0 0-1.578-.138 34.98 34.98 0 0 0-.722-.01C17.067 0 16.779 0 16.492 0H7.508zm6.035 3.41c4.114 2.47 6.545 7.162 5.549 11.131-.024.093-.05.181-.076.272l.002.001c2.062 2.538 1.5 5.258 1.236 4.745-1.072-2.086-3.066-1.568-4.088-1.043a6.803 6.803 0 0 1-.281.158l-.02.012-.002.002c-2.115 1.123-4.957 1.205-7.812-.022a12.568 12.568 0 0 1-5.64-4.838c.649.48 1.35.902 2.097 1.252 3.019 1.414 6.051 1.311 8.197-.002C9.651 12.73 7.101 9.67 5.146 7.191a10.628 10.628 0 0 1-1.005-1.384c2.34 2.142 6.038 4.83 7.365 5.576C8.69 8.408 6.208 4.743 6.324 4.86c4.436 4.47 8.528 6.996 8.528 6.996.154.085.27.154.36.213.085-.215.16-.437.224-.668.708-2.588-.09-5.548-1.893-7.992z" fill="#F05138"/></g>
+<text x="1400" y="508.0" text-anchor="middle" font-size="30" font-weight="700" fill="#F05138">Swift · iOS</text>
+<text x="1400" y="538.0" text-anchor="middle" font-size="21" fill="#5f6b7a">Core Image · ImageIO</text>
+<svg x="1365.0" y="655.0" width="69.92" height="69.92" viewBox="0 0 24 24" fill="none" stroke="#51627d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
   <circle cx="18" cy="5" r="3" />
   <circle cx="6" cy="12" r="3" />
   <circle cx="18" cy="19" r="3" />
   <line x1="8.59" x2="15.42" y1="13.51" y2="17.49" />
   <line x1="15.41" x2="8.59" y1="6.51" y2="10.49" />
 </svg>
-<text x="1245" y="682.0" text-anchor="middle" font-size="21" font-weight="700" fill="#4d5868">저장 · 공유</text>
-<text x="1245" y="704.0" text-anchor="middle" font-size="13.5" fill="#6b7686">gal · share_plus</text>
-<g transform="translate(128.0,698.0) scale(2.6667)"><path d="M12.005 0L4.952 7.053a9.865 9.865 0 000 14.022 9.866 9.866 0 0014.022 0c3.984-3.9 3.986-10.205.085-14.023l-1.744 1.743c2.904 2.905 2.904 7.634 0 10.538s-7.634 2.904-10.538 0-2.904-7.634 0-10.538l4.647-4.646.582-.665zm3.568 3.899a1.327 1.327 0 00-1.327 1.327 1.327 1.327 0 001.327 1.328A1.327 1.327 0 0016.9 5.226 1.327 1.327 0 0015.573 3.9z" fill="#EE4C2C"/></g>
-<text x="160" y="792.0" text-anchor="middle" font-size="21" font-weight="700" fill="#EE4C2C">PyTorch</text>
-<text x="160" y="814.0" text-anchor="middle" font-size="13.5" fill="#6b7686">timm MobileNetV3-Small</text>
-<g transform="translate(348.0,698.0) scale(2.6667)"><path d="M23.0325 11.2963c-.0503 0-.1006 0-.1508.0126l-4.021-7.4387c.0754-.1383.1131-.289.1131-.4524 0-.5403-.4398-.9675-.9675-.9675-.2765 0-.5278.113-.7037.3015L9.286 1.156C9.2357.6785 8.821.3016 8.3184.3016c-.5277 0-.9675.4398-.9675.9675 0 .1634.0377.3141.113.4524l-6.245 8.9591c-.0753-.0251-.1633-.0377-.2513-.0377-.5403 0-.9675.4398-.9675.9676 0 .5403.4398.9675.9675.9675h.0377l3.3676 8.3309c-.0503.1257-.088.2639-.088.402 0 .5404.4398.9676.9676.9676.2764 0 .5277-.113.7036-.3015l10.1152.9926c.1005.4273.49.7288.9424.7288.5403 0 .9676-.4398.9676-.9675 0-.2388-.088-.465-.2262-.6283l5.1141-8.8712c.0503.0126.1005.0126.1634.0126.5403 0 .9675-.4398.9675-.9676 0-.5403-.4272-.98-.9675-.98zM17.2272 4.021c.1131.1508.2765.264.4524.3267l-1.533 11.5728c-.1005.0252-.1885.0503-.2764.1005L7.4513 8.708c.0251-.0754.0377-.1634.0377-.2514 0-.0628-.0126-.1256-.0126-.1884zm4.8754 8.5068l-5.177 3.556a1.105 1.105 0 0 0-.1256-.0753L18.3455 4.335h.0126l3.9456 7.288c-.1508.1759-.2388.3895-.2388.6408 0 .1005.0126.1885.0377.2638zM6.3832 7.5016c-.4649.0754-.8293.4775-.8293.955v.0628l-3.4555 2.0481 5.378-7.7026zm.3519 1.91c.1256-.0252.2513-.088.3518-.1634l8.356 7.2628c-.0377.113-.0628.2262-.0628.3518v.0503l-9.311 3.845c-.1382-.201-.3518-.3518-.6031-.402zm8.8963 8.1172c.1257.1382.3016.2513.5026.289l.465 4.046c-.201.1006-.3519.264-.4524.4524l-9.8136-.955zm1.1435.2136c.3267-.1633.5403-.49.5403-.867 0-.088-.0126-.1634-.0377-.2513l4.7372-3.2545-4.8 8.331zm.2513-14.3497l-9.889 4.31-.1131-.0755 1.2565-5.3906h.0377c.3393 0 .6409-.1759.8168-.4397l7.891 1.5706zM1.935 11.6105c0-.0629-.0126-.1257-.0126-.1885l3.9079-2.2995c.0754.0754.1633.1508.2638.201L4.8252 20.243l-3.2043-7.9036c.1885-.176.3142-.4398.3142-.7288Z" fill="#005CED"/></g>
-<text x="380" y="792.0" text-anchor="middle" font-size="21" font-weight="700" fill="#005CED">ONNX</text>
-<text x="380" y="814.0" text-anchor="middle" font-size="13.5" fill="#6b7686">onnx-tf → SavedModel</text>
-<g transform="translate(568.0,698.0) scale(2.6667)"><path d="M1.292 5.856L11.54 0v24l-4.095-2.378V7.603l-6.168 3.564.015-5.31zm21.43 5.311l-.014-5.31L12.46 0v24l4.095-2.378V14.87l3.092 1.788-.018-4.618-3.074-1.756V7.603l6.168 3.564z" fill="#FF6F00"/></g>
-<text x="600" y="792.0" text-anchor="middle" font-size="21" font-weight="700" fill="#FF6F00">TFLite</text>
-<text x="600" y="814.0" text-anchor="middle" font-size="13.5" fill="#6b7686">fp16 변환</text>
-<g transform="translate(828.0,698.0) scale(2.6667)"><path d="M2.182 0C1 0 .037.94.002 2.114L0 2.182v6.545a2.182 2.182 0 0 0 4.364 0V2.182A2.182 2.182 0 0 0 2.182 0Zm6.545 0c-1.182 0-2.145.94-2.18 2.114l-.002.068v13.09a2.182 2.182 0 0 0 4.364 0V2.183A2.182 2.182 0 0 0 8.727 0Zm6.546 0a2.182 2.182 0 0 0-2.182 2.182 2.182 2.182 0 0 0 2.182 2.182 2.182 2.182 0 0 0 2.182-2.182A2.182 2.182 0 0 0 15.273 0Zm6.545 0c-1.182 0-2.145.94-2.18 2.114l-.002.068v19.636a2.182 2.182 0 0 0 4.364 0V2.182A2.182 2.182 0 0 0 21.818 0Zm-6.545 6.545c-1.183 0-2.145.94-2.181 2.114l-.001.068v13.091a2.182 2.182 0 0 0 4.364 0V8.728a2.182 2.182 0 0 0-2.182-2.183zM2.182 13.091c-1.182 0-2.145.94-2.18 2.114L0 15.273v6.545a2.182 2.182 0 0 0 4.364 0v-6.545a2.182 2.182 0 0 0-2.182-2.182zm6.545 6.545a2.182 2.182 0 0 0-2.182 2.182A2.182 2.182 0 0 0 8.727 24a2.182 2.182 0 0 0 2.182-2.182 2.182 2.182 0 0 0-2.182-2.182Z" fill="#0097A7"/></g>
-<text x="860" y="792.0" text-anchor="middle" font-size="21" font-weight="700" fill="#0097a7">MediaPipe</text>
-<text x="860" y="814.0" text-anchor="middle" font-size="13.5" fill="#6b7686">selfie_segmenter</text>
-<text x="210.0" y="178.0" text-anchor="middle" font-size="14.5" fill="#ffffff" stroke="#ffffff" stroke-width="6" stroke-linejoin="round">사진 선택</text>
-<text x="210.0" y="178.0" text-anchor="middle" font-size="14.5" fill="#51627d">사진 선택</text>
-<text x="465.0" y="178.0" text-anchor="middle" font-size="14.5" fill="#ffffff" stroke="#ffffff" stroke-width="6" stroke-linejoin="round">RenderRecipe</text>
-<text x="465.0" y="178.0" text-anchor="middle" font-size="14.5" fill="#51627d">RenderRecipe</text>
-<text x="930.0" y="102.0" text-anchor="middle" font-size="14.5" fill="#ffffff" stroke="#ffffff" stroke-width="6" stroke-linejoin="round">MethodChannel · CIColorCube · WebP</text>
-<text x="930.0" y="102.0" text-anchor="middle" font-size="14.5" fill="#51627d">MethodChannel · CIColorCube · WebP</text>
-<text x="450.0" y="292.0" text-anchor="middle" font-size="14.5" fill="#ffffff" stroke="#ffffff" stroke-width="6" stroke-linejoin="round">draft · 편집 기록</text>
-<text x="450.0" y="292.0" text-anchor="middle" font-size="14.5" fill="#51627d">draft · 편집 기록</text>
-<text x="465.0" y="398.0" text-anchor="middle" font-size="14.5" fill="#ffffff" stroke="#ffffff" stroke-width="6" stroke-linejoin="round">참조 이미지 256²</text>
-<text x="465.0" y="398.0" text-anchor="middle" font-size="14.5" fill="#51627d">참조 이미지 256²</text>
-<text x="612.0" y="340.0" text-anchor="start" font-size="14.5" fill="#ffffff" stroke="#ffffff" stroke-width="6" stroke-linejoin="round">17³ → 65³ LUT</text>
-<text x="612.0" y="340.0" text-anchor="start" font-size="14.5" fill="#51627d">17³ → 65³ LUT</text>
-<text x="612.0" y="358.0" text-anchor="start" font-size="14.5" fill="#ffffff" stroke="#ffffff" stroke-width="6" stroke-linejoin="round">인물 마스크</text>
-<text x="612.0" y="358.0" text-anchor="start" font-size="14.5" fill="#51627d">인물 마스크</text>
-<text x="760.0" y="400.0" text-anchor="middle" font-size="14.5" fill="#ffffff" stroke="#ffffff" stroke-width="6" stroke-linejoin="round">필터 LUT · recipe</text>
-<text x="760.0" y="400.0" text-anchor="middle" font-size="14.5" fill="#51627d">필터 LUT · recipe</text>
-<text x="1257.0" y="545.0" text-anchor="start" font-size="14.5" fill="#ffffff" stroke="#ffffff" stroke-width="6" stroke-linejoin="round">WebP 인코딩 결과</text>
-<text x="1257.0" y="545.0" text-anchor="start" font-size="14.5" fill="#51627d">WebP 인코딩 결과</text>
-<text x="612.0" y="590.0" text-anchor="start" font-size="14.5" fill="#ffffff" stroke="#ffffff" stroke-width="6" stroke-linejoin="round">앱 번들 (.tflite)</text>
-<text x="612.0" y="590.0" text-anchor="start" font-size="14.5" fill="#51627d">앱 번들 (.tflite)</text>
-<text x="872.0" y="610.0" text-anchor="start" font-size="14.5" fill="#ffffff" stroke="#ffffff" stroke-width="6" stroke-linejoin="round">최초 1회 다운로드</text>
-<text x="872.0" y="610.0" text-anchor="start" font-size="14.5" fill="#51627d">최초 1회 다운로드</text>
+<text x="1400" y="768.0" text-anchor="middle" font-size="30" font-weight="700" fill="#4d5868">저장 · 공유</text>
+<text x="1400" y="798.0" text-anchor="middle" font-size="21" fill="#5f6b7a">gal · share_plus</text>
+<g transform="translate(112.0,792.0) scale(3.1667)"><path d="M12.005 0L4.952 7.053a9.865 9.865 0 000 14.022 9.866 9.866 0 0014.022 0c3.984-3.9 3.986-10.205.085-14.023l-1.744 1.743c2.904 2.905 2.904 7.634 0 10.538s-7.634 2.904-10.538 0-2.904-7.634 0-10.538l4.647-4.646.582-.665zm3.568 3.899a1.327 1.327 0 00-1.327 1.327 1.327 1.327 0 001.327 1.328A1.327 1.327 0 0016.9 5.226 1.327 1.327 0 0015.573 3.9z" fill="#EE4C2C"/></g>
+<text x="150" y="908.0" text-anchor="middle" font-size="30" font-weight="700" fill="#EE4C2C">PyTorch</text>
+<text x="150" y="938.0" text-anchor="middle" font-size="21" fill="#5f6b7a">MobileNetV3-Small</text>
+<g transform="translate(392.0,792.0) scale(3.1667)"><path d="M23.0325 11.2963c-.0503 0-.1006 0-.1508.0126l-4.021-7.4387c.0754-.1383.1131-.289.1131-.4524 0-.5403-.4398-.9675-.9675-.9675-.2765 0-.5278.113-.7037.3015L9.286 1.156C9.2357.6785 8.821.3016 8.3184.3016c-.5277 0-.9675.4398-.9675.9675 0 .1634.0377.3141.113.4524l-6.245 8.9591c-.0753-.0251-.1633-.0377-.2513-.0377-.5403 0-.9675.4398-.9675.9676 0 .5403.4398.9675.9675.9675h.0377l3.3676 8.3309c-.0503.1257-.088.2639-.088.402 0 .5404.4398.9676.9676.9676.2764 0 .5277-.113.7036-.3015l10.1152.9926c.1005.4273.49.7288.9424.7288.5403 0 .9676-.4398.9676-.9675 0-.2388-.088-.465-.2262-.6283l5.1141-8.8712c.0503.0126.1005.0126.1634.0126.5403 0 .9675-.4398.9675-.9676 0-.5403-.4272-.98-.9675-.98zM17.2272 4.021c.1131.1508.2765.264.4524.3267l-1.533 11.5728c-.1005.0252-.1885.0503-.2764.1005L7.4513 8.708c.0251-.0754.0377-.1634.0377-.2514 0-.0628-.0126-.1256-.0126-.1884zm4.8754 8.5068l-5.177 3.556a1.105 1.105 0 0 0-.1256-.0753L18.3455 4.335h.0126l3.9456 7.288c-.1508.1759-.2388.3895-.2388.6408 0 .1005.0126.1885.0377.2638zM6.3832 7.5016c-.4649.0754-.8293.4775-.8293.955v.0628l-3.4555 2.0481 5.378-7.7026zm.3519 1.91c.1256-.0252.2513-.088.3518-.1634l8.356 7.2628c-.0377.113-.0628.2262-.0628.3518v.0503l-9.311 3.845c-.1382-.201-.3518-.3518-.6031-.402zm8.8963 8.1172c.1257.1382.3016.2513.5026.289l.465 4.046c-.201.1006-.3519.264-.4524.4524l-9.8136-.955zm1.1435.2136c.3267-.1633.5403-.49.5403-.867 0-.088-.0126-.1634-.0377-.2513l4.7372-3.2545-4.8 8.331zm.2513-14.3497l-9.889 4.31-.1131-.0755 1.2565-5.3906h.0377c.3393 0 .6409-.1759.8168-.4397l7.891 1.5706zM1.935 11.6105c0-.0629-.0126-.1257-.0126-.1885l3.9079-2.2995c.0754.0754.1633.1508.2638.201L4.8252 20.243l-3.2043-7.9036c.1885-.176.3142-.4398.3142-.7288Z" fill="#005CED"/></g>
+<text x="430" y="908.0" text-anchor="middle" font-size="30" font-weight="700" fill="#005CED">ONNX</text>
+<text x="430" y="938.0" text-anchor="middle" font-size="21" fill="#5f6b7a">onnx-tf</text>
+<g transform="translate(642.0,792.0) scale(3.1667)"><path d="M1.292 5.856L11.54 0v24l-4.095-2.378V7.603l-6.168 3.564.015-5.31zm21.43 5.311l-.014-5.31L12.46 0v24l4.095-2.378V14.87l3.092 1.788-.018-4.618-3.074-1.756V7.603l6.168 3.564z" fill="#FF6F00"/></g>
+<text x="680" y="908.0" text-anchor="middle" font-size="30" font-weight="700" fill="#FF6F00">TFLite</text>
+<text x="680" y="938.0" text-anchor="middle" font-size="21" fill="#5f6b7a">fp16 변환</text>
+<g transform="translate(972.0,792.0) scale(3.1667)"><path d="M2.182 0C1 0 .037.94.002 2.114L0 2.182v6.545a2.182 2.182 0 0 0 4.364 0V2.182A2.182 2.182 0 0 0 2.182 0Zm6.545 0c-1.182 0-2.145.94-2.18 2.114l-.002.068v13.09a2.182 2.182 0 0 0 4.364 0V2.183A2.182 2.182 0 0 0 8.727 0Zm6.546 0a2.182 2.182 0 0 0-2.182 2.182 2.182 2.182 0 0 0 2.182 2.182 2.182 2.182 0 0 0 2.182-2.182A2.182 2.182 0 0 0 15.273 0Zm6.545 0c-1.182 0-2.145.94-2.18 2.114l-.002.068v19.636a2.182 2.182 0 0 0 4.364 0V2.182A2.182 2.182 0 0 0 21.818 0Zm-6.545 6.545c-1.183 0-2.145.94-2.181 2.114l-.001.068v13.091a2.182 2.182 0 0 0 4.364 0V8.728a2.182 2.182 0 0 0-2.182-2.183zM2.182 13.091c-1.182 0-2.145.94-2.18 2.114L0 15.273v6.545a2.182 2.182 0 0 0 4.364 0v-6.545a2.182 2.182 0 0 0-2.182-2.182zm6.545 6.545a2.182 2.182 0 0 0-2.182 2.182A2.182 2.182 0 0 0 8.727 24a2.182 2.182 0 0 0 2.182-2.182 2.182 2.182 0 0 0-2.182-2.182Z" fill="#0097A7"/></g>
+<text x="1010" y="908.0" text-anchor="middle" font-size="30" font-weight="700" fill="#0097a7">MediaPipe</text>
+<text x="1010" y="938.0" text-anchor="middle" font-size="21" fill="#5f6b7a">selfie_segmenter</text>
+<text x="520.0" y="116.0" text-anchor="middle" font-size="22" fill="#ffffff" stroke="#ffffff" stroke-width="7" stroke-linejoin="round">RenderRecipe</text>
+<text x="520.0" y="116.0" text-anchor="middle" font-size="22" fill="#51627d">RenderRecipe</text>
+<text x="1040.0" y="-42.0" text-anchor="middle" font-size="22" fill="#ffffff" stroke="#ffffff" stroke-width="7" stroke-linejoin="round">MethodChannel · WebP 인코딩</text>
+<text x="1040.0" y="-42.0" text-anchor="middle" font-size="22" fill="#51627d">MethodChannel · WebP 인코딩</text>
+<text x="520.0" y="288.0" text-anchor="middle" font-size="22" fill="#ffffff" stroke="#ffffff" stroke-width="7" stroke-linejoin="round">draft · 편집 기록</text>
+<text x="520.0" y="288.0" text-anchor="middle" font-size="22" fill="#51627d">draft · 편집 기록</text>
+<text x="520.0" y="416.0" text-anchor="middle" font-size="22" fill="#ffffff" stroke="#ffffff" stroke-width="7" stroke-linejoin="round">참조 256²</text>
+<text x="520.0" y="416.0" text-anchor="middle" font-size="22" fill="#51627d">참조 256²</text>
+<text x="694.0" y="365.0" text-anchor="start" font-size="22" fill="#ffffff" stroke="#ffffff" stroke-width="7" stroke-linejoin="round">65³ LUT · 인물 마스크</text>
+<text x="694.0" y="365.0" text-anchor="start" font-size="22" fill="#51627d">65³ LUT · 인물 마스크</text>
+<text x="870.0" y="416.0" text-anchor="middle" font-size="22" fill="#ffffff" stroke="#ffffff" stroke-width="7" stroke-linejoin="round">필터 저장</text>
+<text x="870.0" y="416.0" text-anchor="middle" font-size="22" fill="#51627d">필터 저장</text>
+<text x="694.0" y="650.0" text-anchor="start" font-size="22" fill="#ffffff" stroke="#ffffff" stroke-width="7" stroke-linejoin="round">앱 번들</text>
+<text x="694.0" y="650.0" text-anchor="start" font-size="22" fill="#51627d">앱 번들</text>
+<text x="1024.0" y="680.0" text-anchor="start" font-size="22" fill="#ffffff" stroke="#ffffff" stroke-width="7" stroke-linejoin="round">최초 다운로드</text>
+<text x="1024.0" y="680.0" text-anchor="start" font-size="22" fill="#51627d">최초 다운로드</text>
 </svg>
