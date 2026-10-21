@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="584" viewBox="0 0 1200 584" role="img" aria-labelledby="title desc">
+<title id="title">Memoria 아키텍처</title><desc id="desc">투명 배경의 구성도. 구성 요소와 연결 관계는 README 본문에서도 설명합니다.</desc>
+<style>text{font-family:"Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",Arial,sans-serif}</style>
+<defs><marker id="arrow" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0 0L9 4.5L0 9Z" fill="#91A6C2"/></marker></defs>
+<text x="40" y="42" font-size="28" font-weight="700" fill="#E7EDF6">Memoria</text>
+<text x="40" y="72" font-size="17" fill="#B2C0D4">주요 구성과 데이터 흐름</text>
+<rect x="40" y="124" width="300" height="146" rx="16" fill="#172638" stroke="#324B66" stroke-width="1.5"/>
+<text x="60" y="151" font-size="13" font-weight="700" fill="#B2C0D4">화면</text>
+<g transform="translate(60 171) scale(1.5)" fill="#57A5CE"><path d="M14.314 0L2.3 12 6 15.7 21.684.013h-7.357zm.014 11.072L7.857 17.53l6.47 6.47H21.7l-6.46-6.468 6.46-6.46h-7.37z"/></g>
+<text x="110" y="196" font-size="20" font-weight="700" fill="#E7EDF6">EditorPage</text>
+<text x="60" y="234" font-size="16" fill="#B2C0D4">도구 조작 · 적용 · 취소</text>
+<rect x="450" y="124" width="300" height="146" rx="16" fill="#172D28" stroke="#35594B" stroke-width="1.5"/>
+<text x="470" y="151" font-size="13" font-weight="700" fill="#B2C0D4">렌더 입력</text>
+<g transform="translate(470 171) scale(1.5)" fill="none" stroke="#8BA7C2" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2h9l4 4v16H6zM15 2v5h4M9 11h7M9 15h7M9 19h4"/></g>
+<text x="520" y="196" font-size="20" font-weight="700" fill="#E7EDF6">EditorRenderRecipe</text>
+<text x="470" y="234" font-size="16" fill="#B2C0D4">불변 편집 값</text>
+<rect x="860" y="124" width="300" height="146" rx="16" fill="#292239" stroke="#55446F" stroke-width="1.5"/>
+<text x="880" y="151" font-size="13" font-weight="700" fill="#B2C0D4">렌더링</text>
+<g transform="translate(880 171) scale(1.5)" fill="none" stroke="#8BA7C2" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="18" rx="2"/><circle cx="8" cy="8" r="2"/><path d="M3 18l6-6 4 4 4-5 4 6"/></g>
+<text x="930" y="196" font-size="20" font-weight="700" fill="#E7EDF6">EditorRenderer</text>
+<text x="880" y="234" font-size="16" fill="#B2C0D4">미리보기 · 원본 내보내기</text>
+<rect x="40" y="374" width="300" height="146" rx="16" fill="#172638" stroke="#324B66" stroke-width="1.5"/>
+<text x="60" y="401" font-size="13" font-weight="700" fill="#B2C0D4">로컬 저장</text>
+<g transform="translate(60 421) scale(1.5)" fill="none" stroke="#8BA7C2" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 4 18 4 18 0V5M3 12c0 4 18 4 18 0"/></g>
+<text x="110" y="446" font-size="20" font-weight="700" fill="#E7EDF6">History / Draft</text>
+<text x="60" y="484" font-size="16" fill="#B2C0D4">undo·redo · 사진별 복원</text>
+<rect x="450" y="374" width="300" height="146" rx="16" fill="#172D28" stroke="#35594B" stroke-width="1.5"/>
+<text x="470" y="401" font-size="13" font-weight="700" fill="#B2C0D4">온디바이스</text>
+<g transform="translate(470 421) scale(1.5)" fill="#E79A52"><path d="M1.292 5.856L11.54 0v24l-4.095-2.378V7.603l-6.168 3.564.015-5.31zm21.43 5.311l-.014-5.31L12.46 0v24l4.095-2.378V14.87l3.092 1.788-.018-4.618-3.074-1.756V7.603l6.168 3.564z"/></g>
+<text x="520" y="446" font-size="20" font-weight="700" fill="#E7EDF6">필터 생성과 AI</text>
+<text x="470" y="484" font-size="16" fill="#B2C0D4">TFLite · LUT · 인물 분할</text>
+<rect x="860" y="374" width="300" height="146" rx="16" fill="#292239" stroke="#55446F" stroke-width="1.5"/>
+<text x="880" y="401" font-size="13" font-weight="700" fill="#B2C0D4">출력</text>
+<g transform="translate(880 421) scale(1.5)" fill="#E78E7A"><path d="M7.508 0c-.287 0-.573 0-.86.002-.241.002-.483.003-.724.01-.132.003-.263.009-.395.015A9.154 9.154 0 0 0 4.348.15 5.492 5.492 0 0 0 2.85.645 5.04 5.04 0 0 0 .645 2.848c-.245.48-.4.972-.495 1.5-.093.52-.122 1.05-.136 1.576a35.2 35.2 0 0 0-.012.724C0 6.935 0 7.221 0 7.508v8.984c0 .287 0 .575.002.862.002.24.005.481.012.722.014.526.043 1.057.136 1.576.095.528.25 1.02.495 1.5a5.03 5.03 0 0 0 2.205 2.203c.48.244.97.4 1.498.495.52.093 1.05.124 1.576.138.241.007.483.009.724.01.287.002.573.002.86.002h8.984c.287 0 .573 0 .86-.002.241-.001.483-.003.724-.01a10.523 10.523 0 0 0 1.578-.138 5.322 5.322 0 0 0 1.498-.495 5.035 5.035 0 0 0 2.203-2.203c.245-.48.4-.972.495-1.5.093-.52.124-1.05.138-1.576.007-.241.009-.481.01-.722.002-.287.002-.575.002-.862V7.508c0-.287 0-.573-.002-.86a33.662 33.662 0 0 0-.01-.724 10.5 10.5 0 0 0-.138-1.576 5.328 5.328 0 0 0-.495-1.5A5.039 5.039 0 0 0 21.152.645 5.32 5.32 0 0 0 19.654.15a10.493 10.493 0 0 0-1.578-.138 34.98 34.98 0 0 0-.722-.01C17.067 0 16.779 0 16.492 0H7.508zm6.035 3.41c4.114 2.47 6.545 7.162 5.549 11.131-.024.093-.05.181-.076.272l.002.001c2.062 2.538 1.5 5.258 1.236 4.745-1.072-2.086-3.066-1.568-4.088-1.043a6.803 6.803 0 0 1-.281.158l-.02.012-.002.002c-2.115 1.123-4.957 1.205-7.812-.022a12.568 12.568 0 0 1-5.64-4.838c.649.48 1.35.902 2.097 1.252 3.019 1.414 6.051 1.311 8.197-.002C9.651 12.73 7.101 9.67 5.146 7.191a10.628 10.628 0 0 1-1.005-1.384c2.34 2.142 6.038 4.83 7.365 5.576C8.69 8.408 6.208 4.743 6.324 4.86c4.436 4.47 8.528 6.996 8.528 6.996.154.085.27.154.36.213.085-.215.16-.437.224-.668.708-2.588-.09-5.548-1.893-7.992z"/></g>
+<text x="930" y="446" font-size="20" font-weight="700" fill="#E7EDF6">Export Service</text>
+<text x="880" y="484" font-size="16" fill="#B2C0D4">isolate · 인코딩 · iOS bridge</text>
+<path d="M340,196 L442,196" fill="none" stroke="#91A6C2" stroke-width="2" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="391.0" y="182" text-anchor="middle" font-size="14" font-weight="600" fill="#B2C0D4" stroke="#0D1117" stroke-width="5" paint-order="stroke" stroke-linejoin="round">편집 상태</text>
+<path d="M750,196 L852,196" fill="none" stroke="#91A6C2" stroke-width="2" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="801.0" y="182" text-anchor="middle" font-size="14" font-weight="600" fill="#B2C0D4" stroke="#0D1117" stroke-width="5" paint-order="stroke" stroke-linejoin="round">공통 입력</text>
+<path d="M190,270 L190,366" fill="none" stroke="#91A6C2" stroke-width="2" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="190" y="313.0" text-anchor="middle" font-size="14" font-weight="600" fill="#B2C0D4" stroke="#0D1117" stroke-width="5" paint-order="stroke" stroke-linejoin="round">확정·복원</text>
+<path d="M600,374 L600,278" fill="none" stroke="#91A6C2" stroke-width="2" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="600" y="321.0" text-anchor="middle" font-size="14" font-weight="600" fill="#B2C0D4" stroke="#0D1117" stroke-width="5" paint-order="stroke" stroke-linejoin="round">필터·보정 값</text>
+<path d="M1010,270 L1010,366" fill="none" stroke="#91A6C2" stroke-width="2" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="1010" y="313.0" text-anchor="middle" font-size="14" font-weight="600" fill="#B2C0D4" stroke="#0D1117" stroke-width="5" paint-order="stroke" stroke-linejoin="round">전체 해상도</text>
+</svg>
