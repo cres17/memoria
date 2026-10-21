@@ -1,299 +1,116 @@
 <div align="center">
 
-<img src="assets/icons/memoria-mark.png" alt="Memoria — 주황빛 필름 프레임 로고" width="160" height="160" />
+<img src="assets/icons/memoria-mark.png" alt="Memoria 로고" width="140" height="140">
 
 # Memoria
 
-사진을 고르고, 색을 만들고, 다시 꺼내 쓸 수 있게 하는 모바일 사진 편집기
-
-[![iOS Build](https://github.com/cres17/memoria/actions/workflows/ios-build.yml/badge.svg?branch=main)](https://github.com/cres17/memoria/actions/workflows/ios-build.yml)
-![Flutter 3.44.6](https://img.shields.io/badge/Flutter-3.44.6-02569B?logo=flutter&logoColor=white)
-![Dart 3.12.2](https://img.shields.io/badge/Dart-3.12.2-0175C2?logo=dart&logoColor=white)
-![Swift](https://img.shields.io/badge/iOS-Swift-F05138?logo=swift&logoColor=white)
-![TensorFlow Lite](https://img.shields.io/badge/AI-TensorFlow_Lite-FF6F00?logo=tensorflow&logoColor=white)
-![PyTorch](https://img.shields.io/badge/Training-PyTorch-EE4C2C?logo=pytorch&logoColor=white)
-![ONNX](https://img.shields.io/badge/Conversion-ONNX-005CED?logo=onnx&logoColor=white)
+[![iOS Build](https://github.com/cres17/memoria/actions/workflows/ios-build.yml/badge.svg?branch=test/color-v3-fallback-routing)](https://github.com/cres17/memoria/actions/workflows/ios-build.yml?query=branch%3Atest%2Fcolor-v3-fallback-routing)
 [![MIT License](https://img.shields.io/badge/License-MIT-2EA44F)](LICENSE)
+![Flutter 3.44.6](https://img.shields.io/badge/Flutter%203.44.6-02569B?style=flat&logoColor=white&logo=flutter)
+![Dart](https://img.shields.io/badge/Dart-0175C2?style=flat&logoColor=white&logo=dart)
+![go_router](https://img.shields.io/badge/go__router-02569B?style=flat&logoColor=white)
+![LiteRT / TFLite](https://img.shields.io/badge/LiteRT%20%2F%20TFLite-FF6F00?style=flat&logoColor=white&logo=tensorflow)
+![MediaPipe](https://img.shields.io/badge/MediaPipe-0097A7?style=flat&logoColor=white&logo=mediapipe)
+![Swift](https://img.shields.io/badge/Swift-F05138?style=flat&logoColor=white&logo=swift)
+![Core Image](https://img.shields.io/badge/Core%20Image-000000?style=flat&logoColor=white)
+![SharedPreferences](https://img.shields.io/badge/SharedPreferences-4D5868?style=flat&logoColor=white)
+![Google AdMob](https://img.shields.io/badge/Google%20AdMob-EA4335?style=flat&logoColor=white&logo=googleadmob)
+![Python](https://img.shields.io/badge/Python-3776AB?style=flat&logoColor=white&logo=python)
+![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=flat&logoColor=white&logo=pytorch)
+![timm](https://img.shields.io/badge/timm-FFD21E?style=flat&logoColor=black)
+![ONNX](https://img.shields.io/badge/ONNX-005CED?style=flat&logoColor=white&logo=onnx)
+![TensorFlow](https://img.shields.io/badge/TensorFlow-FF6F00?style=flat&logoColor=white&logo=tensorflow)
+![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-2088FF?style=flat&logoColor=white&logo=githubactions)
 
 </div>
 
-Memoria가 하려는 일은 단순합니다. 사진에 필터를 한 번 씌우고 끝내는 대신, 한 장을 고르는 순간부터 보정하고 되돌리고 저장하는 과정까지 자연스럽게 이어지게 만드는 것입니다. 마음에 드는 사진의 색을 새 필터로 만들어 다음 사진에 다시 쓰는 기능도 같은 흐름 안에 넣었습니다.
+사진을 고르고 보정하고, 마음에 드는 사진의 색을 나만의 필터로 만들어 다시 쓰는 모바일 사진 편집 앱입니다. 모든 편집과 필터 생성은 서버 없이 기기 안에서 처리합니다. iOS 15.0 이상을 기준으로 개발 중이며 Android 프로젝트도 함께 들어 있습니다.
 
-사진 편집과 필터 추론은 사진을 서버에 업로드하지 않고 기기 안에서 처리합니다. 인물 분할 모델의 최초 다운로드에는 네트워크가 필요합니다.
+> 이 브랜치(`test/color-v3-fallback-routing`)는 `main`에서 갈라져 참조 사진의 색 범위를 먼저 검사하는 라우팅, 로컬로 줄인 `flutter_litert` 패키지, 편집 화면 분리, 실기기 검증 테스트를 추가한 작업 브랜치입니다.
 
-현재 release 후보는 iOS를 기준으로 검증합니다. Android 프로젝트도 함께 들어 있지만, 스토어 제출 전에는 Android signing·실기기 export도 별도로 통과해야 합니다. 릴리스 상태와 남은 외부 설정은 [`architecture-connectivity-code-quality-review.md`](docs/architecture-connectivity-code-quality-review.md)에서 관리합니다.
+- **편집**: Fuji 18종 · Leica 5종 LUT 필터, 노출 · 커브 · HSL 등 기본 보정, 크롭 · 원근, 부분 보정, 인물 영역 보정, 텍스트 · 프레임, undo/redo
+- **나만의 필터**: 참조 사진 1장, 여러 장, 또는 보정 전후 사진 한 쌍으로 65³ LUT 필터 생성. 참조 사진 1장의 색 범위가 부족하면 생성 전에 다른 사진을 고르도록 안내
+- **내보내기**: JPEG · PNG · TIFF · WebP(iOS), 원본 해상도, 사진 앱 저장과 공유
 
-iOS 최소 지원 버전은 **15.0**입니다. Xcode 27 빌드 지원 범위에 맞춰 조정했으며 iOS 13·14는 지원 대상에서 제외했습니다. 최소 사양 실기기의 메모리·내보내기 검증은 별도로 필요합니다.
+## 전체 아키텍처
 
-## 앱을 켜면 이렇게 흘러갑니다
+<p align="center">
+  <img src="docs/assets/readme/architecture.svg" alt="Memoria 전체 아키텍처" width="100%">
+</p>
 
-```mermaid
-flowchart LR
-    Launch[앱 실행] --> Splash[스플래시]
-    Splash --> Home[HOME]
-    Home -->|사진 선택| Editor[EDIT]
-    Home -->|필터 둘러보기| Gallery[GALLERY]
-    Gallery -->|필터 + 사진 선택| Editor
-    Home -->|나만의 필터| Create[CREATE β]
-    Create -->|필터 저장| Gallery
-    Create -->|바로 편집| Editor
-    Editor -->|적용 반복| Editor
-    Editor -->|저장| Photos[iOS Photos]
-    Editor -->|공유| Share[Share Sheet]
-```
-
-### 1. 앱이 뜨는 동안
-
-[`main.dart`](lib/main.dart)는 전역 Flutter/플랫폼 오류 경계를 설치한 뒤 즉시 화면을 그립니다. 오류 로그 저장소, GPU fallback, 저장 언어, 화면 방향·system UI, 커스텀 필터 모델, 인물 분할 모델과 개발용 광고 SDK는 첫 frame 뒤의 이름 있는 초기화 단계로 실행됩니다. 각 단계의 실패는 개별 기록되므로 앞 단계 하나가 실패해도 뒤 초기화는 계속됩니다.
-
-Flutter 오류와 플랫폼 오류는 [`ErrorLogger`](lib/core/error/error_handler.dart)로 모읍니다. 최근 500줄만 앱 지원 디렉터리에 남기며 사진이나 편집 결과를 서버로 전송하지 않습니다.
-
-### 2. HOME에서 사진을 고릅니다
-
-[`HomePage`](lib/features/home/home_page.dart)는 `image_picker`로 사용자의 사진을 고른 뒤 파일 경로를 `/editor` route에 전달합니다. 추천 룩을 먼저 고른 경우에는 사진 경로와 `presetId`를 함께 넘겨, 편집기가 열릴 때 해당 필터가 선택된 상태로 시작합니다.
-
-화면 이동은 [`GoRouter`](lib/core/router/app_router.dart)가 맡습니다. HOME과 GALLERY는 하단 내비게이션을 공유하고, EDIT·CREATE·설정은 각각 독립된 화면으로 올라옵니다. iOS에서는 같은 route라도 `CupertinoPage` 전환을 사용합니다.
-
-### 3. EDIT에서 도구를 하나씩 적용합니다
-
-편집 도구는 즉시 확정되지 않습니다. 도구를 열면 현재 상태를 백업하고, 슬라이더나 화면 터치로 바뀐 결과는 미리보기에서만 보입니다.
-
-- 오른쪽 위 체크를 누르면 `_saveToHistory()`가 현재 상태를 operation으로 남깁니다.
-- 왼쪽 위 뒤로 가기를 누르면 도구를 열기 전 백업으로 돌아갑니다.
-- 초기화는 편집 전체가 아니라 현재 열어 둔 도구만 중립값으로 돌립니다.
-- 다른 도구로 바로 이동하면 이전 도구는 암묵적으로 적용하지 않고 취소합니다.
-- 편집 화면 자체를 나갈 때는 전체 편집 취소 여부를 다시 묻습니다.
-
-이 transaction 동작은 [`editor_page_history.dart`](lib/features/editor/editor_page_history.dart)의 `_activateTool`, `_cancelActiveTool`, `_resetActiveTool`, `_applyActiveTool`에 모여 있습니다. 필터뿐 아니라 크롭, 인물 영역, 텍스트, 프레임, 부분 보정도 같은 규칙을 따르도록 맞췄습니다.
-
-### 4. 적용한 작업은 되돌릴 수 있습니다
-
-체크를 누를 때 만들어지는 [`EditorStateSnapshot`](lib/features/editor/editor_state_adapter.dart)은 단순히 “밝기 도구를 썼다”는 기록이 아닙니다. 그 시점의 보정값, 필터와 강도, 커브, 크롭·회전·반전, 인물 보정, 텍스트·프레임, 부분 보정 좌표, 브러시 stroke와 블러 상태를 immutable 값으로 보관합니다.
-
-[`EditorHistoryController`](lib/features/editor/editor_history_controller.dart)는 최대 100개의 작업과 현재 cursor를 보관합니다. 실행 취소는 목록을 지우는 대신 cursor를 한 칸 뒤로 옮기고, 다시 실행은 앞으로 옮깁니다. 실행 취소 후 새 작업을 적용하면 그 뒤에 있던 redo 구간만 잘라냅니다.
-
-편집 중 앱을 닫아도 돌아올 수 있도록 현재 snapshot은 [`EditorDraftStore`](lib/features/editor/editor_draft_store.dart)를 통해 500ms debounce 후 사진 경로별 키로 `SharedPreferences`에 draft로 저장됩니다. draft에는 선택한 필터뿐 아니라 크롭 영역, 캔버스 확장, 브러시 stroke와 로컬 효과도 포함됩니다.
-
-### 5. GALLERY는 사진첩이 아니라 필터 보관함입니다
-
-현재 GALLERY 탭의 역할은 사진 파일을 나열하는 것이 아니라 **Memoria에서 사용할 룩을 모아 두는 것**입니다. [`FiltersPage`](lib/features/filters/filters_page.dart)는 앱에 포함된 Fuji 18종·Leica 5종과 사용자가 만든 필터를 함께 보여줍니다.
-
-필터 카드를 누르면 다시 사진을 고르고, 선택한 `presetId`와 사진 경로를 편집기로 보냅니다. 사용자 필터는 앱 문서 디렉터리의 `filters/<id>/` 아래에 LUT, 썸네일, recipe와 metadata를 보관하며 여기서 삭제할 수 있습니다.
-
-## 사진 한 장은 내부에서 어떻게 처리되나요?
-
-편집 화면에는 속도가 필요한 미리보기와 품질이 필요한 내보내기라는 두 경로가 있습니다. 둘은 같은 `EditorRenderRecipe`와 `EditorRenderer`를 사용하고, 실행 수명주기만 preview scheduler와 export service로 나뉩니다.
-
-```mermaid
-flowchart TD
-    Source[원본 파일] --> Decode[원본 decode]
-    Decode --> PreviewBase[최대 720px preview base]
-    PreviewBase --> PreviewCache{같은 상태가<br/>캐시에 있나?}
-    PreviewCache -->|있음| Screen[화면 표시]
-    PreviewCache -->|없음| PreviewWorker[preview isolate]
-    PreviewWorker --> Pipeline[공통 이미지 엔진 함수]
-    Pipeline --> Screen
-
-    Decode --> ExportWorker[full-resolution export isolate]
-    ExportWorker --> Pipeline
-    Pipeline --> Encoder{출력 형식}
-    Encoder -->|JPEG / PNG / TIFF| DartEncoder[Dart encoder]
-    DartEncoder --> Destination[Photos 또는 Share Sheet]
-
-    ToolState[EditorEditState] --> Recipe[EditorRenderRecipe]
-    Recipe --> PreviewWorker
-    Recipe --> ExportWorker
-    ToolState --> History[EditorHistoryController / draft]
-```
-
-### 미리보기 경로
-
-원본은 처음 한 번 decode한 뒤 메모리에 보관합니다. 크롭·회전처럼 사진의 모양을 바꾸는 작업을 먼저 계산하고, 긴 변을 최대 720px로 줄인 preview base를 만듭니다. 이후 LUT, 기본 보정, 예술 효과, 부분 보정, 브러시, 블러, 인물 영역, 이중 노출, 프레임과 텍스트를 [`_previewWorker`](lib/features/editor/editor_page_widgets.dart)에서 처리합니다.
-
-슬라이더 입력은 32ms debounce를 거칩니다. 이미 렌더 중일 때 새 입력이 오면 작업을 무한히 쌓지 않고 마지막 요청 하나만 pending 상태로 남깁니다. 이전 요청의 결과가 늦게 도착하면 render token을 비교해 버립니다. 같은 사진·같은 파라미터 조합은 최대 24개의 LRU 성격 캐시에 보관합니다.
-
-인물 영역 보정이 켜졌을 때만 TFLite segmenter를 실행합니다. interpreter는 isolate 사이에 안전하게 이동할 수 없어서 segmentation은 main isolate에서 처리하고, 결과인 `Float32List` 마스크만 preview worker로 넘깁니다.
-
-### 내보내기 경로
-
-저장할 때는 720px preview를 키우지 않고 원본 파일을 다시 decode합니다. [`EditorExportService`](lib/features/editor/editor_export_service.dart)의 isolate worker가 crop/expand → rotate/flip/perspective → LUT와 색 보정 → 로컬·블러 → 인물 → creative overlay 순으로 전체 해상도에 적용합니다.
-
-JPEG·PNG·TIFF는 [`ExportEncoder`](lib/engine/export_encoder.dart)가 worker 안에서 바로 만듭니다. WebP는 v1 release format이 아닙니다. 지원 여부를 감지하는 native bridge는 미래의 encoder 도입을 위한 안전 경계이며, 지원되지 않은 환경에서는 WebP를 선택할 수 없고 JPEG로 정규화됩니다.
-
-메모리가 부족하면 원본 크기, 긴 변 4096px, 2048px 순으로 다시 시도합니다. 진행률과 취소 신호를 UI에 보내며, 성공·실패·취소 어느 경우든 임시 파일과 isolate를 정리합니다. 최종 파일은 `gal`로 Photos에 저장하거나 `share_plus`로 Share Sheet에 전달합니다.
-
-## 나만의 필터는 어떻게 만들어지나요?
-
-CREATE는 아직 `BETA` 표시를 유지합니다. 화면만 베타인 것이 아니라 생성 결과의 미관과 실기기 성능을 계속 검증하는 단계라는 뜻입니다.
-
-```mermaid
-flowchart TD
-    Picker[최근 사진 / 이미지 선택] --> Mode{만드는 방식}
-    Mode -->|참조 사진 1장| Direct[Direct MVP TFLite]
-    Mode -->|참조 사진 2~5장| Fusion[통계 기반 reference fusion]
-    Mode -->|Before + After| Pair[affine + residual grid fitting]
-    Direct --> LUT17[17³ LUT 예측]
-    LUT17 --> LUT65[65³ LUT로 보간]
-    Fusion --> LUT65
-    Pair --> LUT65
-    LUT65 --> Safety[범위·smoothness·identity 안전 제약]
-    Safety --> Preview[샘플 미리보기 생성]
-    Preview -->|성공| Commit[LUT + recipe + metadata 저장]
-    Preview -->|실패/취소| Rollback[새 폴더와 임시 결과 삭제]
-    Commit --> Gallery[GALLERY에서 재사용]
-```
-
-[`CreateFilterPage`](lib/features/create_filter/create_filter_page.dart)는 최근 사진 권한과 선택 상태, 생성 진행률, 성공 sheet를 담당합니다. 실제 생성 작업은 [`IsolateCreateFilterGenerator`](lib/features/create_filter/create_filter_services.dart)가 별도 isolate에서 실행합니다. 45초 timeout, 사용자 취소, worker 비정상 종료를 구분하고 완료되지 않은 필터 디렉터리를 정리합니다.
-
-생성 방식은 세 가지입니다.
-
-1. **참조 사진 한 장**
-   번들된 Direct MVP 모델이 256×256 입력에서 17³ LUT를 예측합니다. [`LutPredictor`](lib/ai/models/lut_predictor.dart)가 이를 앱의 표준인 65³, R-fastest 배열로 보간합니다. 모델 파일은 크기와 SHA-256을 확인한 뒤 사용합니다. inference가 실패하면 생성 자체를 막지 않고 알고리즘 경로로 내려가며, 그 이유는 recipe에 남깁니다.
-
-2. **참조 사진 여러 장**
-   현재 neural model은 다중 참조를 직접 받지 않습니다. 대신 사진별 색 분포와 룩 거리를 계산하고, 지나치게 다른 참조를 다루는 규칙과 confidence를 포함한 algorithmic fusion을 사용합니다. 제외된 사진 수와 신뢰도는 완료 화면의 안내에도 반영됩니다.
-
-3. **Before / After 한 쌍**
-   [`personal_filter_core.dart`](lib/engine/personal_filter_core.dart)가 대응 pixel sample에서 전역 affine color transform을 먼저 맞추고, 남은 오차는 작은 3D residual grid로 학습합니다. ridge regularization, smoothing과 residual clip을 적용한 뒤 65³ LUT로 굽습니다.
-
-세 경로 모두 [`FilterRecipe`](lib/domain/models/filter_recipe.dart)에 생성기 종류, engine/model version, 참조 수, LUT 강도, 안전성 지표와 fallback 이유를 기록합니다. 썸네일 렌더까지 성공해야 [`FilterCommitTransaction`](lib/features/create_filter/create_filter_services.dart)이 metadata index에 필터를 추가합니다.
-
-## 기술별 역할
-
-| 기술 | 현재 맡는 역할 |
-|------|----------------|
-| Flutter · go_router | 화면 구성과 HOME/GALLERY shell, 독립 편집·필터 제작 화면, iOS 화면 전환 |
-| Dart · isolate | 공통 이미지 엔진을 미리보기·원본 해상도 내보내기 worker에서 실행 |
-| LiteRT / TFLite | 번들 Direct MVP 모델로 단일 참조 사진의 LUT를 예측 |
-| MediaPipe Selfie Segmenter | 사람 전체 영역을 분할해 인물 영역 보정 마스크 생성 |
-| Swift · Core Image · ImageIO | MethodChannel과 네이티브 LUT·인코더 지원 경계. WebP는 현재 v1 출시 형식에서 제외 |
-| SharedPreferences · JSON 파일 | 편집 draft·설정과 사용자 필터 metadata/index 저장 |
-| Python · PyTorch · timm · ONNX · TensorFlow | 개발 환경에서 모델 학습·평가·모바일 형식 변환 |
-| GitHub Actions | 의존성 고정 설치, 정적 분석, 테스트, 서명 없는 iOS 빌드 검증 |
-
-### 학습에서 앱 추론까지
-
-[`ml_pipeline/`](ml_pipeline/)은 앱과 별도로 실행하는 모델 개발 도구입니다. [`20_train_conditional_lut_mvp.py`](ml_pipeline/20_train_conditional_lut_mvp.py)에서 조건부 LUT 모델을 학습하며, encoder는 timm 기반 MobileNetV3를 사용합니다.
-
-선택한 checkpoint는 [`34_export_direct_mvp_onnx.py`](ml_pipeline/34_export_direct_mvp_onnx.py)에서 ONNX로 내보내고 PyTorch 출력과 비교합니다. [`35_convert_direct_mvp_tflite.py`](ml_pipeline/35_convert_direct_mvp_tflite.py)는 onnx-tf의 SavedModel을 거쳐 fp16 가중치 TFLite로 변환하고 출력 오차를 검사합니다. [`36_benchmark_direct_mvp_tflite.py`](ml_pipeline/36_benchmark_direct_mvp_tflite.py)는 변환 모델의 추론 시간을 측정합니다. 이 개발 환경 측정을 실기기 성능으로 간주하지 않습니다.
-
-앱에서는 변환된 모델을 번들해 LiteRT로 추론하므로 Python이나 학습 서버가 필요하지 않습니다. 인물 보정에 쓰는 MediaPipe Selfie Segmenter는 별도 모델이며, [`AiManager`](lib/ai/ai_manager.dart)가 최초 다운로드 시 HTTP 상태·크기·SHA-256을 검증한 뒤 설치합니다.
-
-### 광고 코드의 범위
-
-[`lib/monetization/`](lib/monetization/)에는 `google_mobile_ads` 연동 코드가 있습니다. 광고 flag는 기본적으로 꺼져 있고 release 빌드에서도 비활성화됩니다. 현재 v1은 광고 없이 출시하도록 구성돼 있습니다.
-
-## 코드 구조
+| 흐름 | 설명 |
+|------|------|
+| 편집 | 편집기가 현재 보정값을 불변 `EditorRenderRecipe`로 묶어 이미지 엔진에 넘기고, 미리보기(긴 변 720px)와 원본 해상도 내보내기를 각각 별도 isolate에서 렌더링 |
+| 기록 · 복구 | 적용한 작업은 `EditorHistoryController`가 최대 100개까지 보관하고, 편집 중 상태는 500ms debounce 후 `EditorDraftStore`가 SharedPreferences에 저장 |
+| 색 범위 검사 | 참조 사진 1장이 17³ RGB 격자 색의 3% 미만만 덮으면 `LowReferenceCoverageException`으로 생성을 중단하고 다른 사진을 고르게 안내 |
+| 필터 제작 | 검사를 통과한 참조 사진을 LiteRT 모델에 넣어 17³ LUT를 예측하고 65³로 보간, 썸네일 렌더까지 성공하면 LUT와 recipe를 `filters/<id>/`에 저장 |
+| 인물 보정 | MediaPipe Selfie Segmenter(landscape)로 사람 영역 마스크를 만들어 부드럽게 · 밝기 · 색조 보정에 사용 |
+| 내보내기 | JPEG · PNG · TIFF는 Dart 인코더, WebP는 MethodChannel로 Swift의 ImageIO에 넘겨 인코딩 |
+| 모델 준비 | `ml_pipeline`에서 PyTorch로 학습 → ONNX → TFLite(fp16)로 변환해 앱에 번들 |
 
 ```text
 lib/
-├── main.dart, app.dart          앱 부팅, 전역 오류 처리, 테마와 router
-├── core/                        route, shell, 언어, 테마, 권한·내보내기 설정
-├── features/
-│   ├── home/                    사진 선택과 시작 화면
-│   ├── editor/                  편집 transaction, preview/export orchestration
-│   ├── create_filter/           필터 제작 UI와 worker/commit 서비스
-│   ├── filters/                 내장·사용자 필터 보관함
-│   └── settings/                내보내기와 앱 설정
-├── domain/
-│   ├── models/                  FilterRecipe와 editor value models
-│   └── repositories/            저장 방식과 무관한 repository 계약
-├── data/repositories/           JSON 파일·SharedPreferences 저장 구현
-├── engine/                      LUT, 색, crop, local, blur, portrait, export
-├── ai/                          모델 설치 상태와 TFLite wrapper
-└── monetization/                광고 flag와 표시 서비스
-
-ios/Runner/                      Swift MethodChannel과 iOS 설정
-assets/luts/                     Fuji·Leica 65³ half-float LUT
-assets/models/                   번들 Direct MVP TFLite
-ml_pipeline/                     데이터 감사, 학습, holdout 평가, 변환·벤치마크
-test/                            unit/widget/contract 테스트
-integration_test/                실제 EditorPage 화이트박스·성능 시나리오
+├── features/        home · editor · create_filter · filters · settings 화면과 서비스
+│   └── editor/      page_shell · runtime · controls · menus · history 등으로 나눈 편집 화면
+├── engine/          LUT · 색 · 참조 색 범위 검사 · crop · blur · portrait · export 엔진 (Flutter 위젯 의존 없음)
+├── ai/              모델 설치 상태 관리와 TFLite 입출력 래퍼
+├── domain/          EditOperation, FilterRecipe 모델과 저장소 계약
+├── data/            JSON 파일 · SharedPreferences 저장 구현
+├── core/            라우터 · 테마 · 언어 · 오류 로그 · 시작 단계(startup)
+└── monetization/    광고 flag와 배너 · 전면 광고
+ios/Runner/          LutEnginePlugin.swift (MethodChannel)
+third_party/         Interpreter 런타임만 남긴 flutter_litert 3.8.0 로컬 패키지
+ml_pipeline/         데이터 생성 · 학습 · 평가 · ONNX/TFLite 변환 스크립트
 ```
 
-### 경계가 나뉘는 기준
+## 각 기술 설명
 
-- `features`는 사용자의 입력과 화면 상태를 다룹니다. 이미지 수학을 직접 구현하지 않는 것이 원칙입니다.
-- `engine` 함수는 Flutter widget을 몰라도 실행할 수 있습니다. 그래서 작은 fixture로 빠르게 테스트할 수 있고 isolate에서도 재사용합니다.
-- `domain`은 편집 기록과 필터가 어떤 데이터여야 하는지 정의합니다.
-- `data`는 그 데이터를 파일이나 preferences에 어떻게 보관할지 결정합니다.
-- `ai`는 모델 파일의 생명주기와 tensor 입출력을 감쌉니다. UI는 interpreter shape를 직접 알 필요가 없습니다.
-- iOS native 코드는 플랫폼에서만 가능한 변환과 Core Image 실험 경계를 담당합니다.
+### Flutter · go_router
 
-## 지금 구조를 솔직히 말하면
+화면은 HOME · GALLERY(필터 보관함) · EDIT · CREATE · 설정으로 나뉩니다. `core/router/app_router.dart`의 GoRouter가 HOME과 GALLERY는 하단 내비게이션을 공유하는 shell로, EDIT과 CREATE는 독립 화면으로 띄우며 iOS에서는 `CupertinoPage` 전환을 씁니다. 오류 로그 · 언어 · 모델 설치 같은 초기화는 `core/startup/app_startup.dart`의 이름 있는 단계로 첫 화면 뒤에 실행하고, 한 단계가 실패해도 기록만 남기고 다음 단계를 계속합니다. 설정에는 개인정보 처리방침 · 고객 지원 화면(`legal_support_pages.dart`)이 있습니다.
 
-[`EditorPage`](lib/features/editor/editor_page.dart)는 state/lifecycle 진입점입니다. transaction/history, runtime·preview, controls, shell, menus, widgets는 책임별 파일로 분리되어 private 계약을 보존합니다. 26개 도구 정의는 단일 `EditorToolCatalog`, 임시 적용/취소 수명은 `EditorToolTransactionController`, 실제 편집값은 [`EditorEditState`](lib/features/editor/editor_edit_state.dart)가 소유합니다. immutable 변환은 `EditorStateSnapshot`, export publish는 [`EditorMediaExportCoordinator`](lib/features/editor/editor_media_export_coordinator.dart)가 담당합니다. `CreateFilterPage`도 생성 흐름, 주입 가능한 reference analyzer와 단계/결과 UI를 분리했습니다.
+### 이미지 엔진 (Dart · isolate)
 
-## 지원하는 편집 기능
+`lib/engine/`의 순수 Dart 함수들이 픽셀 연산을 담당합니다. LUT 적용(`lut_engine.dart`), 화이트밸런스 · HSL · 커브, 블러 · 브러시 · dodge/burn, 원근 변환, 인물 마스크 기반 보정, 프레임 · 텍스트 합성이 여기에 있습니다. 위젯에 의존하지 않기 때문에 미리보기 isolate와 내보내기 isolate가 같은 코드를 쓰고, 작은 fixture로 단위 테스트할 수 있습니다. 미리보기는 같은 상태의 결과를 캐시해 반복 렌더링을 줄입니다.
 
-- **필터**: Original, Fuji 18종, Leica 5종, 사용자 필터, LUT 강도와 즐겨찾기
-- **기본 보정**: 노출, 대비, 하이라이트·그림자, 채도, 색온도·틴트, HSL, RGB/휘도 커브
-- **디테일과 질감**: 선명도, 구조, clarity, 그레인, 노이즈 감소, 글로우, 비네팅
-- **공간 편집**: 자유/고정 비율 크롭, 회전, 좌우·상하 반전, 원근, 검정·흰색 확장
-- **부분 보정**: 지점 선택 보정, dodge/burn stroke, 틸트 시프트, 원형 초점 흐림
-- **인물 영역**: 사람 segmentation mask 기반 부드럽게, 밝기, 색조
-- **creative**: 드라마/HDR 룩, light leak, halation, 이중 노출, 프레임, 텍스트
-- **내보내기**: JPEG, PNG, TIFF, 품질 설정, 진행률, 취소, 저장과 공유
+### 참조 색 범위 검사 (reference_coverage_router)
 
-기능 이름도 실제 구현 수준에 맞췄습니다. 인물 보정은 얼굴 피부 전용 인식이 아니라 사람 전체 영역 분할이고, 원형 초점 흐림은 카메라 depth가 아닌 화면 중심 거리 map을 사용합니다. 진짜 RAW/DNG 현상과 healing/clone은 현재 제품 기능으로 내놓지 않습니다.
+참조 사진 1장으로 필터를 만들 때, 모델을 돌리기 전에 `engine/reference_coverage_router.dart`가 별도 isolate에서 사진의 색 분포를 셉니다. 사진 픽셀을 HSV 기준 색조 24 × 채도 4 × 명도 3칸(무채색은 명도 3칸)으로 나눠 센 뒤, 17³ RGB 격자의 4,913개 색마다 그 색이 속한 칸에 사진 픽셀이 32개 이상 있는지 확인해 비율을 냅니다. 이 비율이 3% 미만이면 모델이 사진에 없는 색을 추측해야 하는 범위가 너무 넓다고 보고 생성을 멈춘 뒤, "여러 색상과 밝기가 포함된 사진을 선택해 주세요" 안내와 다른 사진 선택 버튼을 띄웁니다. 사진을 읽지 못하는 등 검사 자체가 실패하면 기록만 남기고 기존 생성 경로로 진행합니다.
 
-## 개발 환경에서 실행하기
+### LiteRT (flutter_litert) — 나만의 필터
 
-Flutter와 Dart 버전은 CI와 맞추는 것이 가장 안전합니다.
+`CreateFilterPage`에서 고른 방식에 따라 LUT를 만듭니다. `flutter_litert`는 pub.dev 패키지 대신 `third_party/flutter_litert`의 로컬 사본(3.8.0+memoria.3)을 씁니다. 원본 3.8.0에 함께 들어 있는 LiteRT Next 런타임이 iOS에서 Objective-C 클래스를 중복시키고 Android에 쓰지 않는 네이티브 라이브러리를 더하기 때문에, 기존 Interpreter 런타임만 남겼습니다. 생성 작업은 `IsolateCreateFilterGenerator`가 별도 isolate에서 45초 제한으로 실행하며, 취소나 실패 시 만들던 폴더를 지웁니다.
 
-- Flutter `3.44.6`
-- Dart `3.12.2`
-- iOS: Xcode (Swift Package Manager)
+| 방식 | 구현 |
+|------|------|
+| 참조 사진 1장 | 번들 모델 `direct_mvp_color_transfer_fp16.tflite`가 256×256 입력에서 17³ LUT를 예측하고 `LutPredictor`가 65³로 보간. 모델 파일은 크기와 SHA-256을 확인한 뒤 사용 |
+| 참조 사진 2~5장 | 사진별 색 분포를 통계적으로 합치는 알고리즘 방식 (다중 입력 모델은 없음) |
+| Before / After 한 쌍 | `personal_filter_core.dart`가 대응 픽셀로 전역 affine 색 변환을 맞추고, 남은 오차를 작은 3D residual grid로 학습한 뒤 65³ LUT로 변환 |
 
-```bash
-git clone https://github.com/cres17/memoria.git
-cd memoria
-flutter pub get --enforce-lockfile
-flutter run -d <device-id>
-```
+추론이 실패하면 알고리즘 경로로 대체하고 그 이유를 `FilterRecipe`에 남깁니다. recipe에는 생성 방식 · 모델 버전 · 참조 수 · 안전성 지표가 함께 기록됩니다.
 
-### 앱 아이콘과 인앱 로고
+### MediaPipe Selfie Segmenter
 
-선택한 필름 프레임 로고는 시작 화면·홈·앱 정보와 이 문서 상단에서 공유합니다. iOS·Android·웹·Windows용 아이콘은 같은 원본에서 생성합니다. 원본과 생성 방법은 [브랜딩 안내](docs/branding.md)에 정리했습니다.
+인물 영역 보정에 쓰는 분할 모델입니다. 앱에 번들하지 않고, `ai_manager.dart`가 처음 필요할 때 Google Storage의 `selfie_segmenter_landscape.tflite`(float16)를 30초 제한으로 내려받아 저장합니다. 결과는 얼굴 피부가 아니라 사람 전체 영역 마스크입니다.
 
-## 테스트와 출시 확인
+### Swift · Core Image · ImageIO
 
-```bash
-flutter analyze --no-fatal-infos
-flutter test --coverage --reporter compact
-# 시뮬레이터에서 실행할 네 가지 결정적 회귀 테스트
-IOS_SIMULATOR_ID='<ios-simulator-id>'
-for suite in settings_recovery_ui editor_whitebox_device editor_performance ios_native_webp; do
-  XCODE_XCCONFIG_FILE="$PWD/ios/Flutter/SimulatorCI.xcconfig" \
-    flutter test "integration_test/${suite}_test.dart" \
-      --device-id "$IOS_SIMULATOR_ID" --reporter compact || exit 1
-done
+`ios/Runner/LutEnginePlugin.swift`가 `com.memoria/lut_engine` MethodChannel을 엽니다. Core Image의 `CIColorCube`로 LUT를 적용하는 네이티브 경로와, Dart에 인코더가 없는 WebP를 ImageIO(`CGImageDestination`)로 저장하는 경로를 제공합니다. Dart 쪽에서는 PNG 중간 파일을 넘깁니다.
 
-# 실기기 성능 측정은 별도 profile 실행
-flutter drive --profile \
-  --driver test_driver/editor_performance_driver.dart \
-  --target integration_test/editor_performance_test.dart \
-  -d <physical-ios-device-id> --publish-port
-```
+### SharedPreferences · JSON 파일
 
-검증 결과는 실행한 브랜치와 환경을 구분해 기록합니다.
+편집 기록(`EditOperation` snapshot)과 화면 상태는 사진 경로별 키로 SharedPreferences에 draft로 저장해, 앱을 닫았다 열어도 이어서 편집할 수 있습니다. 사용자 필터는 앱 문서 디렉터리의 `filters/<id>/`에 LUT · 썸네일 · recipe · metadata 파일로 보관하고, `FilterCommitTransaction`이 썸네일 생성까지 끝난 필터만 목록 index에 추가합니다.
 
-- **main 원격 CI 기록**: 2026-10-20, 병합 커밋 `ee6f75d8d`의 [iOS Build 실행](https://github.com/cres17/memoria/actions/runs/39415097270)에서 unit/widget 테스트 474개, simulator debug 빌드, unsigned release 빌드와 산출물 업로드가 통과했습니다. 외부 로컬 모델이 필요한 기존 테스트는 fixture 미존재 안내를 출력합니다. 이 실행은 simulator integration suite를 실행한 증거가 아닙니다.
-- **정적 분석**: 같은 main CI는 error/warning 없이 통과했고, informational lint 138건이 남아 있습니다. `--no-fatal-infos` 통과를 모든 lint가 0건이라는 뜻으로 해석하지 않습니다.
-- **현재 로컬 작업 트리**: main에 없는 simulator integration 단계와 실기기 검증 도구를 포함합니다. 전체 `integration_test/` 디렉터리를 한 번에 실행하지 않고, 위에 적은 네 suite와 실제 기기가 필요한 시나리오를 분리합니다.
-- **서명·실기기**: 위 원격 산출물은 서명 없는 앱입니다. 서명 IPA, 실제 Photos/share 완료, 저메모리 기기 검증은 [별도 검증 안내](docs/ios-signing-device-validation-2026-10-01.md)를 따라 확인해야 합니다.
+### PyTorch · ONNX · TensorFlow Lite (ml_pipeline)
 
-시뮬레이터 debug 수치는 개발 중 회귀를 찾는 용도입니다. 실제 출시 성능은 profile/release로 빌드한 iPhone에서 다시 측정합니다.
+번호 순 스크립트로 데이터 준비 · 학습 · 평가 · 변환을 진행합니다. LUT 수집과 학습 데이터 생성(`1_`, `2_`, `4_`, `5_`)부터 조건부 LUT 모델 학습(`20_train_conditional_lut_mvp.py`)과 평가 · 홀드아웃 비교를 거쳐, `34_`에서 `torch.onnx.export`로 ONNX를 만들고 `35_`에서 onnx-tf로 SavedModel을 거쳐 `TFLiteConverter`로 fp16 TFLite를 만듭니다. 인코더는 timm의 `mobilenetv3_small_100`입니다. `36_`은 변환된 모델의 추론 속도를 측정합니다.
 
-더 자세한 설계·검증 기록은 아래 문서에 남겨 두었습니다.
+이 브랜치는 `37_`~`53_` 스크립트로 color-v3 검증을 이어 갑니다. LUT 축 순서 계약(`lut_axis_contract.py`)과 Canon LUT 색 계약(`canon_color_contract.py`) 감사, axis-v2 데이터셋의 다중 seed 검증, 참조 색 범위 기준의 fallback 평가(`44_`~`51_`), 배포본 parity 요약(`52_`), 앱의 Dart 알고리즘 fallback 비교(`53_`)가 있습니다. `TRAINING_PROGRESS.md` 기준으로 axis-v2는 G0~G3를 통과했지만 3-seed 검증에서 보간 대비 우위를 통계적으로 확인하지 못해(G4 실패) test 평가와 배포 승격을 멈추고 원인을 진단하는 단계입니다.
 
-- [퍼블리시 체크리스트](PUBLISH_CHECKLIST.md)
-- [최종 프로덕션 준비도 감사](docs/final-production-readiness-review.md)
-- [아키텍처·연결성·코드 품질 평가](docs/architecture-connectivity-code-quality-review.md)
-- [편집기 화이트박스 검증 계획](docs/editor-whitebox-validation-plan.md)
-- [필터 생성 연결성 감사](docs/create-filter-gap-review.md)
-- [온디바이스 참조 룩 설계](docs/on-device-reference-look-design.md)
+### google_mobile_ads
 
-## 라이선스
+`lib/monetization/`의 배너 · 전면 광고 위젯입니다. `feature_flags_service.dart`의 flag로 필터 제작 후 · 적용/내보내기 후 전면 광고 노출 여부를 따로 제어합니다. 광고 SDK 초기화는 release가 아닌 빌드에서만 실행합니다.
 
-[MIT License](LICENSE) · Maintainer [@cres17](https://github.com/cres17)
+### 테스트 · GitHub Actions
+
+`test/`에는 엔진 · recipe · history · draft의 단위 테스트와 위젯 테스트가, `integration_test/`에는 실제 `EditorPage`를 띄우는 시나리오가 있습니다. `integration_test/`에는 WebP 네이티브 인코딩 · 4K 내보내기 · 사진 권한 · 공유 완료 · 인물 보정 메모리를 확인하는 실기기용 테스트도 있습니다. `ios-build.yml`은 `main`과 이 브랜치에서 macOS runner로 Flutter 3.44.6을 설치해 잠긴 의존성 설치 → 필수 asset 테스트 → `flutter analyze` → 서명 설정 테스트 → `flutter test --coverage` → iOS 시뮬레이터 통합 테스트 → 서명 없는 release 빌드와 IPA artifact 업로드를 실행합니다.
