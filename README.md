@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="assets/icons/memoria-mark.png" alt="Memoria — 주황빛 필름 프레임 로고" width="160" height="160" />
+
 # Memoria
 
 사진을 고르고, 색을 만들고, 다시 꺼내 쓸 수 있게 하는 모바일 사진 편집기
@@ -9,11 +11,15 @@
 ![Dart 3.12.2](https://img.shields.io/badge/Dart-3.12.2-0175C2?logo=dart&logoColor=white)
 ![Swift](https://img.shields.io/badge/iOS-Swift-F05138?logo=swift&logoColor=white)
 ![TensorFlow Lite](https://img.shields.io/badge/AI-TensorFlow_Lite-FF6F00?logo=tensorflow&logoColor=white)
+![PyTorch](https://img.shields.io/badge/Training-PyTorch-EE4C2C?logo=pytorch&logoColor=white)
+![ONNX](https://img.shields.io/badge/Conversion-ONNX-005CED?logo=onnx&logoColor=white)
 [![MIT License](https://img.shields.io/badge/License-MIT-2EA44F)](LICENSE)
 
 </div>
 
 Memoria가 하려는 일은 단순합니다. 사진에 필터를 한 번 씌우고 끝내는 대신, 한 장을 고르는 순간부터 보정하고 되돌리고 저장하는 과정까지 자연스럽게 이어지게 만드는 것입니다. 마음에 드는 사진의 색을 새 필터로 만들어 다음 사진에 다시 쓰는 기능도 같은 흐름 안에 넣었습니다.
+
+사진 편집과 필터 추론은 사진을 서버에 업로드하지 않고 기기 안에서 처리합니다. 인물 분할 모델의 최초 다운로드에는 네트워크가 필요합니다.
 
 현재 release 후보는 iOS를 기준으로 검증합니다. Android 프로젝트도 함께 들어 있지만, 스토어 제출 전에는 Android signing·실기기 export도 별도로 통과해야 합니다. 릴리스 상태와 남은 외부 설정은 [`architecture-connectivity-code-quality-review.md`](docs/architecture-connectivity-code-quality-review.md)에서 관리합니다.
 
@@ -64,9 +70,9 @@ Flutter 오류와 플랫폼 오류는 [`ErrorLogger`](lib/core/error/error_handl
 
 체크를 누를 때 만들어지는 [`EditorStateSnapshot`](lib/features/editor/editor_state_adapter.dart)은 단순히 “밝기 도구를 썼다”는 기록이 아닙니다. 그 시점의 보정값, 필터와 강도, 커브, 크롭·회전·반전, 인물 보정, 텍스트·프레임, 부분 보정 좌표, 브러시 stroke와 블러 상태를 immutable 값으로 보관합니다.
 
-[`EditorHistoryController`](lib/features/editor/editor_history_controller.dart)는 snapshot 목록과 `undoCursor`를 보관합니다. 실행 취소는 목록을 지우는 대신 cursor를 한 칸 뒤로 옮기고, 다시 실행은 앞으로 옮깁니다. 실행 취소 후 새 작업을 적용하면 그 뒤에 있던 redo 구간만 잘라냅니다.
+[`EditorHistoryController`](lib/features/editor/editor_history_controller.dart)는 최대 100개의 작업과 현재 cursor를 보관합니다. 실행 취소는 목록을 지우는 대신 cursor를 한 칸 뒤로 옮기고, 다시 실행은 앞으로 옮깁니다. 실행 취소 후 새 작업을 적용하면 그 뒤에 있던 redo 구간만 잘라냅니다.
 
-편집 중 앱을 닫아도 돌아올 수 있도록 현재 snapshot은 [`EditorDraftStore`](lib/features/editor/editor_draft_store.dart)를 통해 debounce 후 `SharedPreferences`에 draft로 저장됩니다. draft에는 선택한 필터뿐 아니라 크롭 영역, 캔버스 확장, 브러시 stroke와 로컬 효과도 포함됩니다.
+편집 중 앱을 닫아도 돌아올 수 있도록 현재 snapshot은 [`EditorDraftStore`](lib/features/editor/editor_draft_store.dart)를 통해 500ms debounce 후 사진 경로별 키로 `SharedPreferences`에 draft로 저장됩니다. draft에는 선택한 필터뿐 아니라 크롭 영역, 캔버스 확장, 브러시 stroke와 로컬 효과도 포함됩니다.
 
 ### 5. GALLERY는 사진첩이 아니라 필터 보관함입니다
 
@@ -152,6 +158,31 @@ flowchart TD
 
 세 경로 모두 [`FilterRecipe`](lib/domain/models/filter_recipe.dart)에 생성기 종류, engine/model version, 참조 수, LUT 강도, 안전성 지표와 fallback 이유를 기록합니다. 썸네일 렌더까지 성공해야 [`FilterCommitTransaction`](lib/features/create_filter/create_filter_services.dart)이 metadata index에 필터를 추가합니다.
 
+## 기술별 역할
+
+| 기술 | 현재 맡는 역할 |
+|------|----------------|
+| Flutter · go_router | 화면 구성과 HOME/GALLERY shell, 독립 편집·필터 제작 화면, iOS 화면 전환 |
+| Dart · isolate | 공통 이미지 엔진을 미리보기·원본 해상도 내보내기 worker에서 실행 |
+| LiteRT / TFLite | 번들 Direct MVP 모델로 단일 참조 사진의 LUT를 예측 |
+| MediaPipe Selfie Segmenter | 사람 전체 영역을 분할해 인물 영역 보정 마스크 생성 |
+| Swift · Core Image · ImageIO | MethodChannel과 네이티브 LUT·인코더 지원 경계. WebP는 현재 v1 출시 형식에서 제외 |
+| SharedPreferences · JSON 파일 | 편집 draft·설정과 사용자 필터 metadata/index 저장 |
+| Python · PyTorch · timm · ONNX · TensorFlow | 개발 환경에서 모델 학습·평가·모바일 형식 변환 |
+| GitHub Actions | 의존성 고정 설치, 정적 분석, 테스트, 서명 없는 iOS 빌드 검증 |
+
+### 학습에서 앱 추론까지
+
+[`ml_pipeline/`](ml_pipeline/)은 앱과 별도로 실행하는 모델 개발 도구입니다. [`20_train_conditional_lut_mvp.py`](ml_pipeline/20_train_conditional_lut_mvp.py)에서 조건부 LUT 모델을 학습하며, encoder는 timm 기반 MobileNetV3를 사용합니다.
+
+선택한 checkpoint는 [`34_export_direct_mvp_onnx.py`](ml_pipeline/34_export_direct_mvp_onnx.py)에서 ONNX로 내보내고 PyTorch 출력과 비교합니다. [`35_convert_direct_mvp_tflite.py`](ml_pipeline/35_convert_direct_mvp_tflite.py)는 onnx-tf의 SavedModel을 거쳐 fp16 가중치 TFLite로 변환하고 출력 오차를 검사합니다. [`36_benchmark_direct_mvp_tflite.py`](ml_pipeline/36_benchmark_direct_mvp_tflite.py)는 변환 모델의 추론 시간을 측정합니다. 이 개발 환경 측정을 실기기 성능으로 간주하지 않습니다.
+
+앱에서는 변환된 모델을 번들해 LiteRT로 추론하므로 Python이나 학습 서버가 필요하지 않습니다. 인물 보정에 쓰는 MediaPipe Selfie Segmenter는 별도 모델이며, [`AiManager`](lib/ai/ai_manager.dart)가 최초 다운로드 시 HTTP 상태·크기·SHA-256을 검증한 뒤 설치합니다.
+
+### 광고 코드의 범위
+
+[`lib/monetization/`](lib/monetization/)에는 `google_mobile_ads` 연동 코드가 있습니다. 광고 flag는 기본적으로 꺼져 있고 release 빌드에서도 비활성화됩니다. 현재 v1은 광고 없이 출시하도록 구성돼 있습니다.
+
 ## 코드 구조
 
 ```text
@@ -221,26 +252,36 @@ flutter pub get --enforce-lockfile
 flutter run -d <device-id>
 ```
 
+### 앱 아이콘과 인앱 로고
+
+선택한 필름 프레임 로고는 시작 화면·홈·앱 정보와 이 문서 상단에서 공유합니다. iOS·Android·웹·Windows용 아이콘은 같은 원본에서 생성합니다. 원본과 생성 방법은 [브랜딩 안내](docs/branding.md)에 정리했습니다.
+
 ## 테스트와 출시 확인
 
 ```bash
 flutter analyze --no-fatal-infos
 flutter test --coverage --reporter compact
-flutter test integration_test --device-id <ios-simulator-id> --reporter compact
+# 시뮬레이터에서 실행할 네 가지 결정적 회귀 테스트
+IOS_SIMULATOR_ID='<ios-simulator-id>'
+for suite in settings_recovery_ui editor_whitebox_device editor_performance ios_native_webp; do
+  XCODE_XCCONFIG_FILE="$PWD/ios/Flutter/SimulatorCI.xcconfig" \
+    flutter test "integration_test/${suite}_test.dart" \
+      --device-id "$IOS_SIMULATOR_ID" --reporter compact || exit 1
+done
+
+# 실기기 성능 측정은 별도 profile 실행
 flutter drive --profile \
   --driver test_driver/editor_performance_driver.dart \
   --target integration_test/editor_performance_test.dart \
   -d <physical-ios-device-id> --publish-port
 ```
 
-현재 저장소에서 확인한 기준은 다음과 같습니다.
+검증 결과는 실행한 브랜치와 환경을 구분해 기록합니다.
 
-- 전체 unit/widget test 502개 통과, 로컬 fixture 의존 테스트 1개 조건부 skip
-- iPhone 17 / iOS 26.5 simulator에서 iOS integration 8개 시나리오 통과; CI도 매 build마다 동일 디렉터리를 실행
-- 핵심 편집/필터 생성 화면은 320×640 viewport와 200% 글자 크기에서 semantics·overflow 회귀 테스트 통과
-- iOS simulator debug와 unsigned release build 통과
-- analyzer error/warning/info 0
-- 실기기 profile 전체 export, peak memory, Photos/share 최종 검증은 아직 필요
+- **main 원격 CI 기록**: 2026-10-20, 병합 커밋 `ee6f75d8d`의 [iOS Build 실행](https://github.com/cres17/memoria/actions/runs/39415097270)에서 unit/widget 테스트 474개, simulator debug 빌드, unsigned release 빌드와 산출물 업로드가 통과했습니다. 외부 로컬 모델이 필요한 기존 테스트는 fixture 미존재 안내를 출력합니다. 이 실행은 simulator integration suite를 실행한 증거가 아닙니다.
+- **정적 분석**: 같은 main CI는 error/warning 없이 통과했고, informational lint 138건이 남아 있습니다. `--no-fatal-infos` 통과를 모든 lint가 0건이라는 뜻으로 해석하지 않습니다.
+- **현재 로컬 작업 트리**: main에 없는 simulator integration 단계와 실기기 검증 도구를 포함합니다. 전체 `integration_test/` 디렉터리를 한 번에 실행하지 않고, 위에 적은 네 suite와 실제 기기가 필요한 시나리오를 분리합니다.
+- **서명·실기기**: 위 원격 산출물은 서명 없는 앱입니다. 서명 IPA, 실제 Photos/share 완료, 저메모리 기기 검증은 [별도 검증 안내](docs/ios-signing-device-validation-2026-10-01.md)를 따라 확인해야 합니다.
 
 시뮬레이터 debug 수치는 개발 중 회귀를 찾는 용도입니다. 실제 출시 성능은 profile/release로 빌드한 iPhone에서 다시 측정합니다.
 
