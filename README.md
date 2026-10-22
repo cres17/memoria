@@ -46,7 +46,7 @@
 ```text
 lib/
 ├── features/        home · editor · create_filter · filters · settings 화면과 서비스
-├── engine/          LUT · 색 · crop · local · blur · portrait · export 엔진 (Flutter 위젯 의존 없음)
+├── engine/          LUT · 색 · crop · local · blur · portrait · export 엔진 (GPU 미리보기 위젯 gpu_image_view.dart 제외)
 ├── ai/              모델 설치 상태 관리와 TFLite 입출력 래퍼
 ├── domain/          EditOperation, FilterRecipe 모델과 저장소 계약
 ├── data/            JSON 파일 · SharedPreferences 저장 구현
@@ -64,7 +64,7 @@ ml_pipeline/         데이터 생성 · 학습 · 평가 · ONNX/TFLite 변환 
 
 ### 이미지 엔진 (Dart · isolate)
 
-`lib/engine/`의 순수 Dart 함수들이 픽셀 연산을 담당합니다. LUT 적용(`lut_engine.dart`), 화이트밸런스 · HSL · 커브, 블러 · 브러시 · dodge/burn, 원근 변환, 인물 마스크 기반 보정, 프레임 · 텍스트 합성이 여기에 있습니다. 위젯에 의존하지 않기 때문에 미리보기 isolate와 내보내기 isolate가 같은 코드를 쓰고, 작은 fixture로 단위 테스트할 수 있습니다. 미리보기는 같은 상태의 결과를 캐시해 반복 렌더링을 줄입니다.
+`lib/engine/`의 순수 Dart 함수들이 픽셀 연산을 담당합니다. LUT 적용(`lut_engine.dart`), 화이트밸런스 · HSL · 커브, 블러 · 브러시 · dodge/burn, 원근 변환, 인물 마스크 기반 보정, 프레임 · 텍스트 합성이 여기에 있습니다. 픽셀 연산 함수는 위젯에 의존하지 않기 때문에 미리보기 isolate와 내보내기 isolate가 같은 코드를 쓰고, 작은 fixture로 단위 테스트할 수 있습니다. 예외로 같은 폴더의 `gpu_image_view.dart`는 GPU 미리보기 위젯이고, `style_analyzer.dart`는 팔레트 추출에 Flutter의 `Color`를 씁니다. 미리보기는 같은 상태의 결과를 캐시해 반복 렌더링을 줄입니다.
 
 ### LiteRT (flutter_litert) — 나만의 필터
 
