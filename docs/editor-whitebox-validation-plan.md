@@ -3,7 +3,6 @@
 - 작성일: 2026-08-18
 - 상태: 실행 전 검증 명세
 - 관련 구현 계획: [editor-filter-repair-plan.md](editor-filter-repair-plan.md)
-- 기능 기준: [feature-checklists/README.md](feature-checklists/README.md)
 - 대상: 편집기 UI 상태, 이미지 엔진, preview/export, 저장·복원, 오류 복구, 성능, 사용자 필터 생성
 
 ## 1. 검토 결론

@@ -3,7 +3,7 @@
 - 작성일: 2026-08-20
 - 상태: 기능 구현·자동 검증·iOS 시뮬레이터 검증 완료 / 실기기 Photos·share 최종 확인 대기
 - 범위: 편집기 상단 액션, 크롭, 확장, 프레임, 텍스트, 드라마/HDR, 효과 미리보기, 필터 제작 사진 선택, 내보내기 설정/인코딩, AI 모델 초기화
-- 관련 기준 문서: `docs/editor-whitebox-validation-plan.md`, `docs/create-filter-gap-review.md`
+- 관련 기준 문서: `docs/editor-whitebox-validation-plan.md`
 
 ## 1. 목표
 

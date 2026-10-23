@@ -1,8 +1,5 @@
 # Memoria 퍼블리시 체크리스트
 
-기준일: 2026-08-20
-현재 판정: **내부 베타 가능 / App Store·Play Store 일반 출시 보류**
-
 ## 자동 검증 완료
 
 - [x] Flutter 3.44.6과 lockfile 기반 `pub get --enforce-lockfile` 재현.
