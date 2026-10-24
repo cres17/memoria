@@ -2,6 +2,7 @@ import 'package:memoria/domain/models/adjust_params.dart';
 import 'package:memoria/domain/models/crop_ratio_preset.dart';
 import 'package:memoria/domain/models/curve_data.dart';
 import 'package:memoria/domain/models/edit_operation.dart';
+import 'package:memoria/domain/models/editor_look.dart';
 import 'package:memoria/domain/models/filter_preset.dart';
 import 'package:memoria/engine/artistic_effects.dart';
 import 'package:memoria/engine/blend_modes.dart' as bm;
@@ -275,6 +276,46 @@ class EditorEditState {
     lensActive = effects.lensActive;
     lensFocusDepth = effects.lensFocusDepth;
     lensMaxRadius = effects.lensMaxRadius;
+  }
+
+  /// 사진마다 달라지는 값을 뺀 보정 룩을 복사한다.
+  EditorLook captureLook() => EditorLook(
+        params: params,
+        presetId: selectedPreset?.id,
+        intensity: intensity,
+        artisticEffect: effect.name,
+        effectStrength: effectStrength,
+        grainVariant: grainVariant,
+        portrait: PortraitParams(
+          smooth: portraitSmooth,
+          spotlight: portraitSpotlight,
+          skinTone: skinTone,
+          skinToneStrength: skinToneStrength,
+          bokeh: portraitBokeh,
+          headYaw: headYaw,
+          headPitch: headPitch,
+        ),
+      );
+
+  /// [captureLook]으로 만든 룩을 붙여넣는다. 크롭·부분 보정·텍스트 등은 건드리지 않는다.
+  void applyLook(EditorLook look, {required FilterPreset? resolvedPreset}) {
+    params = look.params;
+    syncCurvesFromParams();
+    selectedPreset = resolvedPreset;
+    intensity = look.intensity;
+    effect = ArtisticEffect.values.firstWhere(
+      (value) => value.name == look.artisticEffect,
+      orElse: () => ArtisticEffect.none,
+    );
+    effectStrength = look.effectStrength;
+    grainVariant = look.grainVariant;
+    portraitSmooth = look.portrait.smooth;
+    portraitSpotlight = look.portrait.spotlight;
+    skinTone = look.portrait.skinTone;
+    skinToneStrength = look.portrait.skinToneStrength;
+    portraitBokeh = look.portrait.bokeh;
+    headYaw = look.portrait.headYaw;
+    headPitch = look.portrait.headPitch;
   }
 
   void syncCurvesFromParams() {

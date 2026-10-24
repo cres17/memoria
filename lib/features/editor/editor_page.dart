@@ -26,6 +26,7 @@ import 'package:memoria/ai/ai_manager.dart';
 import 'package:memoria/ai/models/segmenter.dart';
 import 'package:memoria/engine/portrait_engine.dart';
 import 'package:memoria/domain/models/adjust_params.dart';
+import 'package:memoria/domain/models/editor_look.dart';
 import 'package:memoria/domain/models/curve_data.dart';
 import 'package:memoria/domain/models/filter_preset.dart';
 import 'package:memoria/domain/models/edit_operation.dart';
@@ -953,6 +954,7 @@ class _EditorPageState extends State<EditorPage> {
 
   void _setComparePreviewVisible(bool visible) {
     if (_showComparePreview == visible) return;
+    if (!visible) _compareLocked = false;
     setState(() => _showComparePreview = visible);
   }
 
@@ -1770,6 +1772,7 @@ class _EditorPageState extends State<EditorPage> {
       name: name,
       params: _params,
       createdAt: DateTime.now(),
+      look: _editState.captureLook(),
     );
     await _adjRepo.save(adj);
     final all = await _adjRepo.getAll();
@@ -1783,6 +1786,11 @@ class _EditorPageState extends State<EditorPage> {
   }
 
   void _applyCustomAdjustment(CustomAdjustment adj) {
+    final look = adj.look;
+    if (look != null) {
+      _applyLook(look);
+      return;
+    }
     setState(() {
       _params = adj.params;
       _selectedPreset =
@@ -1792,6 +1800,96 @@ class _EditorPageState extends State<EditorPage> {
       _syncCurvesFromParams();
     });
     _renderPreview();
+  }
+
+  /// 앱을 켜 둔 동안 사진을 바꿔도 유지되는 보정 복사본.
+  static EditorLook? _lookClipboard;
+
+  void _applyLook(EditorLook look) {
+    setState(() {
+      _editState.applyLook(look, resolvedPreset: _presetForId(look.presetId));
+      _lutBytes = null;
+    });
+    _liveParamsNotifier.value = _params;
+    _liveIntensityNotifier.value = _intensity;
+    _reloadSelectedPresetLut();
+    _saveToHistory();
+    _renderPreview();
+  }
+
+  void _copyLook() {
+    _lookClipboard = _editState.captureLook();
+    _showLookMessage('보정을 복사했어요. 크롭·부분 보정·텍스트는 제외돼요.');
+  }
+
+  void _pasteLook() {
+    final look = _lookClipboard;
+    if (look == null) {
+      _showLookMessage('복사한 보정이 없어요.');
+      return;
+    }
+    _applyLook(look);
+    _showLookMessage('보정을 붙여넣었어요.');
+  }
+
+  void _showLookMessage(String text) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(content: Text(text), behavior: SnackBarBehavior.floating),
+      );
+  }
+
+  void _showLookMenu() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppColors.oceanMid,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.copy_rounded,
+                  color: AppColors.textOnDark),
+              title: const Text('보정 복사',
+                  style: TextStyle(color: AppColors.textOnDark)),
+              subtitle: const Text('기본 보정·필터·효과·인물 보정',
+                  style: TextStyle(color: AppColors.textOnDarkTert)),
+              onTap: () {
+                Navigator.pop(ctx);
+                _copyLook();
+              },
+            ),
+            ListTile(
+              enabled: _lookClipboard != null,
+              leading: Icon(Icons.paste_rounded,
+                  color: _lookClipboard != null
+                      ? AppColors.textOnDark
+                      : AppColors.textOnDarkTert),
+              title: Text('보정 붙여넣기',
+                  style: TextStyle(
+                      color: _lookClipboard != null
+                          ? AppColors.textOnDark
+                          : AppColors.textOnDarkTert)),
+              subtitle: Text(
+                  _lookClipboard != null ? '복사한 보정을 이 사진에 적용' : '먼저 보정을 복사하세요',
+                  style: const TextStyle(color: AppColors.textOnDarkTert)),
+              onTap: _lookClipboard == null
+                  ? null
+                  : () {
+                      Navigator.pop(ctx);
+                      _pasteLook();
+                    },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
   }
 
   void _showSaveAdjustmentDialog() {
@@ -1905,7 +2003,7 @@ class _EditorPageState extends State<EditorPage> {
                       _formatAdjSummary(adj.params),
                       style: const TextStyle(
                         fontFamily: 'NotoSerif',
-                        fontSize: 11,
+                        fontSize: 12,
                         color: AppColors.textOnDarkTert,
                       ),
                     ),
@@ -2481,7 +2579,12 @@ class _EditorPageState extends State<EditorPage> {
                 },
               ),
             ] else
-              const SizedBox(width: 48),
+              _EditorOverlayIconButton(
+                icon: Icons.content_copy_rounded,
+                tooltip: '보정 복사·붙여넣기',
+                enabled: widget.imagePath != null,
+                onTap: _showLookMenu,
+              ),
           ],
         ),
       ),
@@ -2905,6 +3008,97 @@ class _EditorPageState extends State<EditorPage> {
     );
   }
 
+  /// 도구의 값이 초기 상태와 다른지. 격자·자주 찾는 도구에 점으로 표시한다.
+  bool _isToolModified(String id) {
+    final p = _params;
+    switch (id) {
+      case 'tune':
+        return p.exposure != 0 ||
+            p.contrast != 0 ||
+            p.saturation != 0 ||
+            p.highlights != 0 ||
+            p.shadows != 0 ||
+            p.ambiance != 0 ||
+            p.tonalShadows != 0 ||
+            p.tonalMidtones != 0 ||
+            p.tonalHighlights != 0 ||
+            p.bnwEnabled;
+      case 'details':
+        return p.sharpen != 0 || p.structure != 0 || p.clarity != 0;
+      case 'curves':
+        return p.luminanceCurve != null ||
+            p.rgbCurve != null ||
+            p.redCurve != null ||
+            p.greenCurve != null ||
+            p.blueCurve != null;
+      case 'white_balance':
+        return p.temperature != 0 || p.tint != 0;
+      case 'hsl':
+        return p.hsl.values.any((band) => !band.isZero);
+      case 'split_toning':
+        return p.splitShadowSat != 0 ||
+            p.splitHighSat != 0 ||
+            p.splitBalance != 0;
+      case 'noise':
+        return p.luminanceNR != 0 || p.colourNR != 0 || p.nrDetail != 0;
+      case 'crop':
+        return _cropRatio != CropRatioPreset.free ||
+            _cropLeft != 0 ||
+            _cropTop != 0 ||
+            _cropRight != 1 ||
+            _cropBottom != 1;
+      case 'rotate':
+        return _rotation != 0 || _flipH || _flipV;
+      case 'perspective':
+        return _perspH != 0 || _perspV != 0;
+      case 'expand':
+        return _expandTop != 0 ||
+            _expandBottom != 0 ||
+            _expandLeft != 0 ||
+            _expandRight != 0;
+      case 'selective':
+        return _selActive;
+      case 'brush':
+        return _dbActive || _brushStrokes.isNotEmpty;
+      case 'tilt_shift':
+        return _tiltActive;
+      case 'lens_blur':
+        return _lensActive;
+      case 'portrait':
+        return !_editState.captureLook().portrait.isZero;
+      case 'vignette':
+        return p.vignette != 0;
+      case 'grain':
+        return p.grainStrength != 0;
+      case 'glow':
+        return p.glowStrength != 0;
+      case 'light_leak':
+        return p.lightLeakStrength != 0;
+      case 'halation':
+        return p.halationStrength != 0;
+      case 'drama':
+        return _effect.name.startsWith('drama');
+      case 'hdr_scape':
+        return _effect.name.startsWith('hdr');
+      case 'double_exposure':
+        return _blendImagePath != null;
+      case 'frame':
+        return _frameIndex >= 0;
+      case 'text':
+        return _overlayText.isNotEmpty;
+    }
+    return false;
+  }
+
+  Widget _modifiedDot() => Container(
+        width: 8,
+        height: 8,
+        decoration: const BoxDecoration(
+          color: Color(0xFFE5484D),
+          shape: BoxShape.circle,
+        ),
+      );
+
   static const List<_ToolItem> _tools = [
     _ToolItem(id: 'tune', label: '기본 보정', icon: Icons.tune_rounded),
     _ToolItem(id: 'details', label: '세부 정보', icon: Icons.details_rounded),
@@ -3000,7 +3194,7 @@ class _EditorPageState extends State<EditorPage> {
               textAlign: TextAlign.right,
               style: const TextStyle(
                 fontFamily: 'NotoSerif',
-                fontSize: 11,
+                fontSize: 12,
                 color: AppColors.textSecondary,
                 fontWeight: FontWeight.w600,
               ),
@@ -3478,7 +3672,7 @@ class _EditorPageState extends State<EditorPage> {
               child: const Text(
                 '사진 중심에서의 거리를 기준으로 초점 영역을 만듭니다.',
                 style: TextStyle(
-                  fontSize: 11,
+                  fontSize: 12,
                   height: 1.35,
                   color: AppColors.textSecondary,
                 ),
@@ -3778,18 +3972,39 @@ class _EditorPageState extends State<EditorPage> {
     );
   }
 
+  /// 짧게 누르면 원본 보기가 고정되고, 다시 누르면 풀린다. 길게 누르면
+  /// 누르는 동안만 원본을 보여 준다.
+  bool _compareLocked = false;
+  DateTime? _comparePressedAt;
+
   Widget _buildCompareHoldIcon() {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTapDown: (_) {
         hapticLight();
+        _comparePressedAt = DateTime.now();
         _setComparePreviewVisible(true);
       },
-      onTapUp: (_) => _setComparePreviewVisible(false),
-      onTapCancel: () => _setComparePreviewVisible(false),
+      onTapUp: (_) {
+        final pressedAt = _comparePressedAt;
+        final quick = pressedAt != null &&
+            DateTime.now().difference(pressedAt) <
+                const Duration(milliseconds: 250);
+        if (_compareLocked) {
+          _compareLocked = false;
+          _setComparePreviewVisible(false);
+        } else if (quick) {
+          _compareLocked = true;
+        } else {
+          _setComparePreviewVisible(false);
+        }
+      },
+      onTapCancel: () {
+        if (!_compareLocked) _setComparePreviewVisible(false);
+      },
       child: Semantics(
         button: true,
-        label: '적용 전 보기',
+        label: '적용 전 보기. 길게 누르면 누르는 동안, 짧게 누르면 고정해서 봅니다',
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 140),
           height: 44,
@@ -3873,7 +4088,7 @@ class _EditorPageState extends State<EditorPage> {
                         '맞춤 설정',
                         style: TextStyle(
                           fontFamily: 'NotoSerif',
-                          fontSize: 10,
+                          fontSize: 12,
                           fontWeight: FontWeight.w600,
                           color: Colors.black.withOpacity(0.7),
                         ),
@@ -3886,14 +4101,14 @@ class _EditorPageState extends State<EditorPage> {
           ),
         ),
         SizedBox(
-          height: 85,
+          height: 92,
           child: favTools.isEmpty
               ? const Center(
                   child: Text(
                     '자주 찾는 도구가 없습니다. 맞춤 설정을 눌러보세요.',
                     style: TextStyle(
                         fontFamily: 'NotoSerif',
-                        fontSize: 11,
+                        fontSize: 12,
                         color: Colors.black54),
                   ),
                 )
@@ -3930,10 +4145,21 @@ class _EditorPageState extends State<EditorPage> {
                                   color: Colors.black.withOpacity(0.04),
                                 ),
                               ),
-                              child: Icon(
-                                tool.icon,
-                                size: 24,
-                                color: Colors.black87,
+                              child: Stack(
+                                alignment: Alignment.center,
+                                children: [
+                                  Icon(
+                                    tool.icon,
+                                    size: 24,
+                                    color: Colors.black87,
+                                  ),
+                                  if (_isToolModified(tool.id))
+                                    Positioned(
+                                      top: 6,
+                                      right: 6,
+                                      child: _modifiedDot(),
+                                    ),
+                                ],
                               ),
                             ),
                             const SizedBox(height: 5),
@@ -3941,7 +4167,7 @@ class _EditorPageState extends State<EditorPage> {
                               tool.label,
                               style: const TextStyle(
                                 fontFamily: 'NotoSerif',
-                                fontSize: 10,
+                                fontSize: 12,
                                 color: Colors.black87,
                               ),
                             ),
@@ -4026,7 +4252,7 @@ class _EditorPageState extends State<EditorPage> {
                         '자주 사용하는 도구를 선택하여 퀵 액세스 바에 고정하세요. 갯수 제한은 없습니다.',
                         style: TextStyle(
                           fontFamily: 'NotoSerif',
-                          fontSize: 11,
+                          fontSize: 12,
                           color: Colors.black54,
                         ),
                       ),
@@ -4102,7 +4328,7 @@ class _EditorPageState extends State<EditorPage> {
                                           textAlign: TextAlign.center,
                                           style: TextStyle(
                                             fontFamily: 'NotoSerif',
-                                            fontSize: 11,
+                                            fontSize: 12,
                                             fontWeight: isFav
                                                 ? FontWeight.bold
                                                 : FontWeight.normal,
@@ -4142,40 +4368,70 @@ class _EditorPageState extends State<EditorPage> {
   }
 
   Widget _buildToolsGridView() {
+    final byId = {for (final tool in _tools) tool.id: tool};
     return Container(
       height: 255,
       padding: const EdgeInsets.only(left: 12, right: 12, top: 2, bottom: 8),
-      child: GridView.builder(
-        padding: EdgeInsets.zero,
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 4,
-          mainAxisSpacing: 10,
-          crossAxisSpacing: 10,
-          childAspectRatio: 1.1,
-        ),
-        itemCount: _tools.length,
-        itemBuilder: (context, index) {
-          final tool = _tools[index];
-          return GestureDetector(
-            onTap: () {
-              hapticLight();
-              _activateTool(tool.id, tool.label);
-            },
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.03),
-                    blurRadius: 4,
-                    offset: const Offset(0, 2),
+      child: CustomScrollView(
+        key: const ValueKey('editor-tools-grid'),
+        slivers: [
+          for (final group in _toolGroups) ...[
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(4, 8, 4, 6),
+                child: Text(
+                  group.label,
+                  style: const TextStyle(
+                    fontFamily: 'NotoSerif',
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black54,
                   ),
-                ],
-                border: Border.all(
-                  color: Colors.black.withOpacity(0.04),
                 ),
               ),
+            ),
+            SliverGrid(
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 4,
+                mainAxisSpacing: 10,
+                crossAxisSpacing: 10,
+                childAspectRatio: 1.1,
+              ),
+              delegate: SliverChildListDelegate([
+                for (final id in group.toolIds)
+                  if (byId[id] != null) _buildToolTile(byId[id]!),
+              ]),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildToolTile(_ToolItem tool) {
+    return GestureDetector(
+      onTap: () {
+        hapticLight();
+        _activateTool(tool.id, tool.label);
+      },
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.03),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
+            ),
+          ],
+          border: Border.all(
+            color: Colors.black.withOpacity(0.04),
+          ),
+        ),
+        child: Stack(
+          children: [
+            Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -4185,21 +4441,28 @@ class _EditorPageState extends State<EditorPage> {
                     color: Colors.black87,
                   ),
                   const SizedBox(height: 6),
-                  Text(
-                    tool.label,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontFamily: 'NotoSerif',
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.black87,
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 2),
+                    child: Text(
+                      tool.label,
+                      textAlign: TextAlign.center,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontFamily: 'NotoSerif',
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87,
+                      ),
                     ),
                   ),
                 ],
               ),
             ),
-          );
-        },
+            if (_isToolModified(tool.id))
+              Positioned(top: 6, right: 6, child: _modifiedDot()),
+          ],
+        ),
       ),
     );
   }
@@ -4339,7 +4602,7 @@ class _EditorPageState extends State<EditorPage> {
                     '누르고 있는 동안 현재 필터/조정 적용 전 화면을 보여줍니다.',
                     style: TextStyle(
                       fontFamily: 'NotoSerif',
-                      fontSize: 11,
+                      fontSize: 12,
                       color: Colors.white70,
                     ),
                   ),
@@ -4410,7 +4673,7 @@ class _EditorPageState extends State<EditorPage> {
                     subtitle,
                     style: TextStyle(
                       fontFamily: 'NotoSerif',
-                      fontSize: 11,
+                      fontSize: 12,
                       color: AppColors.textSecondary,
                     ),
                   ),
@@ -4490,7 +4753,7 @@ class _EditorPageState extends State<EditorPage> {
                           '필터를 길게 누르면 즐겨찾기에 추가/해제할 수 있습니다.',
                           style: TextStyle(
                             fontFamily: 'NotoSerif',
-                            fontSize: 11,
+                            fontSize: 12,
                             color: Colors.black87,
                           ),
                         ),
@@ -4509,7 +4772,7 @@ class _EditorPageState extends State<EditorPage> {
                           S.get('editor.got_it'),
                           style: const TextStyle(
                             fontFamily: 'NotoSerif',
-                            fontSize: 11,
+                            fontSize: 12,
                             color: AppColors.oceanFoam,
                           ),
                         ),
@@ -5268,7 +5531,7 @@ class _EffectChipState extends State<_EffectChip> {
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 fontFamily: 'NotoSerif',
-                fontSize: 10,
+                fontSize: 12,
                 height: 1.1,
                 fontWeight: widget.selected ? FontWeight.bold : FontWeight.w600,
                 color: widget.selected ? Colors.white : Colors.white70,
@@ -5425,7 +5688,7 @@ class _PortraitPanel extends StatelessWidget {
                 child: Text(
                   message,
                   style: const TextStyle(
-                    fontSize: 11,
+                    fontSize: 12,
                     height: 1.35,
                     color: AppColors.textSecondary,
                   ),
@@ -5476,7 +5739,7 @@ class _PortraitPanel extends StatelessWidget {
                   textAlign: TextAlign.right,
                   style: const TextStyle(
                       fontFamily: 'NotoSerif',
-                      fontSize: 11,
+                      fontSize: 12,
                       color: AppColors.textOnDarkTert))),
         ],
       ),
@@ -5732,7 +5995,7 @@ class _CreativePanelState extends State<_CreativePanel> {
                   textAlign: TextAlign.right,
                   style: const TextStyle(
                       fontFamily: 'NotoSerif',
-                      fontSize: 11,
+                      fontSize: 12,
                       color: AppColors.textOnDarkTert))),
         ],
       ),
@@ -5771,7 +6034,7 @@ class _CreativePanelState extends State<_CreativePanel> {
                     child: Text('없음',
                         style: TextStyle(
                             fontFamily: 'NotoSerif',
-                            fontSize: 11,
+                            fontSize: 12,
                             color: AppColors.textOnDarkSub))),
               ),
             );
@@ -5840,7 +6103,7 @@ class _CreativePanelState extends State<_CreativePanel> {
               '사진 위 텍스트를 드래그해 옮기고, 두 손가락으로 크기와 회전을 조절하세요.',
               style: TextStyle(
                 fontFamily: 'NotoSerif',
-                fontSize: 11,
+                fontSize: 12,
                 color: AppColors.textOnDarkTert,
               ),
             ),
@@ -5877,7 +6140,7 @@ class _CreativePanelState extends State<_CreativePanel> {
                       textAlign: TextAlign.right,
                       style: const TextStyle(
                           fontFamily: 'NotoSerif',
-                          fontSize: 11,
+                          fontSize: 12,
                           color: AppColors.textOnDarkTert))),
             ],
           ),
@@ -5924,7 +6187,7 @@ class _CreativePanelState extends State<_CreativePanel> {
                             font,
                             style: TextStyle(
                               fontFamily: font,
-                              fontSize: 11,
+                              fontSize: 12,
                               color: sel
                                   ? AppColors.cloudWhite
                                   : AppColors.textOnDarkSub,
@@ -6035,4 +6298,42 @@ class _ToolItem {
     required this.label,
     required this.icon,
   });
+}
+
+/// 도구 격자의 묶음. 순서가 화면 표시 순서다.
+const List<_ToolGroup> _toolGroups = [
+  _ToolGroup('보정', [
+    'tune',
+    'details',
+    'curves',
+    'white_balance',
+    'hsl',
+    'split_toning',
+    'noise',
+  ]),
+  _ToolGroup('구성', ['crop', 'rotate', 'perspective', 'expand']),
+  _ToolGroup('부분·인물', [
+    'selective',
+    'brush',
+    'tilt_shift',
+    'lens_blur',
+    'portrait',
+  ]),
+  _ToolGroup('효과', [
+    'vignette',
+    'grain',
+    'glow',
+    'light_leak',
+    'halation',
+    'drama',
+    'hdr_scape',
+  ]),
+  _ToolGroup('합성', ['double_exposure', 'frame', 'text']),
+];
+
+class _ToolGroup {
+  final String label;
+  final List<String> toolIds;
+
+  const _ToolGroup(this.label, this.toolIds);
 }
