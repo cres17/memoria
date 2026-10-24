@@ -170,4 +170,32 @@ void main() {
     expect(find.text('채도'), findsOneWidget);
     expect(find.textContaining('색감'), findsOneWidget);
   });
+
+  for (final scale in [1.0, 1.3]) {
+    testWidgets('좁은 화면(320dp, 글자 ${scale}배)에서 도구 타일이 넘치지 않는다',
+        (tester) async {
+      await tester.binding.setSurfaceSize(const Size(320, 640));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(textScaler: TextScaler.linear(scale)),
+            child: child!,
+          ),
+          home: EditorPage(imagePath: imageFile.path),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+      await openToolsTab(tester);
+
+      final grid = find.byKey(const ValueKey('editor-tools-grid'));
+      for (var i = 0; i < 12; i++) {
+        await tester.drag(grid, const Offset(0, -120));
+        await tester.pump();
+        expect(tester.takeException(), isNull);
+      }
+    });
+  }
 }

@@ -2000,8 +2000,8 @@ class _EditorPageState extends State<EditorPage> {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.copy_rounded,
-                  color: AppColors.textOnDark),
+              leading:
+                  const Icon(Icons.copy_rounded, color: AppColors.textOnDark),
               title: const Text('보정 복사',
                   style: TextStyle(color: AppColors.textOnDark)),
               subtitle: const Text('기본 보정·필터·효과·인물 보정',
@@ -3877,8 +3877,8 @@ class _EditorPageState extends State<EditorPage> {
                     TextButton.icon(
                       onPressed: _removeCurrentSelectivePoint,
                       icon: const Icon(Icons.delete_outline_rounded, size: 16),
-                      label: const Text('이 지점 삭제',
-                          style: TextStyle(fontSize: 12)),
+                      label:
+                          const Text('이 지점 삭제', style: TextStyle(fontSize: 12)),
                     ),
                 ],
               ),
@@ -3964,8 +3964,8 @@ class _EditorPageState extends State<EditorPage> {
                           _renderPreview();
                         },
                   icon: const Icon(Icons.undo_rounded, size: 16),
-                  label: const Text('마지막 지우기 취소',
-                      style: TextStyle(fontSize: 12)),
+                  label:
+                      const Text('마지막 지우기 취소', style: TextStyle(fontSize: 12)),
                 ),
               ),
             ),
@@ -4673,12 +4673,12 @@ class _EditorPageState extends State<EditorPage> {
                       child: GridView.builder(
                         controller: scrollController,
                         padding: const EdgeInsets.all(16),
-                        gridDelegate:
-                            const SliverGridDelegateWithFixedCrossAxisCount(
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                           crossAxisCount: 3,
                           mainAxisSpacing: 12,
                           crossAxisSpacing: 12,
-                          childAspectRatio: 1.15,
+                          mainAxisExtent:
+                              _toolTileExtent(context, iconSize: 24) + 8,
                         ),
                         itemCount: _tools.length,
                         itemBuilder: (context, index) {
@@ -4737,6 +4737,8 @@ class _EditorPageState extends State<EditorPage> {
                                         Text(
                                           tool.label,
                                           textAlign: TextAlign.center,
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
                                           style: TextStyle(
                                             fontFamily: 'NotoSerif',
                                             fontSize: 12,
@@ -4802,11 +4804,13 @@ class _EditorPageState extends State<EditorPage> {
               ),
             ),
             SliverGrid(
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              // 폭 비율이 아니라 아이콘 + 라벨 두 줄 높이로 정한다. 좁은 화면
+              // (타일 폭 약 64dp)에서 비율로 정하면 두 줄 라벨이 넘쳤다.
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 4,
                 mainAxisSpacing: 10,
                 crossAxisSpacing: 10,
-                childAspectRatio: 1.1,
+                mainAxisExtent: _toolTileExtent(context, iconSize: 22),
               ),
               delegate: SliverChildListDelegate([
                 for (final id in group.toolIds)
@@ -4817,6 +4821,13 @@ class _EditorPageState extends State<EditorPage> {
         ],
       ),
     );
+  }
+
+  /// 도구 타일 높이: 아이콘 + 간격 + 12pt 라벨 두 줄 + 위아래 여백.
+  /// 시스템 글자 크기 설정을 반영한다.
+  double _toolTileExtent(BuildContext context, {required double iconSize}) {
+    final line = MediaQuery.textScalerOf(context).scale(12) * 1.45;
+    return iconSize + 6 + line * 2 + 14;
   }
 
   Widget _buildToolTile(_ToolItem tool) {
@@ -4893,9 +4904,16 @@ class _EditorPageState extends State<EditorPage> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
-          _buildNavTabItem(_MainNavTab.style, '스타일', Icons.style_outlined),
-          _buildNavTabItem(_MainNavTab.tools, '도구', Icons.grid_view_rounded),
-          _buildNavTabItem(_MainNavTab.export, '내보내기', Icons.ios_share_rounded),
+          // 좁은 화면·큰 글자에서 넘치지 않도록 각 탭이 남는 폭 안에서 줄어든다.
+          Flexible(
+              child: _buildNavTabItem(
+                  _MainNavTab.style, '스타일', Icons.style_outlined)),
+          Flexible(
+              child: _buildNavTabItem(
+                  _MainNavTab.tools, '도구', Icons.grid_view_rounded)),
+          Flexible(
+              child: _buildNavTabItem(
+                  _MainNavTab.export, '내보내기', Icons.ios_share_rounded)),
         ],
       ),
     );
@@ -4921,24 +4939,28 @@ class _EditorPageState extends State<EditorPage> {
           color: active ? const Color(0xFFFFC400) : Colors.transparent,
           borderRadius: BorderRadius.circular(20),
         ),
-        child: Row(
-          children: [
-            Icon(
-              icon,
-              size: 18,
-              color: active ? Colors.black : AppColors.textSecondary,
-            ),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: TextStyle(
-                fontFamily: 'NotoSerif',
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                size: 18,
                 color: active ? Colors.black : AppColors.textSecondary,
               ),
-            ),
-          ],
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  fontFamily: 'NotoSerif',
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: active ? Colors.black : AppColors.textSecondary,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -6705,10 +6727,12 @@ class _SplitClipper extends CustomClipper<Rect> {
   const _SplitClipper(this.position);
 
   @override
-  Rect getClip(Size size) => Rect.fromLTWH(0, 0, size.width * position, size.height);
+  Rect getClip(Size size) =>
+      Rect.fromLTWH(0, 0, size.width * position, size.height);
 
   @override
-  bool shouldReclip(_SplitClipper oldClipper) => oldClipper.position != position;
+  bool shouldReclip(_SplitClipper oldClipper) =>
+      oldClipper.position != position;
 }
 
 class _SplitLabel extends StatelessWidget {
