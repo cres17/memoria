@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 import numpy as np
-import tensorflow as tf
+from ai_edge_litert.interpreter import Interpreter
 
 
 PIPELINE_DIR = Path(__file__).resolve().parent
@@ -33,7 +33,7 @@ def main() -> None:
     if args.warmup < 0 or args.samples <= 0 or args.threads <= 0:
         parser.error("warmup must be non-negative; samples and threads must be positive")
 
-    interpreter = tf.lite.Interpreter(model_path=str(args.model), num_threads=args.threads)
+    interpreter = Interpreter(model_path=str(args.model), num_threads=args.threads)
     interpreter.allocate_tensors()
     input_detail = interpreter.get_input_details()[0]
     output_detail = interpreter.get_output_details()[0]
@@ -57,7 +57,7 @@ def main() -> None:
         "input": {"shape": input_detail["shape"].tolist(), "dtype": input_detail["dtype"].__name__},
         "output": {"shape": output_detail["shape"].tolist(), "dtype": output_detail["dtype"].__name__},
         "inference": summary(values),
-        "contract": "Desktop TensorFlow Lite/XNNPACK benchmark only; it is not an Android or iOS device latency claim.",
+        "contract": "Desktop LiteRT/XNNPACK benchmark only; it is not an Android or iOS device latency claim.",
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")

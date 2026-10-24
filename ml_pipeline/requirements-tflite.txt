@@ -1,9 +1,16 @@
-# TFLite conversion environment (Python 3.11)
-# onnx-tf 1.10 relies on the legacy ONNX mapping API.
-# 이 환경은 onnx-tf 호환 때문에 onnx 1.15 · TensorFlow 2.15(keras 2.15, protobuf 4.25)에 고정되어 있고,
-# 이 버전들에는 알려진 취약점(악성 모델 파일 로드 시)이 있다. 직접 학습한 모델을 로컬에서 변환할 때만 쓰고,
-# 외부에서 받은 ONNX · Keras 파일을 이 환경에서 열지 않는다.
-onnx==1.15.0
-onnx-tf==1.10.0
-tensorflow==2.15.1
-tensorflow-probability==0.23.0
+# TFLite 변환 환경 (34 · 35 · 36, 7_export_model.py, 10_export_basis.py)
+# litert-torch가 PyTorch 모델을 LiteRT(TFLite)로 직접 변환하므로 TensorFlow · keras · onnx-tf를 쓰지 않는다.
+# ai-edge-litert 버전이 requirements.txt(2.1.6, MediaPipe 마스크 캐시용)와 달라 별도 가상환경에 설치한다.
+# Python 3.13에서 검증했다.
+torch>=2.13.0,<2.15
+torchvision>=0.28.0
+timm>=0.9.12
+numpy>=1.24.0
+Pillow>=13.0.0
+onnx>=1.22.0
+onnxruntime>=1.16.0
+litert-torch==0.10.0
+ai-edge-quantizer==0.10.0
+# torch가 끌어오는 하위 의존성 중 알려진 취약점이 있는 버전 제외
+setuptools>=84.1.0
+filelock>=4.2.1

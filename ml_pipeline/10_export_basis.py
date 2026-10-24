@@ -51,7 +51,7 @@ def export_onnx(model, num_bases):
         input_names=["style_image"],
         output_names=["basis_coefficients"],
         dynamic_axes={"style_image": {0: "batch"}},
-        # Use the legacy exporter for ONNX 17, which is supported by onnx-tf.
+        # Keep the legacy exporter so the ONNX artifact stays at opset 17.
         dynamo=False,
         opset_version=17,
         do_constant_folding=True,
@@ -59,24 +59,15 @@ def export_onnx(model, num_bases):
     print(f"wrote {ONNX_PATH} with [1, {num_bases}] output")
 
 
-def export_tflite():
+def export_tflite(model):
     try:
-        import onnx
-        import tensorflow as tf
-        from onnx_tf.backend import prepare
-
-        representation = prepare(onnx.load(ONNX_PATH))
-        representation.export_graph(os.path.join(EXPORT_DIR, "basis_tf_savedmodel"))
-        converter = tf.lite.TFLiteConverter.from_saved_model(
-            os.path.join(EXPORT_DIR, "basis_tf_savedmodel")
-        )
-        converter.optimizations = [tf.lite.Optimize.DEFAULT]
-        converter.target_spec.supported_types = [tf.float16]
-        with open(TFLITE_PATH, "wb") as output:
-            output.write(converter.convert())
-        print(f"wrote {TFLITE_PATH}")
+        from tflite_export import convert_fp16
     except ImportError:
-        print("TFLite export skipped; install tensorflow, onnx, and onnx-tf to enable it.")
+        print("TFLite export skipped; install requirements-tflite.txt (litert-torch) to enable it.")
+        return
+    dummy = torch.zeros(1, 3, train.IMAGE_SIZE, train.IMAGE_SIZE)
+    convert_fp16(model, dummy, TFLITE_PATH)
+    print(f"wrote {TFLITE_PATH}")
 
 
 if __name__ == "__main__":
@@ -85,7 +76,7 @@ if __name__ == "__main__":
     model, checkpoint = load_model()
     write_basis_binary(mean, bases)
     export_onnx(model, int(checkpoint["num_bases"]))
-    export_tflite()
+    export_tflite(model)
     metadata = {
         "format": "MBLT",
         "version": 1,

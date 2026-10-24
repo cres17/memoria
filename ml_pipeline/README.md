@@ -60,13 +60,15 @@ python 7_export_model.py
 # → exports/color_transfer.onnx    (CoreML 변환용)
 ```
 
-TFLite 변환은 TensorFlow/onnx-tf 호환성 때문에 Python 3.11 환경에서 실행한다.
+TFLite 변환은 litert-torch가 PyTorch 모델을 LiteRT(TFLite)로 직접 바꾸고, ai-edge-quantizer로 가중치를 float16으로 줄인다(`tflite_export.py`). TensorFlow · keras · onnx-tf는 쓰지 않는다. `requirements.txt`와 `ai-edge-litert` 버전이 달라 별도 가상환경에 설치하며, Python 3.13에서 검증했다.
 
 ```bash
-python3.11 -m venv ../.venv-ml-tflite
+python3.13 -m venv ../.venv-ml-tflite
 ../.venv-ml-tflite/bin/python -m pip install -r requirements-tflite.txt
 ../.venv-ml-tflite/bin/python 10_export_basis.py
 ```
+
+양자화 도구는 256KB가 넘는 모델의 가중치를 flatbuffer 뒤쪽에 offset으로 따로 저장하는데, 앱의 flutter_litert(LiteRT 2.20)는 이 형식의 float16 상수를 읽지 못한다. `tflite_export.convert_fp16`은 저장 직전에 가중치를 flatbuffer 본문으로 다시 넣는다.
 
 ### P4 — Basis-residual LUT 실험
 
@@ -80,7 +82,7 @@ P4는 전체 3D LUT 대신 평균 LUT와 8개 residual basis의 가중치를 예
 ../.venv-ml/bin/python 8_train_basis.py --train
 ../.venv-ml/bin/python 9_benchmark_basis.py
 
-# Python 3.11 TFLite export 환경
+# TFLite export 환경 (requirements-tflite.txt)
 ../.venv-ml-tflite/bin/python 10_export_basis.py
 ```
 
