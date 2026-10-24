@@ -51,7 +51,12 @@ jobs:
           print(r, x['name'], file=sys.stderr)
           ")
           xcrun simctl boot "$udid" || true
-          xcrun simctl bootstatus "$udid" -b
+          # 러너에서 부팅이 간헐적으로 실패해 테스트가 시작되지 못한 적이 있어 한 번 재시도한다.
+          xcrun simctl bootstatus "$udid" -b || {
+            xcrun simctl shutdown "$udid" || true
+            xcrun simctl boot "$udid"
+            xcrun simctl bootstatus "$udid" -b
+          }
           echo "udid=$udid" >> "$GITHUB_OUTPUT"
 
       - name: Run integration tests
