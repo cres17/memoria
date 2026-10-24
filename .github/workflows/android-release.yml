@@ -1,0 +1,93 @@
+name: Android Release (signed AAB)
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  FLUTTER_VERSION: '3.44.6'
+
+# 스토어 업로드용 서명 AAB를 만든다. 서명 시크릿이 없으면 빌드가 실패한다.
+#   ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
+# 선택: ADMOB_ANDROID_APP_ID, ADMOB_BANNER_ID, ADMOB_INTERSTITIAL_ID, ADMOB_REWARDED_ID
+on:
+  workflow_dispatch:
+  push:
+    tags: [ 'v*', 'release-*' ]
+
+permissions:
+  contents: read
+
+jobs:
+  release-aab:
+    name: Build signed release AAB
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          lfs: true
+          persist-credentials: false
+
+      - name: Set up Java
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Install locked dependencies
+        run: flutter pub get --enforce-lockfile
+
+      - name: Analyze and test release source
+        run: |
+          flutter analyze --no-fatal-infos
+          flutter test --reporter compact
+
+      - name: Restore upload keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::ANDROID_KEYSTORE_BASE64 secret is not set"
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/signing"
+          echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/signing/upload.jks"
+          echo "MEMORIA_KEYSTORE_FILE=$RUNNER_TEMP/signing/upload.jks" >> "$GITHUB_ENV"
+
+      - name: Build release AAB
+        env:
+          MEMORIA_REQUIRE_RELEASE_SIGNING: 'true'
+          MEMORIA_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          MEMORIA_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          MEMORIA_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ADMOB_ANDROID_APP_ID: ${{ secrets.ADMOB_ANDROID_APP_ID }}
+          ADMOB_BANNER_ID: ${{ secrets.ADMOB_BANNER_ID }}
+          ADMOB_INTERSTITIAL_ID: ${{ secrets.ADMOB_INTERSTITIAL_ID }}
+          ADMOB_REWARDED_ID: ${{ secrets.ADMOB_REWARDED_ID }}
+        run: |
+          set -e
+          defines=""
+          [ -n "$ADMOB_BANNER_ID" ] && defines="$defines --dart-define=ADMOB_BANNER_ID_ANDROID=$ADMOB_BANNER_ID"
+          [ -n "$ADMOB_INTERSTITIAL_ID" ] && defines="$defines --dart-define=ADMOB_INTERSTITIAL_ID_ANDROID=$ADMOB_INTERSTITIAL_ID"
+          [ -n "$ADMOB_REWARDED_ID" ] && defines="$defines --dart-define=ADMOB_REWARDED_ID_ANDROID=$ADMOB_REWARDED_ID"
+          flutter build appbundle --release --obfuscate --split-debug-info=build/symbols $defines
+
+      - name: Verify the AAB is not debug-signed
+        run: bash scripts/verify_aab_signature.sh build/app/outputs/bundle/release/app-release.aab
+
+      - name: Upload AAB
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: memoria-release-aab
+          path: build/app/outputs/bundle/release/app-release.aab
+
+      - name: Upload debug symbols
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: memoria-debug-symbols
+          path: build/symbols

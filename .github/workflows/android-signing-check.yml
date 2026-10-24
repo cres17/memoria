@@ -1,0 +1,77 @@
+name: Android Signing Check
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  FLUTTER_VERSION: '3.44.6'
+
+# 릴리스 서명 설정이 깨지지 않았는지 PR마다 확인한다. 실제 키는 쓰지 않고 임시 키를 만든다.
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-signing-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  signing:
+    name: Release signing config
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          lfs: true
+          persist-credentials: false
+
+      - name: Set up Java
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Install locked dependencies
+        run: flutter pub get --enforce-lockfile
+
+      - name: Store builds fail without signing config
+        run: |
+          set +e
+          MEMORIA_REQUIRE_RELEASE_SIGNING=true flutter build appbundle --release > no-signing.log 2>&1
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "::error::release build succeeded without signing config"
+            exit 1
+          fi
+          grep -q "Release signing is required" no-signing.log || { tail -40 no-signing.log; echo "::error::build failed for a different reason"; exit 1; }
+          echo "OK: build is rejected without signing config"
+
+      - name: Create a throwaway signing key
+        run: |
+          mkdir -p "$RUNNER_TEMP/signing"
+          keytool -genkeypair -v -keystore "$RUNNER_TEMP/signing/ci.jks" -storepass ci-throwaway -keypass ci-throwaway \
+            -alias ci -keyalg RSA -keysize 2048 -validity 2 -dname "CN=Memoria CI Throwaway" > /dev/null
+          echo "MEMORIA_KEYSTORE_FILE=$RUNNER_TEMP/signing/ci.jks" >> "$GITHUB_ENV"
+
+      - name: Build release AAB with the throwaway key
+        env:
+          MEMORIA_REQUIRE_RELEASE_SIGNING: 'true'
+          MEMORIA_KEYSTORE_PASSWORD: ci-throwaway
+          MEMORIA_KEY_ALIAS: ci
+          MEMORIA_KEY_PASSWORD: ci-throwaway
+        run: flutter build appbundle --release
+
+      - name: Verify the AAB is not debug-signed
+        run: |
+          bash scripts/verify_aab_signature.sh build/app/outputs/bundle/release/app-release.aab
+          keytool -printcert -jarfile build/app/outputs/bundle/release/app-release.aab | grep -q "CN=Memoria CI Throwaway"

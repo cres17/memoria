@@ -1,3 +1,4 @@
+import AppTrackingTransparency
 import Flutter
 import UIKit
 import CoreImage
@@ -40,6 +41,8 @@ import ImageIO
             result(Self.supportsWebPEncoding)
         case "decodeRaw":
             handleDecodeRaw(call: call, result: result)
+        case "requestTrackingAuthorization":
+            handleRequestTracking(result: result)
         default:
             result(FlutterMethodNotImplemented)
         }
@@ -92,6 +95,29 @@ import ImageIO
                 DispatchQueue.main.async { result(true) }
             } catch {
                 DispatchQueue.main.async { result(false) }
+            }
+        }
+    }
+
+    // MARK: — App Tracking Transparency
+
+    /// 광고가 켜져 있을 때만 Dart에서 호출한다. iOS 14 미만에서는 `unsupported`.
+    private func handleRequestTracking(result: @escaping FlutterResult) {
+        guard #available(iOS 14, *) else {
+            result("unsupported")
+            return
+        }
+        DispatchQueue.main.async {
+            ATTrackingManager.requestTrackingAuthorization { status in
+                let name: String
+                switch status {
+                case .authorized: name = "authorized"
+                case .denied: name = "denied"
+                case .restricted: name = "restricted"
+                case .notDetermined: name = "notDetermined"
+                @unknown default: name = "notDetermined"
+                }
+                DispatchQueue.main.async { result(name) }
             }
         }
     }

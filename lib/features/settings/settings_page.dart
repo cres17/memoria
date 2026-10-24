@@ -14,18 +14,21 @@ import '../../core/utils/platform_utils.dart';
 import '../../data/repositories/filter_index_recovery_service.dart';
 import '../../data/repositories/preferences_recovery_service.dart';
 import '../../engine/engine_channel.dart';
+import '../../monetization/ad_consent_service.dart';
 import 'settings_recovery_section.dart';
 
 class SettingsPage extends StatefulWidget {
   final PreferencesRecoveryService? preferencesRecovery;
   final FilterIndexRecoveryService? filterIndexRecovery;
   final SettingsRecoveryController? recoveryController;
+  final AdConsentService? adConsent;
 
   const SettingsPage({
     super.key,
     this.preferencesRecovery,
     this.filterIndexRecovery,
     this.recoveryController,
+    this.adConsent,
   });
 
   @override
@@ -38,10 +41,17 @@ class _SettingsPageState extends State<SettingsPage> {
   int _exportQuality = 95;
   bool _webpSupported = false;
   late final SettingsRecoveryController _recoveryController;
+  bool _adPrivacyOptionsRequired = false;
+
+  AdConsentService get _adConsent =>
+      widget.adConsent ?? AdConsentService.instance;
 
   @override
   void initState() {
     super.initState();
+    _adConsent.privacyOptionsRequired().then((required) {
+      if (mounted && required) setState(() => _adPrivacyOptionsRequired = true);
+    });
     _recoveryController = widget.recoveryController ??
         ServiceSettingsRecoveryController(
           preferences:
@@ -471,6 +481,15 @@ class _SettingsPageState extends State<SettingsPage> {
                 subtitle: S.get('settings.app_permissions_sub'),
                 onTap: _openSystemPermissionSettings,
               ),
+              if (_adPrivacyOptionsRequired) ...[
+                const _Divider(),
+                _SettingRow(
+                  icon: Icons.privacy_tip_outlined,
+                  title: S.get('settings.ad_privacy'),
+                  subtitle: S.get('settings.ad_privacy_sub'),
+                  onTap: () => _adConsent.showPrivacyOptions(),
+                ),
+              ],
             ],
           ),
           const SizedBox(height: 24),

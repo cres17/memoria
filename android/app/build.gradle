@@ -4,6 +4,27 @@ plugins {
     id "dev.flutter.flutter-gradle-plugin"
 }
 
+// 릴리스 서명 정보는 android/key.properties(로컬) 또는 환경변수(CI)에서 읽는다.
+// 저장소에는 키도 비밀번호도 두지 않는다.
+def keystoreProps = new Properties()
+def keystoreFile = rootProject.file("key.properties")
+if (keystoreFile.exists()) {
+    keystoreFile.withInputStream { keystoreProps.load(it) }
+}
+def signingValue = { String key, String env ->
+    return System.getenv(env) ?: keystoreProps.getProperty(key)
+}
+def releaseStoreFile = signingValue("storeFile", "MEMORIA_KEYSTORE_FILE")
+def releaseStorePassword = signingValue("storePassword", "MEMORIA_KEYSTORE_PASSWORD")
+def releaseKeyAlias = signingValue("keyAlias", "MEMORIA_KEY_ALIAS")
+def releaseKeyPassword = signingValue("keyPassword", "MEMORIA_KEY_PASSWORD")
+def hasReleaseSigning = [releaseStoreFile, releaseStorePassword, releaseKeyAlias, releaseKeyPassword].every { it }
+// 스토어 업로드용 빌드는 서명 정보가 없으면 실패해야 한다(디버그 키로 조용히 빌드되면 Play가 거부한다).
+def requireReleaseSigning = System.getenv("MEMORIA_REQUIRE_RELEASE_SIGNING") == "true"
+
+// AdMob 앱 ID: 기본은 Google 공식 테스트 ID. 릴리스에서는 환경변수 또는 -PadmobAppId 로 바꾼다.
+def admobAppId = System.getenv("ADMOB_ANDROID_APP_ID") ?: (project.findProperty("admobAppId") ?: "ca-app-pub-3940256099942544~3347511713")
+
 android {
     namespace "com.memoria.photofilter"
     compileSdk 36
@@ -21,31 +42,33 @@ android {
     defaultConfig {
         applicationId "com.memoria.photofilter"
         minSdk 24
-        targetSdk 35
+        targetSdk 36
         versionCode flutter.versionCode
         versionName flutter.versionName
         multiDexEnabled true
+        manifestPlaceholders = [admobAppId: admobAppId]
     }
 
-    // TODO(release): create signingConfigs.release before store upload
-    // Steps:
-    //   1. keytool -genkey -v -keystore memoria-release.jks -alias memoria -keyalg RSA -keysize 2048 -validity 10000
-    //   2. Add to signingConfigs block:
-    //      release {
-    //          storeFile file("../../memoria-release.jks")   // keep outside repo
-    //          storePassword System.getenv("KEYSTORE_PASS")
-    //          keyAlias "memoria"
-    //          keyPassword System.getenv("KEY_PASS")
-    //      }
-    //   3. Change release.signingConfig to signingConfigs.release
+    signingConfigs {
+        release {
+            if (hasReleaseSigning) {
+                storeFile file(releaseStoreFile)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         debug {
             shrinkResources false
             minifyEnabled false
         }
         release {
-            // TODO(release): change to signingConfigs.release after keystore setup
-            signingConfig signingConfigs.debug
+            // 서명 정보가 없을 때: 스토어용 빌드(MEMORIA_REQUIRE_RELEASE_SIGNING=true)는 실패,
+            // 로컬 `flutter run --release` 확인용 빌드는 디버그 키로 진행한다.
+            signingConfig hasReleaseSigning ? signingConfigs.release : signingConfigs.debug
             shrinkResources true
             minifyEnabled true
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
@@ -61,4 +84,14 @@ dependencies {
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8"
     implementation "androidx.core:core-ktx:1.12.0"
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"
+}
+
+// 스토어용 릴리스 빌드에 서명 정보가 없으면 빌드 시작 전에 멈춘다.
+gradle.taskGraph.whenReady { graph ->
+    def releaseTasks = graph.allTasks.findAll { it.name.toLowerCase().contains("release") && it.project == project }
+    if (requireReleaseSigning && !hasReleaseSigning && !releaseTasks.isEmpty()) {
+        throw new GradleException("Release signing is required but not configured. " +
+            "Set MEMORIA_KEYSTORE_FILE, MEMORIA_KEYSTORE_PASSWORD, MEMORIA_KEY_ALIAS, MEMORIA_KEY_PASSWORD " +
+            "(or android/key.properties).")
+    }
 }

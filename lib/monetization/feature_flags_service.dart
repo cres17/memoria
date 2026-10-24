@@ -5,9 +5,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// All fullscreen-ad flags default to OFF per spec.
 /// Banner ad is always disabled on web (kIsWeb) regardless of the stored flag.
 class FeatureFlagsService {
-  static const _keyBanner         = 'flag_banner_ad';
+  static const _keyBanner = 'flag_banner_ad';
   static const _keyFullCreateFilter = 'flag_fullscreen_create';
-  static const _keyFullApplyExport  = 'flag_fullscreen_apply_export';
+  static const _keyFullApplyExport = 'flag_fullscreen_apply_export';
 
   final SharedPreferences _prefs;
   FeatureFlagsService(this._prefs);
@@ -25,11 +25,10 @@ class FeatureFlagsService {
       _prefs.getBool(_keyFullCreateFilter) ?? false; // default OFF
 
   bool get enableFullScreenAdsForApplyOrExport =>
-      _prefs.getBool(_keyFullApplyExport) ?? false;  // default OFF
+      _prefs.getBool(_keyFullApplyExport) ?? false; // default OFF
 
   // ── Setters ──────────────────────────────────────────────────
-  Future<void> setBannerAd(bool value) =>
-      _prefs.setBool(_keyBanner, value);
+  Future<void> setBannerAd(bool value) => _prefs.setBool(_keyBanner, value);
 
   Future<void> setFullScreenAdsForCreateFilter(bool value) =>
       _prefs.setBool(_keyFullCreateFilter, value);
@@ -38,8 +37,10 @@ class FeatureFlagsService {
       _prefs.setBool(_keyFullApplyExport, value);
 
   Map<String, bool> toMap() => {
-    'enableBannerAd':                       enableBannerAd,
-    'enableFullScreenAdsForCreateFilter':   enableFullScreenAdsForCreateFilter,
-    'enableFullScreenAdsForApplyOrExport':  enableFullScreenAdsForApplyOrExport,
-  };
+        'enableBannerAd': enableBannerAd,
+        'enableFullScreenAdsForCreateFilter':
+            enableFullScreenAdsForCreateFilter,
+        'enableFullScreenAdsForApplyOrExport':
+            enableFullScreenAdsForApplyOrExport,
+      };
 }

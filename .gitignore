@@ -81,3 +81,4 @@ android/app/upload-keystore*
 *.aab
 *.apk
 *.ipa
+ios/Flutter/AdMobOverride.xcconfig

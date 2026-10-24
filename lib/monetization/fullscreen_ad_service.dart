@@ -4,6 +4,8 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
+import 'ad_config.dart';
+import 'ad_consent_service.dart';
 import 'feature_flags_service.dart';
 
 enum FullScreenAdTrigger { createFilter, applyOrExport }
@@ -12,11 +14,6 @@ enum FullScreenAdTrigger { createFilter, applyOrExport }
 /// Default: both fullscreen flags are off, so show() calls return immediately.
 class FullScreenAdService {
   static const _timeoutMs = 3000;
-
-  // TODO(release): replace with real AdMob unit IDs from AdMob console.
-  static const _interstitialId = 'ca-app-pub-3940256099942544/1033173712';
-  static const _rewardedId = 'ca-app-pub-3940256099942544/5224354917';
-  static const _isTestAdId = true; // flip to false after replacing both IDs
 
   final FeatureFlagsService _flags;
   FullScreenAdService(this._flags);
@@ -30,6 +27,7 @@ class FullScreenAdService {
     if (kIsWeb) return;
     if (!enabled) return;
     if (!await _hasNetwork()) return;
+    if (!await AdConsentService.instance.prepare(adsEnabled: true)) return;
 
     if (trigger == FullScreenAdTrigger.createFilter) {
       await _showRewarded();
@@ -52,8 +50,6 @@ class FullScreenAdService {
   }
 
   Future<void> _showRewarded() async {
-    assert(!kReleaseMode || !_isTestAdId,
-        'Replace AdMob IDs with real unit IDs before release.');
     final completer = Completer<void>();
 
     final timer = Timer(
@@ -64,7 +60,7 @@ class FullScreenAdService {
     );
 
     RewardedAd.load(
-      adUnitId: _rewardedId,
+      adUnitId: AdConfig.rewardedId,
       request: const AdRequest(),
       rewardedAdLoadCallback: RewardedAdLoadCallback(
         onAdLoaded: (ad) {
@@ -102,7 +98,7 @@ class FullScreenAdService {
     );
 
     InterstitialAd.load(
-      adUnitId: _interstitialId,
+      adUnitId: AdConfig.interstitialId,
       request: const AdRequest(),
       adLoadCallback: InterstitialAdLoadCallback(
         onAdLoaded: (ad) {
