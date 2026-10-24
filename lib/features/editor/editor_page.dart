@@ -28,6 +28,7 @@ import 'package:memoria/engine/portrait_engine.dart';
 import 'package:memoria/domain/models/adjust_params.dart';
 import 'package:memoria/domain/models/editor_look.dart';
 import 'package:memoria/features/editor/editor_look_clipboard.dart';
+import 'package:memoria/features/editor/utils/raw_pick.dart';
 import 'package:memoria/domain/models/curve_data.dart';
 import 'package:memoria/domain/models/filter_preset.dart';
 import 'package:memoria/domain/models/edit_operation.dart';
@@ -2737,8 +2738,11 @@ class _EditorPageState extends State<EditorPage> {
       }
       final xFile = await ImagePicker().pickImage(source: ImageSource.gallery);
       if (xFile != null && mounted) {
-        context.pop();
-        context.pushNamed('editor', extra: xFile.path);
+        final photoPath = await resolvePickedPhotoPath(context, xFile.path);
+        if (photoPath != null && mounted) {
+          context.pop();
+          context.pushNamed('editor', extra: photoPath);
+        }
       }
     } finally {
       _pickingEmptyImage = false;
