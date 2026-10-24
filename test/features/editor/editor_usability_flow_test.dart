@@ -198,4 +198,39 @@ void main() {
       }
     });
   }
+
+  testWidgets('도구 타일과 하단 탭이 화면 낭독기용 이름·상태를 가진다', (tester) async {
+    final semantics = tester.ensureSemantics();
+    await pumpEditor(tester);
+
+    expect(find.bySemanticsLabel('도구'), findsOneWidget);
+    expect(
+      tester.getSemantics(find.bySemanticsLabel('도구')),
+      matchesSemantics(
+        label: '도구',
+        isButton: true,
+        hasTapAction: true,
+        hasSelectedState: true,
+        isSelected: false,
+      ),
+    );
+    await openToolsTab(tester);
+    expect(
+      tester.getSemantics(find.bySemanticsLabel('도구')),
+      matchesSemantics(
+        label: '도구',
+        isButton: true,
+        hasTapAction: true,
+        hasSelectedState: true,
+        isSelected: true,
+      ),
+    );
+    final grid = find.byKey(const ValueKey('editor-tools-grid'));
+    final scrollable =
+        find.descendant(of: grid, matching: find.byType(Scrollable));
+    await tester.scrollUntilVisible(find.bySemanticsLabel('하늘'), 120,
+        scrollable: scrollable);
+    expect(find.bySemanticsLabel('하늘'), findsOneWidget);
+    semantics.dispose();
+  });
 }

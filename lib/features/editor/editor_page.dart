@@ -3482,54 +3482,58 @@ class _EditorPageState extends State<EditorPage> {
   Widget _sliderRow(String label, double value, double min, double max,
       ValueChanged<double> onChanged,
       {ValueChanged<double>? onChangeEnd}) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 72,
-            child: Text(
-              label,
-              style: const TextStyle(
-                fontFamily: 'NotoSerif',
-                fontSize: 12,
-                color: AppColors.textSecondary,
-                fontWeight: FontWeight.w600,
+    // 라벨·슬라이더·값을 하나의 접근성 항목으로 묶어 화면 낭독기가 "노출, 0.5, 슬라이더"로 읽게 한다.
+    return MergeSemantics(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 72,
+              child: Text(
+                label,
+                style: const TextStyle(
+                  fontFamily: 'NotoSerif',
+                  fontSize: 12,
+                  color: AppColors.textSecondary,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
-          ),
-          Expanded(
-            child: SliderTheme(
-              data: SliderThemeData(
-                activeTrackColor: const Color(0xFFFFC400),
-                inactiveTrackColor: AppColors.textSecondary.withOpacity(0.2),
-                thumbColor: const Color(0xFFFFC400),
-                trackHeight: 2.5,
-                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-              ),
-              child: Slider(
-                value: value.clamp(min, max),
-                min: min,
-                max: max,
-                onChanged: onChanged,
-                onChangeEnd: onChangeEnd,
-              ),
-            ),
-          ),
-          SizedBox(
-            width: 44,
-            child: Text(
-              value.toStringAsFixed(1),
-              textAlign: TextAlign.right,
-              style: const TextStyle(
-                fontFamily: 'NotoSerif',
-                fontSize: 12,
-                color: AppColors.textSecondary,
-                fontWeight: FontWeight.w600,
+            Expanded(
+              child: SliderTheme(
+                data: SliderThemeData(
+                  activeTrackColor: const Color(0xFFFFC400),
+                  inactiveTrackColor: AppColors.textSecondary.withOpacity(0.2),
+                  thumbColor: const Color(0xFFFFC400),
+                  trackHeight: 2.5,
+                  thumbShape:
+                      const RoundSliderThumbShape(enabledThumbRadius: 6),
+                ),
+                child: Slider(
+                  value: value.clamp(min, max),
+                  min: min,
+                  max: max,
+                  onChanged: onChanged,
+                  onChangeEnd: onChangeEnd,
+                ),
               ),
             ),
-          ),
-        ],
+            SizedBox(
+              width: 44,
+              child: Text(
+                value.toStringAsFixed(1),
+                textAlign: TextAlign.right,
+                style: const TextStyle(
+                  fontFamily: 'NotoSerif',
+                  fontSize: 12,
+                  color: AppColors.textSecondary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -4831,59 +4835,67 @@ class _EditorPageState extends State<EditorPage> {
   }
 
   Widget _buildToolTile(_ToolItem tool) {
-    return GestureDetector(
-      onTap: () {
-        hapticLight();
-        _activateTool(tool.id, tool.label);
-      },
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.03),
-              blurRadius: 4,
-              offset: const Offset(0, 2),
+    final modified = _isToolModified(tool.id);
+    return Semantics(
+      button: true,
+      label: tool.label,
+      value: modified ? '조정됨' : null,
+      excludeSemantics: true,
+      onTap: () => _activateTool(tool.id, tool.label),
+      child: GestureDetector(
+        onTap: () {
+          hapticLight();
+          _activateTool(tool.id, tool.label);
+        },
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.03),
+                blurRadius: 4,
+                offset: const Offset(0, 2),
+              ),
+            ],
+            border: Border.all(
+              color: Colors.black.withOpacity(0.04),
             ),
-          ],
-          border: Border.all(
-            color: Colors.black.withOpacity(0.04),
           ),
-        ),
-        child: Stack(
-          children: [
-            Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    tool.icon,
-                    size: 22,
-                    color: Colors.black87,
-                  ),
-                  const SizedBox(height: 6),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 2),
-                    child: Text(
-                      tool.label,
-                      textAlign: TextAlign.center,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontFamily: 'NotoSerif',
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.black87,
+          child: Stack(
+            children: [
+              Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      tool.icon,
+                      size: 22,
+                      color: Colors.black87,
+                    ),
+                    const SizedBox(height: 6),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 2),
+                      child: Text(
+                        tool.label,
+                        textAlign: TextAlign.center,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontFamily: 'NotoSerif',
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.black87,
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            if (_isToolModified(tool.id))
-              Positioned(top: 6, right: 6, child: _modifiedDot()),
-          ],
+              if (_isToolModified(tool.id))
+                Positioned(top: 6, right: 6, child: _modifiedDot()),
+            ],
+          ),
         ),
       ),
     );
@@ -4921,6 +4933,18 @@ class _EditorPageState extends State<EditorPage> {
 
   Widget _buildNavTabItem(_MainNavTab tab, String label, IconData icon) {
     final active = _mainNavTab == tab;
+    return Semantics(
+      button: true,
+      selected: active,
+      label: label,
+      excludeSemantics: true,
+      onTap: () => setState(() => _mainNavTab = active ? null : tab),
+      child: _buildNavTabBody(tab, label, icon, active),
+    );
+  }
+
+  Widget _buildNavTabBody(
+      _MainNavTab tab, String label, IconData icon, bool active) {
     return GestureDetector(
       onTap: () {
         hapticLight();

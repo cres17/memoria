@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:path_provider/path_provider.dart';
+import '../../core/error/diagnostics_export.dart';
 import '../../core/error/error_handler.dart';
 import '../../core/l10n/app_locale.dart';
 import '../../core/l10n/strings.dart';
@@ -234,6 +235,17 @@ class _SettingsPageState extends State<SettingsPage> {
             const SizedBox(height: 8),
           ],
         ),
+      ),
+    );
+  }
+
+  Future<void> _exportDiagnostics() async {
+    final shared = await DiagnosticsExport().exportAndShare();
+    if (!mounted || shared) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(S.get('settings.diagnostics_empty')),
+        behavior: SnackBarBehavior.floating,
       ),
     );
   }
@@ -496,6 +508,13 @@ class _SettingsPageState extends State<SettingsPage> {
           _SectionHeader(title: S.get('settings.about')),
           _SettingCard(
             children: [
+              _SettingRow(
+                icon: Icons.bug_report_outlined,
+                title: S.get('settings.diagnostics'),
+                subtitle: S.get('settings.diagnostics_sub'),
+                onTap: _exportDiagnostics,
+              ),
+              const _Divider(),
               _SettingRow(
                 icon: Icons.info_outline_rounded,
                 title: S.get('settings.licenses'),
