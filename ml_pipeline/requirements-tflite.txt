@@ -1,5 +1,8 @@
 # TFLite conversion environment (Python 3.11)
 # onnx-tf 1.10 relies on the legacy ONNX mapping API.
+# 이 환경은 onnx-tf 호환 때문에 onnx 1.15 · TensorFlow 2.15(keras 2.15, protobuf 4.25)에 고정되어 있고,
+# 이 버전들에는 알려진 취약점(악성 모델 파일 로드 시)이 있다. 직접 학습한 모델을 로컬에서 변환할 때만 쓰고,
+# 외부에서 받은 ONNX · Keras 파일을 이 환경에서 열지 않는다.
 onnx==1.15.0
 onnx-tf==1.10.0
 tensorflow==2.15.1

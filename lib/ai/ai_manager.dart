@@ -28,11 +28,12 @@ class AiModelInfo {
 // Output: [1, 144, 256, 1] float32, sigmoid probability
 const kModelSelfie = AiModelInfo(
   key: 'selfie_segmenter',
+  // latest가 아닌 버전 경로로 고정하고, 받은 파일은 크기와 SHA-256이 일치할 때만 쓴다.
   url: 'https://storage.googleapis.com/mediapipe-models/'
-      'image_segmenter/selfie_segmenter/float16/latest/'
+      'image_segmenter/selfie_segmenter/float16/1/'
       'selfie_segmenter.tflite',
-  sha256: '',
-  sizeBytes: 614000,
+  sha256: '191ac9529ae506ee0beefa6b2c945a172dab9d07d1e802a290a4e4038226658b',
+  sizeBytes: 249537,
 );
 
 const kColorTransferModelId = 'direct_mvp_family_holdout_smooth_010_001_fp16';
@@ -225,24 +226,50 @@ class AiManager extends ChangeNotifier {
       final dest = await _modelPath(info);
       await File(dest).parent.create(recursive: true);
 
+      // 임시 파일로 받은 뒤 크기 · SHA-256을 확인하고 나서만 모델 경로로 옮긴다.
+      final partial = File('$dest.part');
       final client = http.Client();
-      final req = http.Request('GET', Uri.parse(info.url));
-      final resp = await client.send(req);
+      try {
+        final req = http.Request('GET', Uri.parse(info.url));
+        final resp = await client.send(req);
+        if (resp.statusCode != 200) {
+          throw HttpException('${info.key}: download failed (${resp.statusCode})');
+        }
 
-      final total = resp.contentLength ?? info.sizeBytes;
-      int received = 0;
-      final sink = File(dest).openWrite();
+        final total = resp.contentLength ?? info.sizeBytes;
+        int received = 0;
+        final sink = partial.openWrite();
+        try {
+          await for (final chunk in resp.stream) {
+            sink.add(chunk);
+            received += chunk.length;
+            if (info.sizeBytes > 0 && received > info.sizeBytes) {
+              throw StateError('${info.key}: downloaded model is larger than expected');
+            }
+            final progress = total > 0 ? received / total : 0.0;
+            _setState(info.key,
+                ModelState(status: ModelStatus.downloading, progress: progress));
+          }
+        } finally {
+          await sink.close();
+        }
 
-      await for (final chunk in resp.stream) {
-        sink.add(chunk);
-        received += chunk.length;
-        final progress = total > 0 ? received / total : 0.0;
-        _setState(info.key,
-            ModelState(status: ModelStatus.downloading, progress: progress));
+        if (info.sizeBytes > 0 && await partial.length() != info.sizeBytes) {
+          throw StateError('${info.key}: downloaded model size mismatch');
+        }
+        if (info.sha256.isNotEmpty) {
+          final hash = (await sha256.bind(partial.openRead()).first).toString();
+          if (hash != info.sha256) {
+            throw StateError('${info.key}: downloaded model SHA-256 mismatch');
+          }
+        }
+        await partial.rename(dest);
+      } catch (_) {
+        if (await partial.exists()) await partial.delete();
+        rethrow;
+      } finally {
+        client.close();
       }
-
-      await sink.close();
-      client.close();
 
       _paths[info.key] = dest;
       _setState(
