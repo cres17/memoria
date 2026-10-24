@@ -1,0 +1,43 @@
+name: Dependency Vulnerability Scan
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+# OSV(오픈소스 취약점 DB)로 pubspec.lock · Gradle · Python 의존성을 검사한다.
+# PR에서는 이 PR이 새로 들여온 취약점만 실패로 처리하고, 매주 전체를 다시 검사한다.
+on:
+  pull_request:
+  schedule:
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scan-pr:
+    if: github.event_name == 'pull_request'
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml@b1d267aea5211fa648d9d442fa64b90dbdcbdd36 # v2.7.0
+    with:
+      scan-args: |-
+        --lockfile=pubspec.lock
+        -r
+        ./android
+        ./ml_pipeline
+
+  scan-full:
+    if: github.event_name != 'pull_request'
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@b1d267aea5211fa648d9d442fa64b90dbdcbdd36 # v2.7.0
+    with:
+      scan-args: |-
+        --lockfile=pubspec.lock
+        -r
+        ./android
+        ./ml_pipeline
