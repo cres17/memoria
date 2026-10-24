@@ -49,6 +49,76 @@ ios/Runner/          LutEnginePlugin.swift (MethodChannel)
 ml_pipeline/         데이터 생성 · 학습 · 평가 · ONNX/TFLite 변환 스크립트
 ```
 
+## 기능 흐름
+
+### 1. 편집과 내보내기
+
+미리보기와 내보내기는 같은 recipe와 같은 엔진 코드를 쓰고, 해상도만 다릅니다.
+
+```mermaid
+flowchart LR
+  U([슬라이더 · 필터 조작]) --> R[불변 EditorRenderRecipe]
+  U --> H[(작업 기록<br/>최대 100개 · undo/redo)]
+  U --> D[(편집 draft<br/>500ms 뒤 저장)]
+  R --> P[미리보기 isolate<br/>긴 변 720px]
+  R --> E[내보내기 isolate<br/>원본 해상도]
+  P --> V[[편집 화면]]
+  E --> F{형식}
+  F -- JPEG · PNG · TIFF --> DE[Dart 인코더]
+  F -- WebP --> SW[Swift ImageIO<br/>MethodChannel]
+  DE --> S[[사진 앱 저장 · 공유]]
+  SW --> S
+```
+
+### 2. 보정 적용 순서
+
+`EditorRenderer`가 한 장의 사진에 아래 순서로 보정을 쌓습니다. 켜지 않은 단계는 건너뜁니다.
+
+```mermaid
+flowchart LR
+  A[크롭 · 회전 · 원근] --> B[기본 보정 · LUT 필터<br/>픽셀 단위]
+  B --> C[이미지 효과<br/>노이즈 감소 · HDR · 글로우 · 그레인<br/>샤픈 · 클래리티 · 비네트]
+  C --> D[아트 효과]
+  D --> E[부분 보정 ·<br/>닷지 · 번]
+  E --> F[틸트시프트 ·<br/>렌즈 블러]
+  F --> G[인물 보정<br/>사람 영역 마스크]
+  G --> H[블렌드 · 프레임 ·<br/>텍스트 합성]
+```
+
+### 3. 나만의 필터 생성
+
+```mermaid
+flowchart TD
+  S([필터 만들기]) --> G
+  subgraph G[별도 isolate · 45초 제한]
+    M{방식} -- 참조 사진 1장 --> AI{번들 모델 설치 · 추론 성공?<br/>설치 때 크기 · SHA-256 확인}
+    AI -- 예 --> T[LiteRT 추론 17³ LUT<br/>→ 65³ 보간]
+    AI -- 아니오 --> ALG[알고리즘 방식으로 대체<br/>대체 이유 기록]
+    M -- 참조 사진 2~5장 --> ALG2[사진별 색 분포를<br/>통계적으로 합침]
+    M -- 보정 전 · 후 한 쌍 --> PF[전역 affine 색 변환<br/>+ 3D residual grid]
+  end
+  G -- 시간 초과 · 취소 · 실패 --> DEL[만들던 폴더 삭제]
+  G -- LUT 생성 --> TH{썸네일 렌더 성공?}
+  TH -- 아니오 --> RB[목록에서 제거 · 파일 삭제]
+  TH -- 예 --> SAVE[(filters/&lt;id&gt;/<br/>LUT · 썸네일 · recipe)]
+  classDef bad fill:#fde8e4,stroke:#d9826f
+  classDef ok fill:#e6f4ea,stroke:#6fae7f
+  class DEL,RB bad
+  class SAVE ok
+```
+
+### 4. 모델 준비 (ml_pipeline)
+
+```mermaid
+flowchart LR
+  A[LUT 수집 ·<br/>학습 데이터 생성] --> B[PyTorch 학습<br/>조건부 LUT 모델<br/>mobilenetv3_small_100]
+  B --> C[평가 ·<br/>홀드아웃 비교]
+  C --> D[ONNX 변환<br/>torch.onnx.export]
+  D --> E[onnx-tf<br/>SavedModel]
+  E --> F[TFLite fp16]
+  F --> G[[앱 번들<br/>assets/models/]]
+```
+
 ## 핵심 설계 결정
 
 | 결정 | 방식 | 위치 |
