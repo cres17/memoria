@@ -1535,6 +1535,7 @@ class _EditorPageState extends State<EditorPage> {
         return;
       }
       final preview = _previewBaseImage(decoded);
+      _updateSplitBefore(preview);
       final previewKey = _previewPipelineKey();
       final cachedPreview = _previewRenderCache[previewKey];
       if (cachedPreview != null) {
@@ -1851,6 +1852,102 @@ class _EditorPageState extends State<EditorPage> {
     _showLookMessage('보정을 붙여넣었어요.');
   }
 
+  /// 분할 비교: 왼쪽은 보정 전(자르기·회전만 반영), 오른쪽은 보정 후.
+  bool _splitCompare = false;
+  double _splitPosition = 0.5;
+  Uint8List? _splitBeforeBytes;
+  String? _splitBeforeKey;
+
+  void _updateSplitBefore(img.Image base) {
+    if (!_splitCompare) return;
+    final key = _previewBaseKey();
+    if (_splitBeforeKey == key && _splitBeforeBytes != null) return;
+    final bytes = Uint8List.fromList(img.encodeJpg(base, quality: 88));
+    _splitBeforeKey = key;
+    if (mounted) setState(() => _splitBeforeBytes = bytes);
+  }
+
+  void _toggleSplitCompare() {
+    setState(() {
+      _splitCompare = !_splitCompare;
+      _splitPosition = 0.5;
+      if (!_splitCompare) {
+        _splitBeforeBytes = null;
+        _splitBeforeKey = null;
+      }
+    });
+    if (_splitCompare) _renderPreview();
+  }
+
+  Widget _buildSplitCompareOverlay() {
+    final before = _splitBeforeBytes;
+    if (before == null) return const SizedBox.shrink();
+    return Positioned.fill(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final width = constraints.maxWidth;
+          return GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onHorizontalDragUpdate: (details) {
+              if (width <= 0) return;
+              setState(() {
+                _splitPosition =
+                    (_splitPosition + details.delta.dx / width).clamp(0.0, 1.0);
+              });
+            },
+            onTapDown: (details) {
+              if (width <= 0) return;
+              setState(() {
+                _splitPosition =
+                    (details.localPosition.dx / width).clamp(0.0, 1.0);
+              });
+            },
+            child: Stack(
+              children: [
+                ClipRect(
+                  clipper: _SplitClipper(_splitPosition),
+                  child: Center(
+                    child: Image.memory(
+                      before,
+                      fit: BoxFit.contain,
+                      width: double.infinity,
+                      filterQuality: FilterQuality.high,
+                      gaplessPlayback: true,
+                    ),
+                  ),
+                ),
+                Positioned(
+                  left: _splitPosition * width - 1,
+                  top: 0,
+                  bottom: 0,
+                  child: Container(width: 2, color: Colors.white),
+                ),
+                Positioned(
+                  left: _splitPosition * width - 18,
+                  top: constraints.maxHeight / 2 - 18,
+                  child: Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: Colors.black54,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 2),
+                    ),
+                    child: const Icon(Icons.swap_horiz_rounded,
+                        color: Colors.white, size: 20),
+                  ),
+                ),
+                const Positioned(left: 10, top: 10, child: _SplitLabel('원본')),
+                const Positioned(
+                    right: 10, top: 10, child: _SplitLabel('보정 후')),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   void _showLookMessage(String text) {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
@@ -1871,6 +1968,20 @@ class _EditorPageState extends State<EditorPage> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            ListTile(
+              leading: Icon(Icons.vertical_split_rounded,
+                  color: _splitCompare
+                      ? const Color(0xFFFFC400)
+                      : AppColors.textOnDark),
+              title: Text(_splitCompare ? '분할 비교 끄기' : '원본과 분할 비교',
+                  style: const TextStyle(color: AppColors.textOnDark)),
+              subtitle: const Text('가운데 선을 좌우로 끌어 비교',
+                  style: TextStyle(color: AppColors.textOnDarkTert)),
+              onTap: () {
+                Navigator.pop(ctx);
+                _toggleSplitCompare();
+              },
+            ),
             ListTile(
               leading: const Icon(Icons.copy_rounded,
                   color: AppColors.textOnDark),
@@ -2600,7 +2711,7 @@ class _EditorPageState extends State<EditorPage> {
             ] else
               _EditorOverlayIconButton(
                 icon: Icons.content_copy_rounded,
-                tooltip: '보정 복사·붙여넣기',
+                tooltip: '보정 복사·분할 비교',
                 enabled: widget.imagePath != null,
                 onTap: _showLookMenu,
               ),
@@ -2798,6 +2909,7 @@ class _EditorPageState extends State<EditorPage> {
                 _activeToolId == 'text' &&
                 _overlayText.trim().isNotEmpty)
               _buildLiveTextOverlay(constraints),
+            if (_splitCompare && !_isToolActive) _buildSplitCompareOverlay(),
             if (_isToolActive && _activeToolId == 'crop')
               CropOverlayWidget(
                 imageSize: _currentImageSize,
@@ -6535,6 +6647,42 @@ Future<Uint8List> _previewWorker(_PreviewParams p) async {
       ),
     ),
   );
+}
+
+class _SplitClipper extends CustomClipper<Rect> {
+  final double position;
+
+  const _SplitClipper(this.position);
+
+  @override
+  Rect getClip(Size size) => Rect.fromLTWH(0, 0, size.width * position, size.height);
+
+  @override
+  bool shouldReclip(_SplitClipper oldClipper) => oldClipper.position != position;
+}
+
+class _SplitLabel extends StatelessWidget {
+  final String text;
+
+  const _SplitLabel(this.text);
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.black54,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          text,
+          style: const TextStyle(
+              color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700),
+        ),
+      ),
+    );
+  }
 }
 
 class _ToolItem {
