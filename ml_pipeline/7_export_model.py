@@ -7,7 +7,7 @@ Stage 3 — 학습된 모델 → TFLite (Android) + ONNX (CoreML 변환용) 내�
 
 실행: python 7_export_model.py
 요구사항:
-  Android TFLite: pip install onnx-tf tensorflow
+  Android TFLite: pip install -r requirements-tflite.txt (litert-torch)
   iOS CoreML:     pip install coremltools (Mac에서 실행)
 """
 
@@ -71,35 +71,25 @@ def export_onnx(model: ColorTransferNet):
 
 
 # ── TFLite 변환 (Android) ────────────────────────────────────────────────────
-def export_tflite():
-    """ONNX → TF SavedModel → TFLite (fp16 quantized, ~18MB)."""
+def export_tflite(model: ColorTransferNet):
+    """PyTorch → TFLite (litert-torch, fp16 가중치)."""
     try:
-        import tensorflow as tf
-        from onnx_tf.backend import prepare
-        import onnx
-
-        print("\nTFLite 변환 중...")
-        onnx_model = onnx.load(OUTPUT_ONNX)
-        tf_rep     = prepare(onnx_model)
-        tf_rep.export_graph("exports/tf_savedmodel")
-
-        converter = tf.lite.TFLiteConverter.from_saved_model("exports/tf_savedmodel")
-        converter.optimizations          = [tf.lite.Optimize.DEFAULT]
-        converter.target_spec.supported_types = [tf.float16]
-
-        tflite_model = converter.convert()
-        with open(OUTPUT_TFLITE, "wb") as f:
-            f.write(tflite_model)
-
-        size_mb = os.path.getsize(OUTPUT_TFLITE) / 1e6
-        print(f"TFLite 저장: {OUTPUT_TFLITE} ({size_mb:.1f}MB)")
-        print("  → Android: lib/ai/models/ 에 복사 후 ai_manager.dart URL 업데이트")
-
+        from tflite_export import convert_fp16
     except ImportError:
-        print("\nTFLite 변환 건너뜀 (onnx-tf / tensorflow 미설치)")
-        print("Linux/Mac 환경에서 실행:")
-        print("  pip install onnx-tf tensorflow")
-        print("  python 7_export_model.py")
+        print("\nTFLite 변환 건너뜀 (litert-torch 미설치)")
+        print("  pip install -r requirements-tflite.txt")
+        return
+
+    class _SmallWrapper(torch.nn.Module):
+        def __init__(self, m): super().__init__(); self.m = m
+        def forward(self, x): return self.m.forward_small(x)
+
+    print("\nTFLite 변환 중...")
+    dummy = torch.randn(1, 3, 256, 256)
+    convert_fp16(_SmallWrapper(model.cpu()).eval(), dummy, OUTPUT_TFLITE)
+    size_mb = os.path.getsize(OUTPUT_TFLITE) / 1e6
+    print(f"TFLite 저장: {OUTPUT_TFLITE} ({size_mb:.1f}MB)")
+    print("  → Android: lib/ai/models/ 에 복사 후 ai_manager.dart URL 업데이트")
 
 
 # ── CoreML 변환 안내 (iOS, Mac 전용) ─────────────────────────────────────────
@@ -141,5 +131,5 @@ CoreML 변환 (Mac 환경에서 실행):
 if __name__ == "__main__":
     model = load_model()
     export_onnx(model)
-    export_tflite()
+    export_tflite(model)
     print_coreml_guide()

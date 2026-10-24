@@ -77,8 +77,8 @@ def main() -> None:
         output_names=["lut_small"],
         opset_version=17,
         do_constant_folding=True,
-        # onnx-tf 1.10 supports opset 17 but not the current exporter's
-        # fallback opset 18 graph. Keep the mobile conversion contract fixed.
+        # Keep the legacy exporter so this validation artifact stays at opset 17.
+        # The mobile TFLite model is converted from PyTorch directly in 35.
         dynamo=False,
     )
     exported = onnx.load(args.onnx_output)

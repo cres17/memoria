@@ -113,9 +113,10 @@ flowchart TD
 flowchart LR
   A[LUT 수집 ·<br/>학습 데이터 생성] --> B[PyTorch 학습<br/>조건부 LUT 모델<br/>mobilenetv3_small_100]
   B --> C[평가 ·<br/>홀드아웃 비교]
-  C --> D[ONNX 변환<br/>torch.onnx.export]
-  D --> E[onnx-tf<br/>SavedModel]
-  E --> F[TFLite fp16]
+  C --> D[ONNX export<br/>onnxruntime 출력 검증]
+  C --> E[litert-torch<br/>PyTorch → TFLite 직접 변환]
+  E --> F[TFLite fp16 가중치<br/>PyTorch 출력과 비교]
+  D -. 검증 fixture .-> F
   F --> G[[앱 번들<br/>assets/models/]]
 ```
 
@@ -140,7 +141,7 @@ flowchart LR
 
 ## 모델 학습 (ml_pipeline)
 
-번호 순 스크립트로 데이터 준비 · 학습 · 평가 · 변환을 진행합니다. LUT 수집과 학습 데이터 생성(`1_`, `2_`, `4_`, `5_`)부터 조건부 LUT 모델 학습(`20_train_conditional_lut_mvp.py`)과 평가 · 홀드아웃 비교를 거쳐, `34_`에서 `torch.onnx.export`로 ONNX를 만들고 `35_`에서 onnx-tf로 SavedModel을 거쳐 `TFLiteConverter`로 fp16 TFLite를 만듭니다. 인코더는 timm의 `mobilenetv3_small_100`입니다. `36_`은 변환된 모델의 추론 속도를 측정합니다. 환경 설정과 단계별 명령은 [ml_pipeline/README.md](ml_pipeline/README.md)에 있습니다.
+번호 순 스크립트로 데이터 준비 · 학습 · 평가 · 변환을 진행합니다. LUT 수집과 학습 데이터 생성(`1_`, `2_`, `4_`, `5_`)부터 조건부 LUT 모델 학습(`20_train_conditional_lut_mvp.py`)과 평가 · 홀드아웃 비교를 거쳐, `34_`에서 `torch.onnx.export`로 ONNX를 만들어 출력을 검증하고, `35_`에서 litert-torch로 PyTorch 모델을 TFLite로 직접 변환한 뒤 ai-edge-quantizer로 가중치를 float16으로 줄입니다. 인코더는 timm의 `mobilenetv3_small_100`입니다. `36_`은 변환된 모델의 추론 속도를 측정합니다. 환경 설정과 단계별 명령은 [ml_pipeline/README.md](ml_pipeline/README.md)에 있습니다.
 
 ## 실행 · 검증
 
