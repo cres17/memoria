@@ -1,4 +1,5 @@
-torch>=2.1.0
-torchvision>=0.16.0
+# Python 3.11+ (Pillow 13 이상 요구). 최소 버전은 알려진 취약점이 없는 버전 기준
+torch>=2.13.0
+torchvision>=0.28.0
 numpy>=1.24
-Pillow>=10.0
+Pillow>=13.0.0

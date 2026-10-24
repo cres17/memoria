@@ -9,13 +9,16 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build-ios:
     name: Build iOS (no codesign)
     runs-on: macos-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
           lfs: true
@@ -32,7 +35,7 @@ jobs:
         shell: bash
 
       - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           flutter-version: '3.44.6'
           channel: stable
@@ -61,7 +64,7 @@ jobs:
         run: flutter test --coverage --reporter compact
 
       - name: Upload coverage
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: memoria-flutter-coverage
           path: coverage/lcov.info
@@ -78,13 +81,13 @@ jobs:
           flutter build ios --no-codesign --release --verbose 2>&1 | tee build_ipa_verbose.log
 
       - name: Upload IPA artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: memoria-unsigned-ipa
           path: build/ios/iphoneos/Runner.app
 
       - name: Upload build logs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ios-build-logs
           path: build_ipa_verbose.log

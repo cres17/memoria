@@ -7,12 +7,15 @@ on:
   push:
     tags: [ 'v*', 'release-*' ]
 
+permissions:
+  contents: read
+
 jobs:
   release-ipa:
     runs-on: macos-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
           lfs: true
@@ -29,7 +32,7 @@ jobs:
         shell: bash
 
       - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           flutter-version: '3.44.6'
           channel: stable
@@ -49,12 +52,30 @@ jobs:
           flutter analyze --no-fatal-infos
           flutter test --reporter compact
 
+      # 서명 인증서는 외부 액션에 넘기지 않고 macOS 기본 security 명령으로 임시 키체인에 넣는다.
+      # IOS_CERT_P12, IOS_PROVISIONING_PROFILE 시크릿은 base64로 인코딩한 값이어야 한다.
       - name: Import signing identities and provisioning profiles
-        uses: apple-actions/import-codesign@v1
-        with:
-          p12: ${{ secrets.IOS_CERT_P12 }}
-          p12-password: ${{ secrets.IOS_CERT_PASSWORD }}
-          mobileprovision: ${{ secrets.IOS_PROVISIONING_PROFILE }}
+        env:
+          P12_BASE64: ${{ secrets.IOS_CERT_P12 }}
+          P12_PASSWORD: ${{ secrets.IOS_CERT_PASSWORD }}
+          PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
+          printf '%s' "$P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          printf '%s' "$PROFILE_BASE64" | base64 --decode > "$RUNNER_TEMP/profile.mobileprovision"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/cert.p12" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$PROFILE_DIR"
+          UUID="$(security cms -D -i "$RUNNER_TEMP/profile.mobileprovision" | plutil -extract UUID raw -)"
+          cp "$RUNNER_TEMP/profile.mobileprovision" "$PROFILE_DIR/$UUID.mobileprovision"
+          rm -f "$RUNNER_TEMP/cert.p12"
 
       - name: Create exportOptions.plist
         run: |
@@ -84,13 +105,17 @@ jobs:
           flutter build ipa --export-options-plist=exportOptions.plist --release --verbose 2>&1 | tee build_ipa_verbose.log
 
       - name: Collect IPA artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: memoria-ios-ipa
           path: build/ios/ipa
 
       - name: Upload build logs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: memoria-ipa-logs
           path: build_ipa_verbose.log
+
+      - name: Remove temporary signing keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
