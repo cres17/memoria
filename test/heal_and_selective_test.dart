@@ -4,7 +4,6 @@ import 'package:memoria/domain/models/edit_operation.dart';
 import 'package:memoria/engine/inpainting.dart';
 import 'package:memoria/engine/local_adjust.dart';
 import 'package:memoria/features/editor/editor_edit_state.dart';
-import 'package:memoria/features/editor/editor_state_adapter.dart';
 
 img.Image _gradient({int w = 400, int h = 300}) {
   final image = img.Image(width: w, height: h);
@@ -125,5 +124,40 @@ void main() {
     final restored = EditorEffectState.fromJson({'selectiveActive': true});
     expect(restored.selectiveExtras, isEmpty);
     expect(restored.healStrokes, isEmpty);
+  });
+
+  test('하늘 보정 값이 기록 JSON·상태 복원·렌더 recipe로 보존된다', () {
+    final state = EditorEditState()
+      ..skyBrightness = -30
+      ..skySaturation = 20
+      ..skyWarmth = 45;
+    final snapshot = state.toSnapshot(localSubTabName: 'tiltShift');
+
+    final restored = EditorEffectState.fromJson(snapshot.effects.toJson());
+    expect(restored.skyBrightness, -30);
+    expect(restored.skySaturation, 20);
+    expect(restored.skyWarmth, 45);
+
+    final other = EditorEditState()..restore(snapshot, resolvedPreset: null);
+    expect(other.skyWarmth, 45);
+
+    final recipe =
+        snapshot.toRenderRecipe(lutBytes: null, cropAspectRatio: null);
+    expect(recipe.sky.isNeutral, isFalse);
+    expect(recipe.sky.brightness, -30);
+    expect(recipe.skyShowMask, isFalse);
+
+    final preview = snapshot.toRenderRecipe(
+        lutBytes: null, cropAspectRatio: null, skyShowMask: true);
+    expect(preview.skyShowMask, isTrue);
+  });
+
+  test('하늘 값이 없는 예전 기록은 보정 없음으로 읽힌다', () {
+    final restored = EditorEffectState.fromJson({'selectiveActive': true});
+    expect(restored.skyBrightness, 0);
+    final recipe = EditorEditState()
+        .toSnapshot(localSubTabName: 'tiltShift')
+        .toRenderRecipe(lutBytes: null, cropAspectRatio: null);
+    expect(recipe.sky.isNeutral, isTrue);
   });
 }

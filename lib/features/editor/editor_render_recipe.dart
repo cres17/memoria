@@ -5,6 +5,7 @@ import 'package:memoria/domain/models/edit_operation.dart';
 import 'package:memoria/engine/artistic_effects.dart';
 import 'package:memoria/engine/inpainting.dart';
 import 'package:memoria/engine/local_adjust.dart';
+import 'package:memoria/engine/sky_mask.dart';
 
 /// Immutable, transport-safe description of the visual editor state.
 ///
@@ -30,6 +31,10 @@ class EditorRenderRecipe {
   final double selectiveRadius;
   final List<LocalSelectivePoint> selectiveExtras;
   final List<HealSpot> healStrokes;
+  final SkyAdjust sky;
+
+  /// 미리보기에서 하늘로 인식한 영역을 붉게 보여 줄 때만 true. 내보내기에는 쓰지 않는다.
+  final bool skyShowMask;
   final bool dodgeBurnActive;
   final double dodgeStrength;
   final double dodgeY;
@@ -83,6 +88,8 @@ class EditorRenderRecipe {
     required List<DodgeBurnStroke> brushStrokes,
     List<LocalSelectivePoint> selectiveExtras = const [],
     List<HealSpot> healStrokes = const [],
+    this.sky = const SkyAdjust(),
+    this.skyShowMask = false,
   })  : brushStrokes = List.unmodifiable(brushStrokes),
         selectiveExtras = List.unmodifiable(selectiveExtras),
         healStrokes = List.unmodifiable(healStrokes);

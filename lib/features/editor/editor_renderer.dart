@@ -9,6 +9,7 @@ import 'package:memoria/engine/frame_overlay.dart';
 import 'package:memoria/engine/local_adjust.dart';
 import 'package:memoria/engine/lut_engine.dart';
 import 'package:memoria/engine/portrait_engine.dart';
+import 'package:memoria/engine/sky_mask.dart';
 import 'package:memoria/features/editor/editor_render_recipe.dart';
 import 'package:memoria/features/editor/editor_spatial_renderer.dart';
 
@@ -262,6 +263,9 @@ class EditorRenderer {
           ),
         ...recipe.selectiveExtras,
       ]);
+    }
+    if (!recipe.sky.isNeutral || recipe.skyShowMask) {
+      out = applySkyAdjust(out, recipe.sky, showMask: recipe.skyShowMask);
     }
     if (recipe.dodgeBurnActive) {
       final strokes = recipe.brushStrokes.isNotEmpty

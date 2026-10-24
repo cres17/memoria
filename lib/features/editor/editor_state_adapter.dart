@@ -6,6 +6,7 @@ import 'package:memoria/domain/models/edit_operation.dart';
 import 'package:memoria/engine/artistic_effects.dart';
 import 'package:memoria/engine/inpainting.dart';
 import 'package:memoria/engine/local_adjust.dart';
+import 'package:memoria/engine/sky_mask.dart';
 import 'package:memoria/features/editor/editor_render_recipe.dart';
 
 /// Immutable bridge between the editor's temporary UI fields and committed
@@ -113,6 +114,7 @@ class EditorStateSnapshot {
     Uint8List? lutBytesOverride,
     bool overrideLutBytes = false,
     double? intensityOverride,
+    bool skyShowMask = false,
   }) =>
       EditorRenderRecipe(
         adjustParams: adjustParamsOverride ?? adjustParams,
@@ -145,6 +147,12 @@ class EditorStateSnapshot {
               ),
             )
             .toList(growable: false),
+        sky: SkyAdjust(
+          brightness: effects.skyBrightness,
+          saturation: effects.skySaturation,
+          warmth: effects.skyWarmth,
+        ),
+        skyShowMask: skyShowMask,
         healStrokes: effects.healStrokes
             .map((s) => HealSpot(x: s.x, y: s.y, radius: s.radius))
             .toList(growable: false),

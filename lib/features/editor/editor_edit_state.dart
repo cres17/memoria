@@ -73,6 +73,9 @@ class EditorEditState {
   double selectiveRadius = 0.3;
   final List<SelectivePointState> selectiveExtras = [];
   final List<HealHistoryStroke> healStrokes = [];
+  double skyBrightness = 0;
+  double skySaturation = 0;
+  double skyWarmth = 0;
 
   bool dodgeBurnActive = false;
   String brushMode = 'dodge';
@@ -153,6 +156,9 @@ class EditorEditState {
           selectiveRadius: selectiveRadius,
           selectiveExtras: List.unmodifiable(selectiveExtras),
           healStrokes: List.unmodifiable(healStrokes),
+          skyBrightness: skyBrightness,
+          skySaturation: skySaturation,
+          skyWarmth: skyWarmth,
           dodgeBurnActive: dodgeBurnActive,
           brushMode: brushMode,
           dodgeY: dodgeY,
@@ -258,6 +264,9 @@ class EditorEditState {
     healStrokes
       ..clear()
       ..addAll(effects.healStrokes);
+    skyBrightness = effects.skyBrightness;
+    skySaturation = effects.skySaturation;
+    skyWarmth = effects.skyWarmth;
     dodgeBurnActive = effects.dodgeBurnActive;
     brushMode = effects.brushMode;
     dodgeY = effects.dodgeY;

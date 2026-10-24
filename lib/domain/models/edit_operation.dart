@@ -442,6 +442,11 @@ class EditorEffectState {
   /// 지우개(힐링) 획. 원본 사진 기준 정규화 좌표.
   final List<HealHistoryStroke> healStrokes;
 
+  /// 하늘 영역 보정값(-100..100). 모두 0이면 적용하지 않는다.
+  final double skyBrightness;
+  final double skySaturation;
+  final double skyWarmth;
+
   final bool dodgeBurnActive;
   final String brushMode;
   final double dodgeY;
@@ -474,6 +479,9 @@ class EditorEffectState {
     this.selectiveRadius = 0.3,
     this.selectiveExtras = const [],
     this.healStrokes = const [],
+    this.skyBrightness = 0.0,
+    this.skySaturation = 0.0,
+    this.skyWarmth = 0.0,
     this.dodgeBurnActive = false,
     this.brushMode = 'dodge',
     this.dodgeY = 0.25,
@@ -507,6 +515,9 @@ class EditorEffectState {
         'selectiveRadius': selectiveRadius,
         'selectiveExtras': selectiveExtras.map((p) => p.toJson()).toList(),
         'healStrokes': healStrokes.map((s) => s.toJson()).toList(),
+        'skyBrightness': skyBrightness,
+        'skySaturation': skySaturation,
+        'skyWarmth': skyWarmth,
         'dodgeBurnActive': dodgeBurnActive,
         'brushMode': brushMode,
         'dodgeY': dodgeY,
@@ -546,6 +557,9 @@ class EditorEffectState {
         healStrokes: (json['healStrokes'] as List<dynamic>? ?? const [])
             .map((s) => HealHistoryStroke.fromJson(s as Map<String, dynamic>))
             .toList(growable: false),
+        skyBrightness: (json['skyBrightness'] as num? ?? 0.0).toDouble(),
+        skySaturation: (json['skySaturation'] as num? ?? 0.0).toDouble(),
+        skyWarmth: (json['skyWarmth'] as num? ?? 0.0).toDouble(),
         dodgeBurnActive: json['dodgeBurnActive'] as bool? ?? false,
         brushMode: json['brushMode'] as String? ?? 'dodge',
         dodgeY: (json['dodgeY'] as num? ?? 0.25).toDouble(),

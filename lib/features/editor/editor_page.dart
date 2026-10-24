@@ -416,6 +416,11 @@ class _EditorPageState extends State<EditorPage> {
         case 'heal':
           _healSpots.clear();
           break;
+        case 'sky':
+          _editState.skyBrightness = 0;
+          _editState.skySaturation = 0;
+          _editState.skyWarmth = 0;
+          break;
         case 'selective':
           _selExtras.clear();
           _selActive = false;
@@ -536,6 +541,11 @@ class _EditorPageState extends State<EditorPage> {
   EditorStateSnapshot _currentEditorState() =>
       _editState.toSnapshot(localSubTabName: _localSubTab.name);
 
+  bool get _skyNeutral =>
+      _editState.skyBrightness == 0 &&
+      _editState.skySaturation == 0 &&
+      _editState.skyWarmth == 0;
+
   EditorRenderRecipe _currentRenderRecipe({
     AdjustParams? adjustParams,
     Uint8List? lutBytes,
@@ -543,6 +553,8 @@ class _EditorPageState extends State<EditorPage> {
     double? intensity,
   }) =>
       _currentEditorState().toRenderRecipe(
+        // 하늘 도구를 열고 값이 0일 때는 인식한 영역을 붉게 보여 준다.
+        skyShowMask: _isToolActive && _activeToolId == 'sky' && _skyNeutral,
         lutBytes: _lutBytes,
         cropAspectRatio: _currentCropRect(),
         adjustParamsOverride: adjustParams,
@@ -1393,6 +1405,10 @@ class _EditorPageState extends State<EditorPage> {
             .map((p) =>
                 '${p.x.toStringAsFixed(3)},${p.y.toStringAsFixed(3)},${p.brightness.toStringAsFixed(1)},${p.contrast.toStringAsFixed(1)},${p.saturation.toStringAsFixed(1)},${p.radius.toStringAsFixed(2)}')
             .join(';'),
+        _editState.skyBrightness.toStringAsFixed(1),
+        _editState.skySaturation.toStringAsFixed(1),
+        _editState.skyWarmth.toStringAsFixed(1),
+        _isToolActive && _activeToolId == 'sky' && _skyNeutral,
         // Dodge / burn
         _dbActive,
         _dodgeStrength.toStringAsFixed(2), _dodgeY.toStringAsFixed(3),
@@ -3367,6 +3383,8 @@ class _EditorPageState extends State<EditorPage> {
         return _selActive || _selExtras.isNotEmpty;
       case 'heal':
         return _healSpots.isNotEmpty;
+      case 'sky':
+        return !_skyNeutral;
       case 'brush':
         return _dbActive || _brushStrokes.isNotEmpty;
       case 'tilt_shift':
@@ -3425,6 +3443,7 @@ class _EditorPageState extends State<EditorPage> {
         icon: Icons.filter_center_focus_rounded),
     _ToolItem(id: 'brush', label: '브러시', icon: Icons.brush_rounded),
     _ToolItem(id: 'heal', label: '지우개', icon: Icons.auto_fix_high_rounded),
+    _ToolItem(id: 'sky', label: '하늘', icon: Icons.wb_cloudy_rounded),
     _ToolItem(
         id: 'tilt_shift', label: '틸트 시프트', icon: Icons.blur_linear_rounded),
     _ToolItem(
@@ -3888,6 +3907,33 @@ class _EditorPageState extends State<EditorPage> {
                     style: TextStyle(
                         fontSize: 12, color: AppColors.textSecondary)),
               ),
+          ],
+        );
+      case 'sky':
+        return Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+              child: Text(
+                _skyNeutral
+                    ? '붉게 표시된 부분이 하늘로 인식한 영역이에요. 아래 값을 움직이면 그 영역만 보정합니다. 푸른 하늘과 구름만 인식하고, 일몰이나 흐린 하늘은 놓칠 수 있어요.'
+                    : '하늘로 인식한 영역에만 적용됩니다. 값을 모두 0으로 돌리면 인식한 영역을 다시 볼 수 있어요.',
+                style: const TextStyle(
+                    fontSize: 12, color: AppColors.textSecondary),
+              ),
+            ),
+            _sliderRow('밝기', _editState.skyBrightness, -100, 100, (v) {
+              setState(() => _editState.skyBrightness = v);
+              _debouncedPreview();
+            }),
+            _sliderRow('채도', _editState.skySaturation, -100, 100, (v) {
+              setState(() => _editState.skySaturation = v);
+              _debouncedPreview();
+            }),
+            _sliderRow('색감(푸름↔따뜻함)', _editState.skyWarmth, -100, 100, (v) {
+              setState(() => _editState.skyWarmth = v);
+              _debouncedPreview();
+            }),
           ],
         );
       case 'heal':
@@ -6717,6 +6763,7 @@ const List<_ToolGroup> _toolGroups = [
     'selective',
     'brush',
     'heal',
+    'sky',
     'tilt_shift',
     'lens_blur',
     'portrait',

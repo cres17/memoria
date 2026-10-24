@@ -158,4 +158,16 @@ void main() {
     await tester.pump();
     expect(find.textContaining('지울 잡티나 작은 물체'), findsOneWidget);
   });
+
+  testWidgets('하늘 도구는 안내문과 3개 슬라이더를 보여 주고 값을 바꾸면 안내가 달라진다',
+      (tester) async {
+    await pumpEditor(tester);
+    await openToolsTab(tester);
+    await openTool(tester, '하늘');
+
+    expect(find.textContaining('붉게 표시된 부분'), findsOneWidget);
+    expect(find.text('밝기'), findsOneWidget);
+    expect(find.text('채도'), findsOneWidget);
+    expect(find.textContaining('색감'), findsOneWidget);
+  });
 }
