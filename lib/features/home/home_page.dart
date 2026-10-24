@@ -193,6 +193,12 @@ class _HomePageState extends State<HomePage> {
             icon: const Icon(Icons.add_a_photo_outlined),
             label: Text(S.get('home.cta')),
           ),
+          const SizedBox(height: 8),
+          TextButton.icon(
+            onPressed: () => context.pushNamed('batchApply'),
+            icon: const Icon(Icons.photo_library_outlined),
+            label: const Text('여러 장에 같은 보정 적용'),
+          ),
         ],
       ),
     );

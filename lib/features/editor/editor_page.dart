@@ -27,6 +27,7 @@ import 'package:memoria/ai/models/segmenter.dart';
 import 'package:memoria/engine/portrait_engine.dart';
 import 'package:memoria/domain/models/adjust_params.dart';
 import 'package:memoria/domain/models/editor_look.dart';
+import 'package:memoria/features/editor/editor_look_clipboard.dart';
 import 'package:memoria/domain/models/curve_data.dart';
 import 'package:memoria/domain/models/filter_preset.dart';
 import 'package:memoria/domain/models/edit_operation.dart';
@@ -1822,8 +1823,7 @@ class _EditorPageState extends State<EditorPage> {
     _renderPreview();
   }
 
-  /// 앱을 켜 둔 동안 사진을 바꿔도 유지되는 보정 복사본.
-  static EditorLook? _lookClipboard;
+  EditorLook? get _lookClipboard => EditorLookClipboard.value;
 
   void _applyLook(EditorLook look) {
     setState(() {
@@ -1838,7 +1838,7 @@ class _EditorPageState extends State<EditorPage> {
   }
 
   void _copyLook() {
-    _lookClipboard = _editState.captureLook();
+    EditorLookClipboard.value = _editState.captureLook();
     _showLookMessage('보정을 복사했어요. 크롭·부분 보정·텍스트는 제외돼요.');
   }
 
