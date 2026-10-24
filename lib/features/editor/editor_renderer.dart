@@ -94,12 +94,14 @@ class EditorRenderer {
     int maxLongEdge = 720,
     bool skipCrop = false,
     bool skipTransforms = false,
+    bool skipExpand = false,
   }) {
     final spatial = EditorSpatialRenderer.apply(
       source,
       recipe,
       skipCrop: skipCrop,
       skipTransforms: skipTransforms,
+      skipExpand: skipExpand,
     );
     final longest = math.max(spatial.width, spatial.height);
     if (longest <= maxLongEdge) return spatial;
@@ -247,16 +249,18 @@ class EditorRenderer {
     }
     onProgress?.call(0.55);
 
-    if (recipe.selectiveActive) {
+    if (recipe.selectiveActive || recipe.selectiveExtras.isNotEmpty) {
       out = applySelectiveAdjust(out, [
-        LocalSelectivePoint(
-          x: recipe.selectiveX,
-          y: recipe.selectiveY,
-          brightness: recipe.selectiveBrightness,
-          contrast: recipe.selectiveContrast,
-          saturation: recipe.selectiveSaturation,
-          radius: recipe.selectiveRadius,
-        ),
+        if (recipe.selectiveActive)
+          LocalSelectivePoint(
+            x: recipe.selectiveX,
+            y: recipe.selectiveY,
+            brightness: recipe.selectiveBrightness,
+            contrast: recipe.selectiveContrast,
+            saturation: recipe.selectiveSaturation,
+            radius: recipe.selectiveRadius,
+          ),
+        ...recipe.selectiveExtras,
       ]);
     }
     if (recipe.dodgeBurnActive) {

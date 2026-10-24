@@ -71,6 +71,8 @@ class EditorEditState {
   double selectiveContrast = 0;
   double selectiveSaturation = 0;
   double selectiveRadius = 0.3;
+  final List<SelectivePointState> selectiveExtras = [];
+  final List<HealHistoryStroke> healStrokes = [];
 
   bool dodgeBurnActive = false;
   String brushMode = 'dodge';
@@ -149,6 +151,8 @@ class EditorEditState {
           selectiveContrast: selectiveContrast,
           selectiveSaturation: selectiveSaturation,
           selectiveRadius: selectiveRadius,
+          selectiveExtras: List.unmodifiable(selectiveExtras),
+          healStrokes: List.unmodifiable(healStrokes),
           dodgeBurnActive: dodgeBurnActive,
           brushMode: brushMode,
           dodgeY: dodgeY,
@@ -248,6 +252,12 @@ class EditorEditState {
     selectiveContrast = effects.selectiveContrast;
     selectiveSaturation = effects.selectiveSaturation;
     selectiveRadius = effects.selectiveRadius;
+    selectiveExtras
+      ..clear()
+      ..addAll(effects.selectiveExtras);
+    healStrokes
+      ..clear()
+      ..addAll(effects.healStrokes);
     dodgeBurnActive = effects.dodgeBurnActive;
     brushMode = effects.brushMode;
     dodgeY = effects.dodgeY;

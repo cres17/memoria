@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:memoria/domain/models/adjust_params.dart';
 import 'package:memoria/domain/models/edit_operation.dart';
 import 'package:memoria/engine/artistic_effects.dart';
+import 'package:memoria/engine/inpainting.dart';
 import 'package:memoria/engine/local_adjust.dart';
 
 /// Immutable, transport-safe description of the visual editor state.
@@ -27,6 +28,8 @@ class EditorRenderRecipe {
   final double selectiveContrast;
   final double selectiveSaturation;
   final double selectiveRadius;
+  final List<LocalSelectivePoint> selectiveExtras;
+  final List<HealSpot> healStrokes;
   final bool dodgeBurnActive;
   final double dodgeStrength;
   final double dodgeY;
@@ -78,5 +81,9 @@ class EditorRenderRecipe {
     required this.portrait,
     required this.creative,
     required List<DodgeBurnStroke> brushStrokes,
-  }) : brushStrokes = List.unmodifiable(brushStrokes);
+    List<LocalSelectivePoint> selectiveExtras = const [],
+    List<HealSpot> healStrokes = const [],
+  })  : brushStrokes = List.unmodifiable(brushStrokes),
+        selectiveExtras = List.unmodifiable(selectiveExtras),
+        healStrokes = List.unmodifiable(healStrokes);
 }

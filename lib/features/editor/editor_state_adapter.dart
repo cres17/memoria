@@ -4,6 +4,7 @@ import 'package:memoria/domain/models/adjust_params.dart';
 import 'package:memoria/domain/models/curve_data.dart';
 import 'package:memoria/domain/models/edit_operation.dart';
 import 'package:memoria/engine/artistic_effects.dart';
+import 'package:memoria/engine/inpainting.dart';
 import 'package:memoria/engine/local_adjust.dart';
 import 'package:memoria/features/editor/editor_render_recipe.dart';
 
@@ -132,6 +133,21 @@ class EditorStateSnapshot {
         selectiveContrast: effects.selectiveContrast,
         selectiveSaturation: effects.selectiveSaturation,
         selectiveRadius: effects.selectiveRadius,
+        selectiveExtras: effects.selectiveExtras
+            .map(
+              (point) => LocalSelectivePoint(
+                x: point.x,
+                y: point.y,
+                brightness: point.brightness,
+                contrast: point.contrast,
+                saturation: point.saturation,
+                radius: point.radius,
+              ),
+            )
+            .toList(growable: false),
+        healStrokes: effects.healStrokes
+            .map((s) => HealSpot(x: s.x, y: s.y, radius: s.radius))
+            .toList(growable: false),
         dodgeBurnActive: effects.dodgeBurnActive,
         dodgeStrength: effects.dodgeStrength,
         dodgeY: effects.dodgeY,

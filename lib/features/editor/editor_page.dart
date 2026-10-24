@@ -242,6 +242,8 @@ class _EditorPageState extends State<EditorPage> {
   set _selSat(double value) => _editState.selectiveSaturation = value;
   double get _selRadius => _editState.selectiveRadius;
   set _selRadius(double value) => _editState.selectiveRadius = value;
+  List<SelectivePointState> get _selExtras => _editState.selectiveExtras;
+  List<HealHistoryStroke> get _healSpots => _editState.healStrokes;
   bool get _dbActive => _editState.dodgeBurnActive;
   set _dbActive(bool value) => _editState.dodgeBurnActive = value;
   String get _brushMode => _editState.brushMode;
@@ -409,7 +411,11 @@ class _EditorPageState extends State<EditorPage> {
             hsl: {for (final band in HslBand.values) band: HslBandParams.zero},
           );
           break;
+        case 'heal':
+          _healSpots.clear();
+          break;
         case 'selective':
+          _selExtras.clear();
           _selActive = false;
           _selX = 0.5;
           _selY = 0.5;
@@ -1337,8 +1343,14 @@ class _EditorPageState extends State<EditorPage> {
       value is num ? value.toDouble() : fallback;
 
   String _previewBaseKey() {
-    if (_isToolActive && _activeToolId == 'crop') return 'crop_active';
+    final healKey = [
+      for (final spot in _healSpots)
+        '${spot.x.toStringAsFixed(4)},${spot.y.toStringAsFixed(4)},${spot.radius.toStringAsFixed(4)}',
+    ].join(';');
+    if (_isToolActive && _activeToolId == 'crop') return 'crop_active|$healKey';
+    if (_isToolActive && _activeToolId == 'heal') return 'heal_active|$healKey';
     return [
+      healKey,
       widget.imagePath,
       _cropRatio.name,
       _cropCenterX.toStringAsFixed(4),
@@ -1375,6 +1387,10 @@ class _EditorPageState extends State<EditorPage> {
         _selActive, _selX.toStringAsFixed(3), _selY.toStringAsFixed(3),
         _selBright.toStringAsFixed(2), _selContrast.toStringAsFixed(2),
         _selSat.toStringAsFixed(2), _selRadius.toStringAsFixed(2),
+        _selExtras
+            .map((p) =>
+                '${p.x.toStringAsFixed(3)},${p.y.toStringAsFixed(3)},${p.brightness.toStringAsFixed(1)},${p.contrast.toStringAsFixed(1)},${p.saturation.toStringAsFixed(1)},${p.radius.toStringAsFixed(2)}')
+            .join(';'),
         // Dodge / burn
         _dbActive,
         _dodgeStrength.toStringAsFixed(2), _dodgeY.toStringAsFixed(3),
@@ -1436,12 +1452,15 @@ class _EditorPageState extends State<EditorPage> {
     // flip controls noticeably slow on real devices.
     final previewingSpatialTransform =
         _isToolActive && _activeToolId == 'rotate';
+    // 지우개는 원본 좌표로 찍으므로 열려 있는 동안은 자르기·회전·확장 없이 보여 준다.
+    final healing = _isToolActive && _activeToolId == 'heal';
     final preview = EditorRenderer.preparePreviewSource(
       decoded,
       _currentRenderRecipe(),
       maxLongEdge: 720,
-      skipCrop: _isToolActive && _activeToolId == 'crop',
-      skipTransforms: previewingSpatialTransform,
+      skipCrop: (_isToolActive && _activeToolId == 'crop') || healing,
+      skipTransforms: previewingSpatialTransform || healing,
+      skipExpand: healing,
     );
 
     _previewBaseCacheKey = key;
@@ -2804,6 +2823,8 @@ class _EditorPageState extends State<EditorPage> {
               ),
             if (_isToolActive && _activeToolId == 'selective')
               _buildSelectiveTouchOverlay(),
+            if (_isToolActive && _activeToolId == 'heal')
+              _buildHealTouchOverlay(),
             if (_isToolActive && _activeToolId == 'brush')
               BrushOverlayWidget(
                 imageSize: _currentImageSize,
@@ -2955,42 +2976,212 @@ class _EditorPageState extends State<EditorPage> {
     );
   }
 
+  static const int _maxSelectivePoints = 8;
+  static const double _pinHitRadius = 28;
+  bool _selectivePanStartedOnPin = false;
+
+  SelectivePointState _currentSelectivePoint() => SelectivePointState(
+        x: _selX,
+        y: _selY,
+        brightness: _selBright,
+        contrast: _selContrast,
+        saturation: _selSat,
+        radius: _selRadius,
+      );
+
+  void _loadSelectivePoint(SelectivePointState point) {
+    _selX = point.x;
+    _selY = point.y;
+    _selBright = point.brightness;
+    _selContrast = point.contrast;
+    _selSat = point.saturation;
+    _selRadius = point.radius;
+    _selActive = true;
+  }
+
+  int get _selectivePointCount => (_selActive ? 1 : 0) + _selExtras.length;
+
+  /// 다른 지점의 핀을 누르면 그 지점을 편집 대상으로 바꾼다.
+  bool _pickSelectivePin(Offset position, Size size) {
+    for (var i = 0; i < _selExtras.length; i++) {
+      final pin = _selExtras[i];
+      final dx = pin.x * size.width - position.dx;
+      final dy = pin.y * size.height - position.dy;
+      if (dx * dx + dy * dy > _pinHitRadius * _pinHitRadius) continue;
+      setState(() {
+        final picked = _selExtras.removeAt(i);
+        if (_selActive) _selExtras.add(_currentSelectivePoint());
+        _loadSelectivePoint(picked);
+      });
+      return true;
+    }
+    return false;
+  }
+
+  bool _nearCurrentSelectivePin(Offset position, Size size) {
+    if (!_selActive) return false;
+    final dx = _selX * size.width - position.dx;
+    final dy = _selY * size.height - position.dy;
+    return dx * dx + dy * dy <= _pinHitRadius * _pinHitRadius;
+  }
+
+  /// 빈 곳을 누르면 새 지점을 만든다(최대 8개). 이미 편집 중인 지점은
+  /// 목록에 넣어 두고 새 지점이 편집 대상이 된다.
+  void _addSelectivePoint(Offset position, Size size) {
+    if (size.width <= 0 || size.height <= 0) return;
+    final x = (position.dx / size.width).clamp(0.0, 1.0);
+    final y = (position.dy / size.height).clamp(0.0, 1.0);
+    if (!_selActive) {
+      setState(() {
+        _selX = x;
+        _selY = y;
+        _selActive = true;
+      });
+    } else if (_selectivePointCount >= _maxSelectivePoints) {
+      _showLookMessage('부분 보정 지점은 최대 $_maxSelectivePoints개예요.');
+      return;
+    } else {
+      setState(() {
+        _selExtras.add(_currentSelectivePoint());
+        _selX = x;
+        _selY = y;
+        _selBright = 0;
+        _selContrast = 0;
+        _selSat = 0;
+        _selRadius = 0.3;
+      });
+    }
+    _debouncedPreview();
+  }
+
+  void _removeCurrentSelectivePoint() {
+    setState(() {
+      if (_selExtras.isNotEmpty) {
+        _loadSelectivePoint(_selExtras.removeLast());
+      } else {
+        _selActive = false;
+        _selX = 0.5;
+        _selY = 0.5;
+        _selBright = 0;
+        _selContrast = 0;
+        _selSat = 0;
+        _selRadius = 0.3;
+      }
+    });
+    _renderPreview();
+  }
+
+  Widget _selectivePin({required bool current, required int number}) {
+    return IgnorePointer(
+      child: Container(
+        width: current ? 36 : 28,
+        height: current ? 36 : 28,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: current ? null : Colors.black45,
+          border: Border.all(
+            color: current ? const Color(0xFFFFC400) : Colors.white,
+            width: 2,
+          ),
+          boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 4)],
+        ),
+        child: current
+            ? const Icon(Icons.adjust_rounded, color: Colors.white, size: 18)
+            : Text('$number',
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700)),
+      ),
+    );
+  }
+
   Widget _buildSelectiveTouchOverlay() {
     return LayoutBuilder(
       builder: (context, constraints) {
-        void updatePoint(Offset localPosition) {
-          if (constraints.maxWidth <= 0 || constraints.maxHeight <= 0) return;
-          setState(() {
-            _selX = (localPosition.dx / constraints.maxWidth).clamp(0.0, 1.0);
-            _selY = (localPosition.dy / constraints.maxHeight).clamp(0.0, 1.0);
-            _selActive = true;
-          });
-          _debouncedPreview();
-        }
-
+        final size = Size(constraints.maxWidth, constraints.maxHeight);
         return GestureDetector(
           behavior: HitTestBehavior.translucent,
-          onTapDown: (details) => updatePoint(details.localPosition),
-          onPanUpdate: (details) => updatePoint(details.localPosition),
+          onTapUp: (details) {
+            if (_pickSelectivePin(details.localPosition, size)) {
+              _renderPreview();
+              return;
+            }
+            if (_nearCurrentSelectivePin(details.localPosition, size)) return;
+            _addSelectivePoint(details.localPosition, size);
+          },
+          onPanStart: (details) {
+            _selectivePanStartedOnPin =
+                _nearCurrentSelectivePin(details.localPosition, size);
+          },
+          onPanUpdate: (details) {
+            if (!_selectivePanStartedOnPin || size.isEmpty) return;
+            setState(() {
+              _selX = (details.localPosition.dx / size.width).clamp(0.0, 1.0);
+              _selY = (details.localPosition.dy / size.height).clamp(0.0, 1.0);
+            });
+            _debouncedPreview();
+          },
           child: Stack(
             children: [
+              for (var i = 0; i < _selExtras.length; i++)
+                Positioned(
+                  left: _selExtras[i].x * size.width - 14,
+                  top: _selExtras[i].y * size.height - 14,
+                  child: _selectivePin(current: false, number: i + 1),
+                ),
               if (_selActive)
                 Positioned(
-                  left: _selX * constraints.maxWidth - 18,
-                  top: _selY * constraints.maxHeight - 18,
+                  left: _selX * size.width - 18,
+                  top: _selY * size.height - 18,
+                  child: _selectivePin(current: true, number: 0),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  double _healRadius = 0.03;
+
+  Widget _buildHealTouchOverlay() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final size = Size(constraints.maxWidth, constraints.maxHeight);
+        final shortSide = math.min(size.width, size.height);
+        return GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onTapUp: (details) {
+            if (size.isEmpty) return;
+            setState(() {
+              _healSpots.add(HealHistoryStroke(
+                x: (details.localPosition.dx / size.width).clamp(0.0, 1.0),
+                y: (details.localPosition.dy / size.height).clamp(0.0, 1.0),
+                radius: _healRadius,
+              ));
+            });
+            hapticLight();
+            _renderPreview();
+          },
+          child: Stack(
+            children: [
+              for (final spot in _healSpots)
+                Positioned(
+                  left: spot.x * size.width - spot.radius * shortSide,
+                  top: spot.y * size.height - spot.radius * shortSide,
                   child: IgnorePointer(
                     child: Container(
-                      width: 36,
-                      height: 36,
+                      width: spot.radius * shortSide * 2,
+                      height: spot.radius * shortSide * 2,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 2),
-                        boxShadow: const [
-                          BoxShadow(color: Colors.black38, blurRadius: 4),
-                        ],
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.85),
+                          width: 1.5,
+                        ),
                       ),
-                      child: const Icon(Icons.adjust_rounded,
-                          color: Colors.white, size: 18),
                     ),
                   ),
                 ),
@@ -3057,7 +3248,9 @@ class _EditorPageState extends State<EditorPage> {
             _expandLeft != 0 ||
             _expandRight != 0;
       case 'selective':
-        return _selActive;
+        return _selActive || _selExtras.isNotEmpty;
+      case 'heal':
+        return _healSpots.isNotEmpty;
       case 'brush':
         return _dbActive || _brushStrokes.isNotEmpty;
       case 'tilt_shift':
@@ -3115,6 +3308,7 @@ class _EditorPageState extends State<EditorPage> {
         label: '부분 보정',
         icon: Icons.filter_center_focus_rounded),
     _ToolItem(id: 'brush', label: '브러시', icon: Icons.brush_rounded),
+    _ToolItem(id: 'heal', label: '지우개', icon: Icons.auto_fix_high_rounded),
     _ToolItem(
         id: 'tilt_shift', label: '틸트 시프트', icon: Icons.blur_linear_rounded),
     _ToolItem(
@@ -3528,10 +3722,30 @@ class _EditorPageState extends State<EditorPage> {
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
               child: Text(
                 _selActive
-                    ? '표시된 지점을 드래그해 위치를 바꾸고, 아래 값으로 해당 영역만 보정합니다.'
+                    ? '빈 곳을 누르면 지점이 추가됩니다(최대 8개). 번호 핀을 누르면 그 지점을 편집하고, 노란 핀은 드래그로 옮깁니다.'
                     : '사진을 터치하거나 드래그해 먼저 보정할 위치를 지정하세요.',
                 style: const TextStyle(
                     fontSize: 12, color: AppColors.textSecondary),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+              child: Row(
+                children: [
+                  Text(
+                    '지점 $_selectivePointCount/$_maxSelectivePoints',
+                    style: const TextStyle(
+                        fontSize: 12, color: AppColors.textSecondary),
+                  ),
+                  const Spacer(),
+                  if (_selActive)
+                    TextButton.icon(
+                      onPressed: _removeCurrentSelectivePoint,
+                      icon: const Icon(Icons.delete_outline_rounded, size: 16),
+                      label: const Text('이 지점 삭제',
+                          style: TextStyle(fontSize: 12)),
+                    ),
+                ],
               ),
             ),
             if (_selActive) ...[
@@ -3558,6 +3772,41 @@ class _EditorPageState extends State<EditorPage> {
                     style: TextStyle(
                         fontSize: 12, color: AppColors.textSecondary)),
               ),
+          ],
+        );
+      case 'heal':
+        return Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+              child: Text(
+                _healSpots.isEmpty
+                    ? '지울 잡티나 작은 물체를 터치하세요. 주변에서 가장 잘 이어지는 부분으로 덮습니다.'
+                    : '지운 곳 ${_healSpots.length}개. 큰 물체나 복잡한 무늬 위는 티가 날 수 있어요.',
+                style: const TextStyle(
+                    fontSize: 12, color: AppColors.textSecondary),
+              ),
+            ),
+            _sliderRow('크기', _healRadius, 0.01, 0.1, (v) {
+              setState(() => _healRadius = v);
+            }),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: _healSpots.isEmpty
+                      ? null
+                      : () {
+                          setState(() => _healSpots.removeLast());
+                          _renderPreview();
+                        },
+                  icon: const Icon(Icons.undo_rounded, size: 16),
+                  label: const Text('마지막 지우기 취소',
+                      style: TextStyle(fontSize: 12)),
+                ),
+              ),
+            ),
           ],
         );
       case 'brush':
@@ -6315,6 +6564,7 @@ const List<_ToolGroup> _toolGroups = [
   _ToolGroup('부분·인물', [
     'selective',
     'brush',
+    'heal',
     'tilt_shift',
     'lens_blur',
     'portrait',

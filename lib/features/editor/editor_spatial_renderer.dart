@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:image/image.dart' as img;
+import 'package:memoria/engine/inpainting.dart';
 import 'package:memoria/features/editor/editor_render_recipe.dart';
 
 /// Shared spatial stage for preview and full-resolution export.
@@ -64,13 +65,18 @@ class EditorSpatialRenderer {
     EditorRenderRecipe recipe, {
     bool skipCrop = false,
     bool skipTransforms = false,
+    bool skipExpand = false,
   }) {
     final crop = recipe.crop;
-    var image = source;
-    if (crop.expandTop > 0 ||
-        crop.expandBottom > 0 ||
-        crop.expandLeft > 0 ||
-        crop.expandRight > 0) {
+    // 지우개는 원본 좌표 기준이라 자르기·회전보다 먼저 적용한다.
+    var image = recipe.healStrokes.isEmpty
+        ? source
+        : applyHealSpots(source, recipe.healStrokes);
+    if (!skipExpand &&
+        (crop.expandTop > 0 ||
+            crop.expandBottom > 0 ||
+            crop.expandLeft > 0 ||
+            crop.expandRight > 0)) {
       image = _applyExpand(
         image,
         crop.expandTop,
