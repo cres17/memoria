@@ -43,7 +43,7 @@ dependencies:
   gal: ^2.3.0
 
   # Network status
-  connectivity_plus: ^6.0.5
+  connectivity_plus: ^7.3.2
   share_plus: ^10.1.0
 
   # Utilities
