@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x.png" alt="memoria 앱 아이콘" width="124">
+  <img src="docs/assets/readme/memoria-mark.png" alt="memoria 앱 아이콘" width="124">
 </p>
 
 <h1 align="center">Memoria</h1>
