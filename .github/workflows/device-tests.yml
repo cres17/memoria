@@ -111,6 +111,9 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Install Android compile SDK 37
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37"'
+
       - name: Set up Flutter
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
