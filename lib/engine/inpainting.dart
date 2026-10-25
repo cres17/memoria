@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'package:image/image.dart' as img;
+import 'fast_blur.dart';
 
 // ─────────────────────────────────────────────────────────
 //  Healing (Inpainting) - v1: Edge-fill + Gaussian blur
@@ -53,7 +54,7 @@ img.Image applyHealing(img.Image image, List<List<bool>> mask) {
   }
 
   // 마스크 영역 부드럽게 블렌딩 (인스턴스 복사본을 블러 처리하여 원본 비마스크 픽셀 보존)
-  final blurred = img.gaussianBlur(img.Image.from(result), radius: 3);
+  final blurred = fastGaussianBlur(img.Image.from(result), radius: 3);
   for (int y = 0; y < H; y++) {
     for (int x = 0; x < W; x++) {
       if (!mask[y][x]) continue;

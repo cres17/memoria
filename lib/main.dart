@@ -5,7 +5,9 @@ import 'package:flutter/services.dart';
 import 'app.dart';
 import 'ai/ai_manager.dart';
 import 'core/l10n/app_locale.dart';
+import 'core/error/crash_reporter.dart';
 import 'core/error/error_handler.dart';
+import 'core/remote_config/remote_config.dart';
 import 'engine/gpu_image_view.dart';
 
 void main() async {
@@ -17,6 +19,9 @@ void main() async {
       details.exception,
       details.stack,
     );
+    // 사용자가 동의한 경우에만 전송된다(CrashReporter가 꺼짐 상태면 아무 일도 하지 않는다).
+    unawaited(CrashReporter.instance
+        .report(details.exception, details.stack, source: 'flutter'));
     if (defaultFlutterErrorHandler != null) {
       defaultFlutterErrorHandler(details);
     } else {
@@ -25,6 +30,7 @@ void main() async {
   };
   PlatformDispatcher.instance.onError = (error, stackTrace) {
     ErrorLogger.log('Unhandled platform error', error, stackTrace);
+    unawaited(CrashReporter.instance.report(error, stackTrace, source: 'platform'));
     return true;
   };
   ErrorWidget.builder = (details) => Material(
@@ -43,7 +49,9 @@ void main() async {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  '앱을 다시 열어 주세요. 진단 기록은 기기에만 저장됩니다.',
+                  CrashReporter.instance.enabled
+                      ? '앱을 다시 열어 주세요. 설정에 따라 오류 정보가 개인정보를 제외하고 전송됩니다.'
+                      : '앱을 다시 열어 주세요. 진단 기록은 기기에만 저장됩니다.',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Colors.black.withValues(alpha: 0.58)),
                 ),
@@ -65,6 +73,10 @@ Future<void> _initializeAfterFirstFrame() async {
   await WidgetsBinding.instance.endOfFrame;
   try {
     await ErrorLogger.initialize();
+    await CrashReporter.instance.initialize();
+    // 마지막으로 검증된 원격 설정을 먼저 적용하고, 갱신은 백그라운드로 한다.
+    await RemoteConfigService.instance.loadCached();
+    unawaited(RemoteConfigService.instance.refresh());
     await initGpuFallbacks();
     await loadSavedLocale();
 

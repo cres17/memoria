@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:path_provider/path_provider.dart';
+import '../../core/error/crash_reporter.dart';
 import '../../core/error/diagnostics_export.dart';
 import '../../core/error/error_handler.dart';
 import '../../core/l10n/app_locale.dart';
@@ -43,6 +44,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _webpSupported = false;
   late final SettingsRecoveryController _recoveryController;
   bool _adPrivacyOptionsRequired = false;
+  bool _crashReporting = CrashReporter.instance.enabled;
 
   AdConsentService get _adConsent =>
       widget.adConsent ?? AdConsentService.instance;
@@ -237,6 +239,11 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
       ),
     );
+  }
+
+  Future<void> _setCrashReporting(bool value) async {
+    setState(() => _crashReporting = value);
+    await CrashReporter.instance.setEnabled(value);
   }
 
   Future<void> _exportDiagnostics() async {
@@ -514,6 +521,20 @@ class _SettingsPageState extends State<SettingsPage> {
                 subtitle: S.get('settings.diagnostics_sub'),
                 onTap: _exportDiagnostics,
               ),
+              if (CrashReporter.instance.isConfigured) ...[
+                const _Divider(),
+                _SettingRow(
+                  icon: Icons.health_and_safety_outlined,
+                  title: S.get('settings.crash'),
+                  subtitle: S.get('settings.crash_sub'),
+                  onTap: () => _setCrashReporting(!_crashReporting),
+                  trailing: Switch(
+                    key: const ValueKey('crash-reporting-switch'),
+                    value: _crashReporting,
+                    onChanged: _setCrashReporting,
+                  ),
+                ),
+              ],
               const _Divider(),
               _SettingRow(
                 icon: Icons.info_outline_rounded,
@@ -582,12 +603,14 @@ class _SettingRow extends StatelessWidget {
   final String title;
   final String? subtitle;
   final VoidCallback? onTap;
+  final Widget? trailing;
 
   const _SettingRow({
     required this.icon,
     required this.title,
     this.subtitle,
     this.onTap,
+    this.trailing,
   });
 
   @override
@@ -636,7 +659,9 @@ class _SettingRow extends StatelessWidget {
                 ],
               ),
             ),
-            if (onTap != null)
+            if (trailing != null)
+              trailing!
+            else if (onTap != null)
               const Icon(Icons.chevron_right_rounded,
                   color: AppColors.textOnDarkTert, size: 20),
           ],

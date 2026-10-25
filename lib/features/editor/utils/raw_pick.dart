@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:memoria/core/remote_config/remote_config.dart';
 import 'package:memoria/engine/raw_import.dart';
 
 /// 고른 사진이 RAW면 편집 가능한 JPEG로 바꿔 경로를 돌려준다.
@@ -9,6 +10,15 @@ Future<String?> resolvePickedPhotoPath(
 ) async {
   if (!RawImport.isRawPath(path)) return path;
   final messenger = ScaffoldMessenger.of(context);
+  if (RemoteConfigService.instance.current.rawDisabled) {
+    messenger.showSnackBar(
+      const SnackBar(
+        content: Text('RAW 열기를 일시적으로 사용할 수 없어요. JPEG/HEIC 사진을 선택해 주세요.'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+    return null;
+  }
   try {
     final result = await RawImport.prepare(path);
     if (result.isPreviewOnly) {

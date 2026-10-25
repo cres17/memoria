@@ -26,6 +26,9 @@ class EditorExportRequest {
   final Float32List? segmentMask;
   final int segmentMaskWidth;
   final int segmentMaskHeight;
+  final Float32List? skyMask;
+  final int skyMaskWidth;
+  final int skyMaskHeight;
   final Uint8List? blendImageBytes;
   final Uint8List? frameBytes;
   final Uint8List? textOverlayBytes;
@@ -40,6 +43,9 @@ class EditorExportRequest {
     this.segmentMask,
     this.segmentMaskWidth = 0,
     this.segmentMaskHeight = 0,
+    this.skyMask,
+    this.skyMaskWidth = 0,
+    this.skyMaskHeight = 0,
     this.blendImageBytes,
     this.frameBytes,
     this.textOverlayBytes,
@@ -276,6 +282,9 @@ Future<void> _editorExportWorker(EditorExportWorkerContext context) async {
         segmentMask: request.segmentMask,
         segmentMaskWidth: request.segmentMaskWidth,
         segmentMaskHeight: request.segmentMaskHeight,
+        skyMask: request.skyMask,
+        skyMaskWidth: request.skyMaskWidth,
+        skyMaskHeight: request.skyMaskHeight,
         blendImageBytes: request.blendImageBytes,
         frameBytes: request.frameBytes,
         textOverlayBytes: request.textOverlayBytes,

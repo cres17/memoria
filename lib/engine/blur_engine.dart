@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:image/image.dart' as img;
+import 'fast_blur.dart';
 
 // ─────────────────────────────────────────────────────────
 //  기본 블러 함수들
@@ -21,7 +22,7 @@ img.Image gaussianBlur(img.Image image, int radius) {
     radius.clamp(1, 30),
     math.max(1, math.min(image.width, image.height) ~/ 8),
   );
-  final blurred = img.gaussianBlur(rgb, radius: safeRadius);
+  final blurred = fastGaussianBlur(rgb, radius: safeRadius);
   final result =
       img.Image(width: image.width, height: image.height, numChannels: 4);
   for (var y = 0; y < image.height; y++) {

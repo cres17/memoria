@@ -11,6 +11,7 @@ import '../domain/models/adjust_params.dart';
 import '../domain/models/filter_recipe.dart';
 import 'color_utils.dart';
 import 'custom_lut_core.dart';
+import 'fast_blur.dart';
 
 // ── HSL helpers ───────────────────────────────────────────
 
@@ -353,10 +354,70 @@ img.Image applyImagePipeline({
   return output;
 }
 
+// ── 블러 기반 디테일 보정의 빠른 경로 ─────────────────────
+//
+// 샤픈·구조·선명도는 "원본 + 강도 × (원본 − 블러)"를 픽셀마다 계산한다. 픽셀 객체를 거치지 않고
+// 바이트 배열을 직접 읽어 같은 식·같은 순서로 계산하므로 결과 바이트는 같다.
+// 8비트 이미지가 아니면 null을 돌려주고, 호출한 쪽이 기존 반복문을 쓴다.
+img.Image? _detailBlendFast(
+  img.Image image,
+  img.Image blurred,
+  double strength, {
+  required bool midtoneMask,
+}) {
+  bool plain(img.Image im) =>
+      im.format == img.Format.uint8 &&
+      !im.hasPalette &&
+      (im.numChannels == 3 || im.numChannels == 4);
+  if (!plain(image) ||
+      !plain(blurred) ||
+      image.width != blurred.width ||
+      image.height != blurred.height) {
+    return null;
+  }
+  final src = image.toUint8List();
+  final low = blurred.toUint8List();
+  final snc = image.numChannels;
+  final bnc = blurred.numChannels;
+  final result = img.Image(width: image.width, height: image.height);
+  final out = result.toUint8List();
+  final count = image.width * image.height;
+  for (var i = 0; i < count; i++) {
+    final si = i * snc;
+    final bi = i * bnc;
+    final oR = src[si] / 255.0;
+    final oG = src[si + 1] / 255.0;
+    final oB = src[si + 2] / 255.0;
+    final lR = low[bi] / 255.0;
+    final lG = low[bi + 1] / 255.0;
+    final lB = low[bi + 2] / 255.0;
+    final double r, g, b;
+    if (midtoneMask) {
+      final lum = 0.2126 * oR + 0.7152 * oG + 0.0722 * oB;
+      final midMask = (1.0 - (lum - 0.5).abs() * 2.0).clamp(0.0, 1.0);
+      r = (oR + strength * midMask * (oR - lR)).clamp(0.0, 1.0);
+      g = (oG + strength * midMask * (oG - lG)).clamp(0.0, 1.0);
+      b = (oB + strength * midMask * (oB - lB)).clamp(0.0, 1.0);
+    } else {
+      r = (oR + strength * (oR - lR)).clamp(0.0, 1.0);
+      g = (oG + strength * (oG - lG)).clamp(0.0, 1.0);
+      b = (oB + strength * (oB - lB)).clamp(0.0, 1.0);
+    }
+    final o = i * 3;
+    out[o] = (r * 255).round();
+    out[o + 1] = (g * 255).round();
+    out[o + 2] = (b * 255).round();
+  }
+  return result;
+}
+
 // ── Sharpen: Unsharp Mask ─────────────────────────────────
 img.Image _applySharpenImage(img.Image image, double sharpenValue) {
   final strength = sharpenValue / 100.0 * 1.5;
-  final blurred = img.gaussianBlur(img.Image.from(image), radius: 2);
+  final blurred = fastGaussianBlur(img.Image.from(image), radius: 2);
+  final fast =
+      _detailBlendFast(image, blurred, strength, midtoneMask: false);
+  if (fast != null) return fast;
   final result = img.Image(width: image.width, height: image.height);
 
   for (int y = 0; y < image.height; y++) {
@@ -379,7 +440,10 @@ img.Image _applySharpenImage(img.Image image, double sharpenValue) {
 // ── Structure: High-Pass Local Contrast ──────────────────
 img.Image _applyStructureImage(img.Image image, double structureValue) {
   final strength = structureValue / 100.0 * 0.5;
-  final blurred = img.gaussianBlur(img.Image.from(image), radius: 1);
+  final blurred = fastGaussianBlur(img.Image.from(image), radius: 1);
+  final fast =
+      _detailBlendFast(image, blurred, strength, midtoneMask: false);
+  if (fast != null) return fast;
   final result = img.Image(width: image.width, height: image.height);
 
   for (int y = 0; y < image.height; y++) {
@@ -402,7 +466,9 @@ img.Image _applyStructureImage(img.Image image, double structureValue) {
 // ── Clarity: Mid-Frequency Contrast (Retinex-lite) ───────
 img.Image _applyClarityImage(img.Image image, double clarityValue) {
   final strength = clarityValue / 100.0 * 0.7;
-  final blurred = img.gaussianBlur(img.Image.from(image), radius: 7);
+  final blurred = fastGaussianBlur(img.Image.from(image), radius: 7);
+  final fast = _detailBlendFast(image, blurred, strength, midtoneMask: true);
+  if (fast != null) return fast;
   final result = img.Image(width: image.width, height: image.height);
 
   for (int y = 0; y < image.height; y++) {
@@ -504,6 +570,21 @@ img.Image _applyNoiseReduction(
     return math.exp(-(dx * dx + dy * dy).toDouble() / (2.0 * ss * ss));
   }
 
+  // 공간 가중치는 (dx, dy)에만 달라서 한 번만 계산해 둔다(픽셀·이웃마다 exp를 다시 부르지 않는다).
+  Float64List spatialTable(int r) {
+    final n = 2 * r + 1;
+    final t = Float64List(n * n);
+    for (var dy = -r; dy <= r; dy++) {
+      for (var dx = -r; dx <= r; dx++) {
+        t[(dy + r) * n + (dx + r)] = spatialWeight(dx, dy, r);
+      }
+    }
+    return t;
+  }
+
+  final lumSpatial = spatialTable(lumRadius);
+  final colSpatial = spatialTable(colRadius);
+
   for (int y = 0; y < H; y++) {
     for (int x = 0; x < W; x++) {
       final cIdx = y * W + x;
@@ -521,7 +602,8 @@ img.Image _applyNoiseReduction(
             final nL = labL[nIdx];
             final dL = nL - cL;
             final rangW = math.exp(-(dL * dL) / sigRangeL2);
-            final spatW = spatialWeight(dx, dy, lumRadius);
+            final spatW =
+                lumSpatial[(dy + lumRadius) * (2 * lumRadius + 1) + (dx + lumRadius)];
             final w = rangW * spatW;
             sumL += w * nL;
             wSum += w;
@@ -546,7 +628,8 @@ img.Image _applyNoiseReduction(
             final dA = nA - cA;
             final dB = nB - cB;
             final rangW = math.exp(-(dA * dA + dB * dB) / sigRangeC2);
-            final spatW = spatialWeight(dx, dy, colRadius);
+            final spatW =
+                colSpatial[(dy + colRadius) * (2 * colRadius + 1) + (dx + colRadius)];
             final w = rangW * spatW;
             sumA += w * nA;
             sumBVal += w * nB;
@@ -627,7 +710,7 @@ img.Image _applyGlowImage(
     }
   }
 
-  final blurredGlow = img.gaussianBlur(glowLayer, radius: 8);
+  final blurredGlow = fastGaussianBlur(glowLayer, radius: 8);
   final result = img.Image(width: W, height: H);
   final str = strength / 100.0;
 
@@ -667,30 +750,39 @@ img.Image _applyHdrImage(img.Image image, double strength, double saturation) {
   final W = image.width;
   final H = image.height;
 
-  final blurred = img.gaussianBlur(img.Image.from(image), radius: 10);
+  final blurred = fastGaussianBlur(img.Image.from(image), radius: 10);
   final result = img.Image(width: W, height: H);
   final str = strength / 100.0 * 0.8;
+  const epsilon = 0.01;
+  final s = 1.0 + saturation / 100.0 * 0.5;
+
+  // 원본·블러 값은 8비트라 (원본, 블러) 쌍이 256×256가지뿐이다. 픽셀마다 pow를 3번 부르는 대신
+  // 쌍마다 한 번만 계산해 둔다. 같은 식을 같은 입력으로 계산하므로 결과는 바뀌지 않는다.
+  final lut = image.format == img.Format.uint8 ? _hdrToneTable(str, epsilon) : null;
 
   for (int y = 0; y < H; y++) {
     for (int x = 0; x < W; x++) {
       final px = image.getPixel(x, y);
       final bpx = blurred.getPixel(x, y);
 
-      var r = px.rNormalized.toDouble();
-      var g = px.gNormalized.toDouble();
-      var b = px.bNormalized.toDouble();
-
-      final br = bpx.rNormalized.toDouble();
-      final bg = bpx.gNormalized.toDouble();
-      final bb = bpx.bNormalized.toDouble();
-
-      const epsilon = 0.01;
-      r = r * math.pow((r + epsilon) / (br + epsilon), str);
-      g = g * math.pow((g + epsilon) / (bg + epsilon), str);
-      b = b * math.pow((b + epsilon) / (bb + epsilon), str);
+      double r, g, b;
+      if (lut != null) {
+        r = lut[px.r.toInt() * 256 + bpx.r.toInt()];
+        g = lut[px.g.toInt() * 256 + bpx.g.toInt()];
+        b = lut[px.b.toInt() * 256 + bpx.b.toInt()];
+      } else {
+        r = px.rNormalized.toDouble();
+        g = px.gNormalized.toDouble();
+        b = px.bNormalized.toDouble();
+        final br = bpx.rNormalized.toDouble();
+        final bg = bpx.gNormalized.toDouble();
+        final bb = bpx.bNormalized.toDouble();
+        r = r * math.pow((r + epsilon) / (br + epsilon), str);
+        g = g * math.pow((g + epsilon) / (bg + epsilon), str);
+        b = b * math.pow((b + epsilon) / (bb + epsilon), str);
+      }
 
       final lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-      final s = 1.0 + saturation / 100.0 * 0.5;
       r = lum + (r - lum) * s;
       g = lum + (g - lum) * s;
       b = lum + (b - lum) * s;
@@ -705,6 +797,19 @@ img.Image _applyHdrImage(img.Image image, double strength, double saturation) {
     }
   }
   return result;
+}
+
+Float64List _hdrToneTable(double str, double epsilon) {
+  final table = Float64List(256 * 256);
+  for (var v = 0; v < 256; v++) {
+    final value = v / 255.0; // px.rNormalized와 같은 나눗셈
+    for (var bl = 0; bl < 256; bl++) {
+      final blurred = bl / 255.0;
+      table[v * 256 + bl] =
+          value * math.pow((value + epsilon) / (blurred + epsilon), str);
+    }
+  }
+  return table;
 }
 
 // ── Light Leak ───────────────────────────────────────────
@@ -777,7 +882,7 @@ img.Image _applyHalationImage(
     }
   }
 
-  final blurredHl = img.gaussianBlur(hlLayer, radius: 5);
+  final blurredHl = fastGaussianBlur(hlLayer, radius: 5);
   final result = img.Image(width: W, height: H);
   final str = strength / 100.0 * 0.6;
 

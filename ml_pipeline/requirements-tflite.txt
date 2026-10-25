@@ -9,6 +9,8 @@ numpy>=1.24.0
 Pillow>=13.0.0
 onnx>=1.22.0
 onnxruntime>=1.16.0
+# 하늘 분할 모델 변환(convert_skyseg.py): ONNX → PyTorch
+onnx2torch==1.5.15
 litert-torch==0.10.0
 ai-edge-quantizer==0.10.0
 # torch가 끌어오는 하위 의존성 중 알려진 취약점이 있는 버전 제외

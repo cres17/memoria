@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/remote_config/remote_config.dart';
+
 /// Feature flags stored locally via SharedPreferences.
 /// All fullscreen-ad flags default to OFF per spec.
 /// Banner ad is always disabled on web (kIsWeb) regardless of the stored flag.
@@ -18,14 +20,19 @@ class FeatureFlagsService {
   }
 
   // ── Getters ──────────────────────────────────────────────────
+  // 원격 킬 스위치(ads)가 켜지면 저장된 값과 관계없이 모든 광고를 끈다.
+  bool get _adsKilled => RemoteConfigService.instance.current.adsDisabled;
+
   bool get enableBannerAd =>
-      !kIsWeb && (_prefs.getBool(_keyBanner) ?? false); // web always OFF
+      !kIsWeb &&
+      !_adsKilled &&
+      (_prefs.getBool(_keyBanner) ?? false); // web always OFF
 
   bool get enableFullScreenAdsForCreateFilter =>
-      _prefs.getBool(_keyFullCreateFilter) ?? false; // default OFF
+      !_adsKilled && (_prefs.getBool(_keyFullCreateFilter) ?? false);
 
   bool get enableFullScreenAdsForApplyOrExport =>
-      _prefs.getBool(_keyFullApplyExport) ?? false; // default OFF
+      !_adsKilled && (_prefs.getBool(_keyFullApplyExport) ?? false);
 
   // ── Setters ──────────────────────────────────────────────────
   Future<void> setBannerAd(bool value) => _prefs.setBool(_keyBanner, value);

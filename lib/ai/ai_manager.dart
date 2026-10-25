@@ -36,6 +36,17 @@ const kModelSelfie = AiModelInfo(
   sizeBytes: 249537,
 );
 
+// 하늘 분할(U²-Net). 88MB라서 사용자가 하늘 도구에서 직접 내려받는다. 받기 전에는 색 기반 방식으로 동작한다.
+// 변환 절차와 출처: ml_pipeline/convert_skyseg.py, docs/sky-model.md
+// Input : [1, 3, 320, 320] float32 NCHW, RGB 0-1 / Output: [1, 1, 320, 320] 하늘 확률
+const kModelSkySeg = AiModelInfo(
+  key: 'sky_segmenter',
+  url: 'https://github.com/cres17/memoria/releases/download/'
+      'model-sky-u2net-v1/skyseg_fp16.tflite',
+  sha256: 'fa03dba927b81bc0bbe892a7bd3b2c084cd664e32a8d12c5b8cba8ccbe167c22',
+  sizeBytes: 88107632,
+);
+
 const kColorTransferModelId = 'direct_mvp_family_holdout_smooth_010_001_fp16';
 const kColorTransferModelVersion = '2026-08-04-rc1';
 const kColorTransferModelSha256 =
@@ -123,6 +134,17 @@ class AiManager extends ChangeNotifier {
     }
 
     return _download(info);
+  }
+
+  /// 이미 받아 둔 파일이 있을 때만 준비 상태로 만든다. 네트워크를 쓰지 않는다.
+  Future<bool> restoreIfInstalled(AiModelInfo info) async {
+    if (_paths.containsKey(info.key)) return true;
+    final cached = await _cachedPath(info);
+    if (cached == null) return false;
+    _paths[info.key] = cached;
+    _setState(
+        info.key, const ModelState(status: ModelStatus.ready, progress: 1.0));
+    return true;
   }
 
   Future<void> preload(AiModelInfo info) async {
