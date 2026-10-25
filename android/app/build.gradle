@@ -46,7 +46,8 @@ android {
         versionCode flutter.versionCode
         versionName flutter.versionName
         multiDexEnabled true
-        manifestPlaceholders = [admobAppId: admobAppId]
+        // += 로 추가해야 Flutter 플러그인이 넣는 applicationName 등 기존 placeholder가 유지된다.
+        manifestPlaceholders += [admobAppId: admobAppId]
     }
 
     signingConfigs {
