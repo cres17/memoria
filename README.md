@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x.png" alt="memoria 앱 아이콘" width="124">
+</p>
+
 <h1 align="center">Memoria</h1>
 
 <p align="center">
@@ -22,6 +26,8 @@
 [편집](#편집) · [구조](#구조) · [필터 생성](#필터-생성) · [모델 학습](#모델-학습) · [실행](#실행)
 
 ## 편집
+
+<p><img src="https://img.shields.io/badge/MAIN%20FEATURE-7757B2?style=flat-square" alt="MAIN 기능" height="20"></p>
 
 Fuji 18종과 Leica 5종의 LUT 필터를 제공하며, 노출·커브·HSL을 조절할 수 있습니다. 크롭과 원근 보정, 부분 보정, 인물 보정, 텍스트와 프레임도 같은 편집기에 들어 있습니다.
 
@@ -67,6 +73,8 @@ JPEG·PNG·TIFF는 Dart에서 인코딩하고, iOS의 WebP는 MethodChannel을 �
 
 ## 필터 생성
 
+<p><img src="https://img.shields.io/badge/MAIN%20FEATURE-7757B2?style=flat-square" alt="MAIN 기능" height="20"></p>
+
 ![입력 방식별 필터 생성 과정](docs/assets/readme/workflow.svg)
 
 ### 참조 사진 한 장
@@ -86,6 +94,8 @@ JPEG·PNG·TIFF는 Dart에서 인코딩하고, iOS의 WebP는 MethodChannel을 �
 생성 작업에는 45초 제한을 둡니다. 사용자가 취소하거나 작업이 실패하면 새로 만든 폴더를 정리합니다. LUT 파일이 생겼다는 이유만으로 목록에 등록하지 않고, 썸네일 렌더링까지 성공한 뒤 `CreateFilterCommitTransaction`이 저장을 마칩니다. 미완성 필터가 목록에 남는 일을 막기 위한 처리입니다.
 
 ## 모델 학습
+
+<p><img src="https://img.shields.io/badge/SUB%20FEATURE-B6A4D5?style=flat-square" alt="SUB 기능" height="20"></p>
 
 학습 파이프라인은 앱 실행과 분리되어 있습니다. 수집한 LUT로 학습 데이터를 만들고, `mobilenetv3_small_100`을 인코더로 사용하는 조건부 LUT 모델을 PyTorch에서 학습합니다.
 
