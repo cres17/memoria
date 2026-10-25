@@ -21,7 +21,8 @@ Memoria notes:
 
 - If photos remain fully local and are not transmitted, answer accordingly.
 - If AdMob is enabled, include data collected by Google Mobile Ads according to the SDK's current data practices.
-- If analytics or crash reporting SDKs are added, update the answers before release.
+- Optional, user-enabled error reports (error type, code location, app version, OS name; not linked to identity, not used for tracking) are declared as Crash Data / App Functionality in `ios/Runner/PrivacyInfo.xcprivacy`. In App Store Connect, answer Crash Data as collected, not linked to the user, not used for tracking, when a release build sets `MEMORIA_SENTRY_DSN`.
+- If analytics or other crash reporting SDKs are added, update the answers before release.
 
 ## Age Rating
 

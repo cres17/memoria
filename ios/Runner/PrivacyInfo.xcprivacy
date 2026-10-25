@@ -7,10 +7,24 @@
 	<true/>
 	<key>NSPrivacyTrackingDomains</key>
 	<array/>
-	<!-- 앱 자체는 사진·편집 데이터를 기기 밖으로 보내지 않는다. 광고 SDK가 수집하는 항목은 SDK 자체 매니페스트와
+	<!-- 앱 자체는 사진·편집 데이터를 기기 밖으로 보내지 않는다. 사용자가 설정에서 켠 경우에만 충돌·오류 정보
+	     (오류 종류, 코드 위치)를 보낸다. 광고 SDK가 수집하는 항목은 SDK 자체 매니페스트와
 	     App Store Connect 개인정보 설문에서 선언한다. -->
 	<key>NSPrivacyCollectedDataTypes</key>
-	<array/>
+	<array>
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeCrashData</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+	</array>
 	<!-- 앱 코드(Runner)는 사유 선언이 필요한 API(파일 타임스탬프, UserDefaults, 디스크 용량, 시스템 부팅 시간 등)를
 	     직접 호출하지 않는다. 플러그인은 각자 매니페스트를 제공한다. -->
 	<key>NSPrivacyAccessedAPITypes</key>

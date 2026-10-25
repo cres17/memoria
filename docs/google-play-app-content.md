@@ -81,6 +81,7 @@ Memoria notes:
 - Generated filters, LUTs, thumbnails, and metadata are stored locally.
 - AdMob may collect or share advertising identifiers, device identifiers, usage data, diagnostics, approximate location, and related ad data depending on SDK configuration.
 - No account creation currently exists.
+- Optional error reports (off by default, enabled by the user in Settings; only when a release build sets `MEMORIA_SENTRY_DSN`): crash logs / diagnostics limited to error type, code location, app version and OS name. Declare "Crash logs" as collected, optional, not shared for advertising, when such a build is published.
 
 ## Government Apps
 

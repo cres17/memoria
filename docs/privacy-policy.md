@@ -46,6 +46,14 @@ Memoria may use third-party advertising SDKs, including Google AdMob. These SDKs
 
 Third-party SDK data handling is governed by the privacy policies of those providers. If ads are disabled before release, update this section and the store declarations accordingly.
 
+## Error Reports (Optional)
+
+If the build is configured with an error-reporting service and the user turns on "Send error reports" in Settings, Memoria sends an error report when the app fails. The setting is off by default and no report is sent before the user turns it on. A report contains the error type, a shortened error message with file paths, web addresses, e-mail addresses and long numbers removed, the code locations (file name and line) of the failure, the app version, and the operating system name. It does not contain photos, edit data, file paths, a user identifier, or the diagnostics log. The receiving service may see the network address of the request; the project is expected to be configured not to store it. The user can turn the setting off at any time.
+
+## Remote Settings
+
+Memoria periodically downloads a small public settings file (feature on/off switches) from a fixed web address. The request carries no photos, identifiers, or account data, but, as with any web request, the hosting service can see the device's network address. If the download fails, the app keeps working with its last known settings.
+
 ## Data Sharing
 
 Memoria does not sell user photos. Data may be shared with third-party service providers only where necessary to provide app functionality, advertising, analytics, crash reporting, platform services, legal compliance, or security.
