@@ -215,5 +215,5 @@ void main() {
           })}');
     }
     RemoteConfigService.instance.resetForTest();
-  }, timeout: const Timeout(Duration(minutes: 20)));
+  }, skip: !Platform.isIOS, timeout: const Timeout(Duration(minutes: 20)));
 }

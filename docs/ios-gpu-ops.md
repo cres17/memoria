@@ -58,6 +58,12 @@ flutter analyze --no-fatal-infos
 python3 scripts/run_ios_gpu_ci.py
 ```
 
+The existing device workflow uses `scripts/run_device_tests.sh` to select all
+original integration tests. The added iOS GPU test is excluded only from that
+cross-platform list and is mandatory in the separate GPU CI job. This avoids
+compiling its generated photo fixtures into Android tests or duplicating the
+12MP performance run. `bash scripts/run_device_tests.sh --list` prints the list.
+
 The iOS integration test uses both committed source photos and the five existing
 visual references. `tool/prepare_gpu_test_photos.py` embeds them into a generated,
 ignored Dart file imported only by the integration target; production Runner
