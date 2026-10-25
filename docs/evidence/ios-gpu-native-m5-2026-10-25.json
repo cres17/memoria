@@ -1,0 +1,68 @@
+{
+  "environment": {
+    "os": "macOS 26.6.2 (25G83)",
+    "gpu": "Apple M5",
+    "gpu_cores": 10,
+    "width": 3012,
+    "height": 4016
+  },
+  "scope": "native Mac module, one invocation per case, no MethodChannel; times include native allocation/copies, not benchmark medians",
+  "results": [
+    {
+      "frac_nonzero": 3.0477911285358785e-05,
+      "max_abs": 1,
+      "mean_abs": 3.0477911285358785e-05,
+      "test": "nr_A",
+      "timing": {
+        "allocation_copy_submit_ms": 32.37383579835296,
+        "gpu": "Apple M5",
+        "kernel_ms": 37.71216655150056,
+        "math": "fast",
+        "native_wall_ms": 70.08600234985352,
+        "tiles": 16
+      }
+    },
+    {
+      "frac_nonzero": 3.990236486546069e-05,
+      "max_abs": 1,
+      "mean_abs": 3.990236486546069e-05,
+      "test": "nr_B",
+      "timing": {
+        "allocation_copy_submit_ms": 20.636586472392082,
+        "gpu": "Apple M5",
+        "kernel_ms": 38.00341673195362,
+        "math": "fast",
+        "native_wall_ms": 58.6400032043457,
+        "tiles": 16
+      }
+    },
+    {
+      "frac_nonzero": 0.026368243273034466,
+      "max_abs": 2,
+      "mean_abs": 0.027143941939193204,
+      "test": "blur_r5",
+      "timing": {
+        "allocation_copy_submit_ms": 24.299363838508725,
+        "gpu": "Apple M5",
+        "kernel_ms": 13.736624969169497,
+        "math": "precise",
+        "native_wall_ms": 38.03598880767822,
+        "tiles": 1
+      }
+    },
+    {
+      "frac_nonzero": 0.001738811685528801,
+      "max_abs": 1,
+      "mean_abs": 0.001738811685528801,
+      "test": "blur_r20",
+      "timing": {
+        "allocation_copy_submit_ms": 11.531060328707099,
+        "gpu": "Apple M5",
+        "kernel_ms": 19.939000019803643,
+        "math": "precise",
+        "native_wall_ms": 31.470060348510742,
+        "tiles": 1
+      }
+    }
+  ]
+}

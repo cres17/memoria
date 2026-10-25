@@ -1,3 +1,4 @@
+import '../../engine/gpu_ops.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
@@ -1067,6 +1068,8 @@ class _EditorPageState extends State<EditorPage> {
       );
 
       final workerParams = _PreviewParams(
+        rootIsolateToken: RootIsolateToken.instance,
+        gpuOpsEnabled: RemoteConfigService.instance.gpuOpsIosEnabled,
         width: preview.width,
         height: preview.height,
         imageBytes: preview.getBytes(order: img.ChannelOrder.rgba),
@@ -1543,7 +1546,8 @@ class _EditorPageState extends State<EditorPage> {
     try {
       await AiManager.instance.require(kModelSkySeg);
     } catch (error, stackTrace) {
-      ErrorLogger.log('Sky model download failed', error.runtimeType, stackTrace);
+      ErrorLogger.log(
+          'Sky model download failed', error.runtimeType, stackTrace);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -1568,9 +1572,8 @@ class _EditorPageState extends State<EditorPage> {
         ],
       );
     } else if (_skyModelFailed) {
-      content = const Text(
-          '정밀 하늘 인식을 실행하지 못해 색 기반 방식으로 찾고 있어요.',
-          style: textStyle);
+      content =
+          const Text('정밀 하늘 인식을 실행하지 못해 색 기반 방식으로 찾고 있어요.', style: textStyle);
     } else if (state.status == ModelStatus.downloading) {
       content = Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1636,10 +1639,8 @@ class _EditorPageState extends State<EditorPage> {
     } catch (error, stackTrace) {
       // 한 번 실패하면 이번 편집에서는 다시 시도하지 않고 색 기반 인식을 쓴다.
       _skyModelFailed = true;
-      ErrorLogger.log(
-          'Sky model failed; falling back to color-based detection',
-          error.runtimeType,
-          stackTrace);
+      ErrorLogger.log('Sky model failed; falling back to color-based detection',
+          error.runtimeType, stackTrace);
       if (mounted) setState(() {});
       return null;
     }
@@ -1739,6 +1740,8 @@ class _EditorPageState extends State<EditorPage> {
 
       final previewRaw = preview.getBytes(order: img.ChannelOrder.rgba);
       final params = _PreviewParams(
+        rootIsolateToken: RootIsolateToken.instance,
+        gpuOpsEnabled: RemoteConfigService.instance.gpuOpsIosEnabled,
         width: preview.width,
         height: preview.height,
         imageBytes: previewRaw,

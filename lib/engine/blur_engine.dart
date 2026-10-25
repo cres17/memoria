@@ -1,7 +1,8 @@
+import 'gpu_ops.dart';
+import 'image_operation.dart';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:image/image.dart' as img;
-import 'fast_blur.dart';
 
 // ─────────────────────────────────────────────────────────
 //  기본 블러 함수들
@@ -9,7 +10,28 @@ import 'fast_blur.dart';
 
 /// 가우시안 블러 (image 패키지 래퍼)
 img.Image gaussianBlur(img.Image image, int radius) {
-  if (radius <= 0 || image.width <= 1 || image.height <= 1) return image;
+  final state = ImagePipelineResult();
+  for (final op in _gaussianBlurSteps(image, radius, state)) {
+    op.resolveCpu();
+  }
+  return state.image;
+}
+
+Future<img.Image> gaussianBlurAsync(img.Image image, int radius,
+    {GpuOps gpu = const GpuOps()}) async {
+  final state = ImagePipelineResult();
+  for (final op in _gaussianBlurSteps(image, radius, state)) {
+    await gpu.resolve(op);
+  }
+  return state.image;
+}
+
+Iterable<ImageOperation> _gaussianBlurSteps(
+    img.Image image, int radius, ImagePipelineResult state) sync* {
+  if (radius <= 0 || image.width <= 1 || image.height <= 1) {
+    state.image = image;
+    return;
+  }
   final rgb =
       img.Image(width: image.width, height: image.height, numChannels: 3);
   for (var y = 0; y < image.height; y++) {
@@ -22,7 +44,9 @@ img.Image gaussianBlur(img.Image image, int radius) {
     radius.clamp(1, 30),
     math.max(1, math.min(image.width, image.height) ~/ 8),
   );
-  final blurred = fastGaussianBlur(rgb, radius: safeRadius);
+  final op = ImageOperation.blur(rgb, safeRadius);
+  yield op;
+  final blurred = op.result!;
   final result =
       img.Image(width: image.width, height: image.height, numChannels: 4);
   for (var y = 0; y < image.height; y++) {
@@ -33,7 +57,10 @@ img.Image gaussianBlur(img.Image image, int radius) {
           x, y, pixel.r.toInt(), pixel.g.toInt(), pixel.b.toInt(), alpha);
     }
   }
-  return result;
+  {
+    state.image = result;
+    return;
+  }
 }
 
 /// 마스크 기반 블렌딩: mask=0 → original, mask=1 → blurred
@@ -82,8 +109,50 @@ img.Image applyLinearTiltShift({
   required double focusBandWidth,
   required double maxBlur,
 }) {
-  if (maxBlur <= 0 || image.width <= 1 || image.height <= 1) return image;
-  final blurred = gaussianBlur(image, maxBlur.round().clamp(1, 20));
+  final state = ImagePipelineResult();
+  for (final op in _applyLinearTiltShiftSteps(
+      image: image,
+      focusCenter: focusCenter,
+      focusBandWidth: focusBandWidth,
+      maxBlur: maxBlur,
+      state: state)) {
+    op.resolveCpu();
+  }
+  return state.image;
+}
+
+Future<img.Image> applyLinearTiltShiftAsync({
+  required img.Image image,
+  required double focusCenter,
+  required double focusBandWidth,
+  required double maxBlur,
+  GpuOps gpu = const GpuOps(),
+}) async {
+  final state = ImagePipelineResult();
+  for (final op in _applyLinearTiltShiftSteps(
+      image: image,
+      focusCenter: focusCenter,
+      focusBandWidth: focusBandWidth,
+      maxBlur: maxBlur,
+      state: state)) {
+    await gpu.resolve(op);
+  }
+  return state.image;
+}
+
+Iterable<ImageOperation> _applyLinearTiltShiftSteps({
+  required img.Image image,
+  required double focusCenter,
+  required double focusBandWidth,
+  required double maxBlur,
+  required ImagePipelineResult state,
+}) sync* {
+  if (maxBlur <= 0 || image.width <= 1 || image.height <= 1) {
+    state.image = image;
+    return;
+  }
+  yield* _gaussianBlurSteps(image, maxBlur.round().clamp(1, 20), state);
+  final blurred = state.image;
   final mask = Float32List(image.width * image.height);
   final H = image.height.toDouble();
   final bandHalf = focusBandWidth.clamp(0.02, 1.0) / 2.0;
@@ -104,7 +173,8 @@ img.Image applyLinearTiltShift({
       mask[y * image.width + x] = t.toDouble();
     }
   }
-  return applyBlurWithMask(image, blurred, mask);
+  state.image = applyBlurWithMask(image, blurred, mask);
+  return;
 }
 
 /// Elliptical Tilt-Shift: 타원 포커스 영역
@@ -117,14 +187,64 @@ img.Image applyEllipticalTiltShift({
   required double radiusY,
   required double maxBlur,
 }) {
+  final state = ImagePipelineResult();
+  for (final op in _applyEllipticalTiltShiftSteps(
+      image: image,
+      centerX: centerX,
+      centerY: centerY,
+      radiusX: radiusX,
+      radiusY: radiusY,
+      maxBlur: maxBlur,
+      state: state)) {
+    op.resolveCpu();
+  }
+  return state.image;
+}
+
+Future<img.Image> applyEllipticalTiltShiftAsync({
+  required img.Image image,
+  required double centerX,
+  required double centerY,
+  required double radiusX,
+  required double radiusY,
+  required double maxBlur,
+  GpuOps gpu = const GpuOps(),
+}) async {
+  final state = ImagePipelineResult();
+  for (final op in _applyEllipticalTiltShiftSteps(
+      image: image,
+      centerX: centerX,
+      centerY: centerY,
+      radiusX: radiusX,
+      radiusY: radiusY,
+      maxBlur: maxBlur,
+      state: state)) {
+    await gpu.resolve(op);
+  }
+  return state.image;
+}
+
+Iterable<ImageOperation> _applyEllipticalTiltShiftSteps({
+  required img.Image image,
+  required double centerX,
+  required double centerY,
+  required double radiusX,
+  required double radiusY,
+  required double maxBlur,
+  required ImagePipelineResult state,
+}) sync* {
   if (maxBlur <= 0 ||
       radiusX <= 0 ||
       radiusY <= 0 ||
       image.width <= 1 ||
       image.height <= 1) {
-    return image;
+    {
+      state.image = image;
+      return;
+    }
   }
-  final blurred = gaussianBlur(image, maxBlur.round().clamp(1, 20));
+  yield* _gaussianBlurSteps(image, maxBlur.round().clamp(1, 20), state);
+  final blurred = state.image;
   final mask = Float32List(image.width * image.height);
   final W = image.width.toDouble();
   final H = image.height.toDouble();
@@ -147,7 +267,8 @@ img.Image applyEllipticalTiltShift({
       mask[y * image.width + x] = t.toDouble();
     }
   }
-  return applyBlurWithMask(image, blurred, mask);
+  state.image = applyBlurWithMask(image, blurred, mask);
+  return;
 }
 
 // ─────────────────────────────────────────────────────────
@@ -164,11 +285,52 @@ img.Image applyLensBlur({
   required double focusDepth,
   required double maxBlurRadius,
 }) {
+  final state = ImagePipelineResult();
+  for (final op in _applyLensBlurSteps(
+      image: image,
+      depthMap: depthMap,
+      focusDepth: focusDepth,
+      maxBlurRadius: maxBlurRadius,
+      state: state)) {
+    op.resolveCpu();
+  }
+  return state.image;
+}
+
+Future<img.Image> applyLensBlurAsync({
+  required img.Image image,
+  required Float32List depthMap,
+  required double focusDepth,
+  required double maxBlurRadius,
+  GpuOps gpu = const GpuOps(),
+}) async {
+  final state = ImagePipelineResult();
+  for (final op in _applyLensBlurSteps(
+      image: image,
+      depthMap: depthMap,
+      focusDepth: focusDepth,
+      maxBlurRadius: maxBlurRadius,
+      state: state)) {
+    await gpu.resolve(op);
+  }
+  return state.image;
+}
+
+Iterable<ImageOperation> _applyLensBlurSteps({
+  required img.Image image,
+  required Float32List depthMap,
+  required double focusDepth,
+  required double maxBlurRadius,
+  required ImagePipelineResult state,
+}) sync* {
   if (maxBlurRadius <= 0 ||
       depthMap.length != image.width * image.height ||
       image.width <= 1 ||
       image.height <= 1) {
-    return image;
+    {
+      state.image = image;
+      return;
+    }
   }
   // 다단계 블러: 여러 반경으로 블러를 미리 계산하고 가중치 합성
   const int levels = 5;
@@ -177,7 +339,8 @@ img.Image applyLensBlur({
   final blurredLevels = <img.Image>[image];
   for (int i = 1; i <= levels; i++) {
     final radius = (i * maxBlurRadius / levels).round().clamp(1, 25);
-    blurredLevels.add(gaussianBlur(image, radius));
+    yield* _gaussianBlurSteps(image, radius, state);
+    blurredLevels.add(state.image);
   }
 
   final result =
@@ -208,5 +371,8 @@ img.Image applyLensBlur({
       );
     }
   }
-  return result;
+  {
+    state.image = result;
+    return;
+  }
 }

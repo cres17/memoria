@@ -1,0 +1,107 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
+import 'package:image/image.dart' as img;
+
+import 'image_operation.dart';
+
+/// A request-scoped policy snapshot. Android and disabled recipes do not invoke
+/// the native channel, including capability queries.
+class GpuOps {
+  static const channel = MethodChannel('com.memoria/lut_engine');
+  final bool enabled;
+  final void Function(Map<String, Object?> timing)? onTiming;
+  final VoidCallback? onFallback;
+
+  const GpuOps({this.enabled = false, this.onTiming, this.onFallback});
+
+  static void initializeBackground(RootIsolateToken? token) {
+    if (token != null) {
+      BackgroundIsolateBinaryMessenger.ensureInitialized(token);
+    }
+  }
+
+  Future<img.Image?> _run(ImageOperation op) async {
+    if (!enabled || kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) {
+      return null;
+    }
+    final image = op.input;
+    if (image.format != img.Format.uint8 ||
+        image.hasPalette ||
+        image.numFrames != 1 ||
+        (image.numChannels != 3 && image.numChannels != 4)) {
+      return null;
+    }
+    final radius = op.parameters['radius']?.toInt() ?? 0;
+    if (op.kind == 'blur' &&
+        (radius <= 0 || radius >= image.width || radius >= image.height)) {
+      return null;
+    }
+    final watch = Stopwatch()..start();
+    try {
+      final packing = Stopwatch()..start();
+      final bytes = Uint8List.fromList(image.toUint8List());
+      final packUs = packing.elapsedMicroseconds;
+      final reply = await channel.invokeMapMethod<String, dynamic>('gpuOp', {
+        'op': op.kind,
+        'width': image.width,
+        'height': image.height,
+        'channels': image.numChannels,
+        'bytes': bytes,
+        ...op.parameters,
+      });
+      final output = reply?['bytes'];
+      if (output is! Uint8List || output.length != bytes.length) return null;
+      final unpack = Stopwatch()..start();
+      var result = img.Image.fromBytes(
+          width: image.width,
+          height: image.height,
+          bytes: output.buffer,
+          bytesOffset: output.offsetInBytes,
+          numChannels: image.numChannels);
+      // The CPU NR primitive returns RGB. The pipeline restores source alpha
+      // after all image effects; keep that contract at intermediate stages.
+      if (op.kind == 'noise' && image.numChannels == 4) {
+        result = result.convert(numChannels: 3);
+      }
+      onTiming?.call({
+        'op': op.kind,
+        'pack_ms': packUs / 1000,
+        'unpack_ms': unpack.elapsedMicroseconds / 1000,
+        'roundtrip_ms': watch.elapsedMicroseconds / 1000,
+        'bytes_each_way': bytes.length,
+        'native': reply?['timing'],
+      });
+      return result;
+    } on PlatformException {
+      return null;
+    } on MissingPluginException {
+      return null;
+    }
+  }
+
+  Future<void> resolve(ImageOperation op) async {
+    final output = await _run(op);
+    if (output == null) {
+      if (enabled && !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+        onFallback?.call();
+      }
+      op.resolveCpu();
+    } else {
+      if (op.kind == 'blur') {
+        // fastGaussianBlur mutates its argument. Preserve object identity and
+        // existing compositing behavior after a validated successful reply.
+        op.input.toUint8List().setAll(0, output.toUint8List());
+        op.result = op.input;
+      } else {
+        op.result = output;
+      }
+    }
+  }
+
+  Future<img.Image?> gpuNoiseReduction(
+          img.Image input, double luma, double chroma, double detail) =>
+      _run(ImageOperation.noise(input, luma, chroma, detail, () => input));
+
+  Future<img.Image?> gpuGaussianBlur(img.Image input, int radius) =>
+      _run(ImageOperation.blur(input, radius));
+}

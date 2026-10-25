@@ -82,3 +82,5 @@ android/app/upload-keystore*
 *.apk
 *.ipa
 ios/Flutter/AdMobOverride.xcconfig
+# Generated integration-only photo payload (does not ship with the app).
+integration_test/gpu_test_photos.g.dart

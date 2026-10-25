@@ -12,6 +12,34 @@ permissions:
   contents: read
 
 jobs:
+  gpu-ios:
+    name: iOS GPU parity and export timing (simulator)
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          flutter-version: '3.44.6'
+          channel: stable
+          architecture: 'arm64'
+          cache: true
+      - name: Install locked dependencies
+        run: flutter pub get --enforce-lockfile
+      - name: Ensure Metal compiler is available
+        run: |
+          xcodebuild -downloadComponent metalToolchain
+          xcrun metal --version
+      - name: Test actual native GPU and export worker
+        run: python3 scripts/run_ios_gpu_ci.py
+      - name: Upload GPU measurements and diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ios-gpu-simulator-evidence
+          path: |
+            build/ios-gpu-integration.log
+            build/ios-gpu-export.json
   build-ios:
     name: Build iOS (no codesign)
     runs-on: macos-latest

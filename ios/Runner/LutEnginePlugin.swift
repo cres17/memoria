@@ -15,6 +15,8 @@ import ImageIO
 ///   export(imagePath: String, editOps: Dictionary, outPath: String, format: String, quality: Int) → Dictionary
 
 @objc public class LutEnginePlugin: NSObject, FlutterPlugin {
+    private let gpuWorker = DispatchQueue(label: "com.memoria.gpu-ops", qos: .userInitiated)
+    private var gpuOps: GpuOps?
     static let channelName = "com.memoria/lut_engine"
     static let lutDim = 33
 
@@ -29,6 +31,27 @@ import ImageIO
 
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         switch call.method {
+        case "gpuOp":
+            guard let args = call.arguments as? [String: Any],
+                  let bytes = args["bytes"] as? FlutterStandardTypedData,
+                  let width = args["width"] as? Int, let height = args["height"] as? Int,
+                  let channels = args["channels"] as? Int, let op = args["op"] as? String else {
+                result(FlutterError(code: "GPU_INPUT", message: "Invalid GPU operation", details: nil))
+                return
+            }
+            gpuWorker.async {
+                do {
+                    if self.gpuOps == nil { self.gpuOps = try GpuOps() }
+                    guard let engine = self.gpuOps else { throw GpuOps.Failure.unavailable }
+                    let (output, timing) = try engine.run(input: bytes.data, width: width, height: height,
+                        channels: channels, operation: op, radius: args["radius"] as? Int ?? 0,
+                        luma: args["luma"] as? Double ?? 0, chroma: args["chroma"] as? Double ?? 0,
+                        detail: args["detail"] as? Double ?? 0)
+                    DispatchQueue.main.async { result(["bytes": FlutterStandardTypedData(bytes: output), "timing": timing]) }
+                } catch {
+                    DispatchQueue.main.async { result(FlutterError(code: "GPU_FAILED", message: String(describing: error), details: nil)) }
+                }
+            }
         case "generateLut":
             handleGenerateLut(call: call, result: result)
         case "renderPreview":
