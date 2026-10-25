@@ -45,17 +45,18 @@ void main() {
       }
     }
 
-    test('반지름이 너비 이상이면 라이브러리와 같은 동작(예외)을 한다', () {
-      final small = _random(6, 6, 3, 1);
-      Object? expected;
-      try {
-        img.gaussianBlur(img.Image.from(small), radius: 8);
-      } catch (e) {
-        expected = e;
+    test('큰 반지름도 image 4.12의 경계 처리와 바이트 단위로 같다', () {
+      // image 4.12 handles radii beyond the image extent instead of throwing.
+      // This is the library fallback path, so verify pixels and in-place return.
+      for (final size in [(1, 1), (2, 3), (6, 6)]) {
+        for (final channels in [3, 4]) {
+          final source = _random(size.$1, size.$2, channels, 1);
+          final expected = img.gaussianBlur(img.Image.from(source), radius: 8);
+          final actual = img.Image.from(source);
+          expect(identical(fastGaussianBlur(actual, radius: 8), actual), isTrue);
+          expect(actual.toUint8List(), expected.toUint8List());
+        }
       }
-      expect(expected, isA<RangeError>());
-      expect(() => fastGaussianBlur(img.Image.from(small), radius: 8),
-          throwsA(isA<RangeError>()));
     });
 
     test('반지름 0 이하는 아무것도 바꾸지 않는다', () {
