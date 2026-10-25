@@ -36,9 +36,13 @@ Fuji 18종과 Leica 5종의 LUT 필터를 제공하며, 노출·커브·HSL을 �
 
 ## 구조
 
-![Memoria 편집기와 이미지 엔진](docs/assets/readme/architecture.svg)
+<p align="center">
+  <img src="docs/assets/readme/architecture.svg" alt="Memoria 편집기와 이미지 엔진" width="1120">
+</p>
 
 화면은 현재 보정값을 불변 객체인 `EditorRenderRecipe`로 묶습니다. 렌더러는 이 recipe와 이미지 리소스를 받아 픽셀 연산을 수행합니다. 미리보기와 내보내기를 별도 isolate에서 실행해 무거운 작업이 화면 조작을 막지 않도록 했습니다.
+
+<div align="center">
 
 | 위치 | 내용 |
 |:---:|:---:|
@@ -49,6 +53,8 @@ Fuji 18종과 Leica 5종의 LUT 필터를 제공하며, 노출·커브·HSL을 �
 | `lib/data/` | JSON 파일과 SharedPreferences 저장 구현 |
 | `ios/Runner/LutEnginePlugin.swift` | 네이티브 LUT 처리와 이미지 인코딩 연결 |
 | `ml_pipeline/` | 학습 데이터 생성, 학습, 평가, 변환 |
+
+</div>
 
 ### 렌더링 순서
 
@@ -73,7 +79,9 @@ JPEG·PNG·TIFF는 Dart에서 인코딩하고, iOS의 WebP는 MethodChannel을 �
 ## 필터 생성
 
 
-![입력 방식별 필터 생성 과정](docs/assets/readme/workflow.svg)
+<p align="center">
+  <img src="docs/assets/readme/workflow.svg" alt="입력 방식별 필터 생성 과정" width="1120">
+</p>
 
 ### 참조 사진 한 장
 
@@ -96,6 +104,8 @@ JPEG·PNG·TIFF는 Dart에서 인코딩하고, iOS의 WebP는 MethodChannel을 �
 
 학습 파이프라인은 앱 실행과 분리되어 있습니다. 수집한 LUT로 학습 데이터를 만들고, `mobilenetv3_small_100`을 인코더로 사용하는 조건부 LUT 모델을 PyTorch에서 학습합니다.
 
+<div align="center">
+
 | 단계 | 스크립트 |
 |:---:|:---:|
 | 학습 | `20_train_conditional_lut_mvp.py` |
@@ -103,17 +113,23 @@ JPEG·PNG·TIFF는 Dart에서 인코딩하고, iOS의 WebP는 MethodChannel을 �
 | LiteRT 변환과 fp16 양자화 | `35_` 스크립트 |
 | 변환 모델 속도 측정 | `36_` 스크립트 |
 
+</div>
+
 ONNX는 출력 비교에 사용합니다. 앱에 들어가는 TFLite 모델은 `litert-torch`로 PyTorch에서 직접 변환하고, `ai-edge-quantizer`로 가중치를 float16으로 줄입니다. 변환 전후 결과를 비교한 뒤 앱 번들에 넣습니다.
 
 데이터 준비부터 평가까지의 명령은 [학습 파이프라인 문서](ml_pipeline/README.md)에 정리되어 있습니다.
 
 ## 기술별 역할
 
-![기술 구성과 담당 기능](docs/assets/readme/components.svg)
+<p align="center">
+  <img src="docs/assets/readme/components.svg" alt="기술 구성과 담당 기능" width="1120">
+</p>
 
 ### 화면과 사진 입출력
 
 Flutter와 go_router가 화면 이동을 맡습니다. 홈과 필터 목록은 하단 내비게이션을 공유하고 편집·필터 생성·설정은 독립 화면으로 열립니다. iOS에서는 Cupertino 방식으로 전환합니다. 개발 패널은 디버그 빌드에서만 라우트에 등록됩니다.
+
+<div align="center">
 
 | 기술 | 맡은 기능 |
 |:---:|:---:|
@@ -125,9 +141,13 @@ Flutter와 go_router가 화면 이동을 맡습니다. 홈과 필터 목록은 �
 | SharedPreferences | 편집 초안과 로컬 설정 유지 |
 | path_provider · JSON 파일 | 사용자 필터의 LUT·썸네일·recipe·metadata를 앱 문서 폴더에 보관 |
 
+</div>
+
 ### 렌더링과 모델 실행
 
 편집 화면은 보정값을 `EditorRenderRecipe`로 전달하고 엔진은 그 값에 따라 픽셀을 계산합니다. 미리보기와 저장을 별도 isolate로 실행해 화면 조작과 무거운 처리를 분리합니다. 이 과정에서 사진을 서버로 올려 편집하지 않습니다.
+
+<div align="center">
 
 | 기술 | 맡은 기능 |
 |:---:|:---:|
@@ -139,6 +159,8 @@ Flutter와 go_router가 화면 이동을 맡습니다. 홈과 필터 목록은 �
 | Core Image · CIColorCube | 네이티브 LUT 적용 경로 |
 | ImageIO | iOS 네이티브 이미지 인코딩, WebP 출력 경로 |
 | HTTP · crypto | 모델 다운로드와 무결성 확인에 사용하는 구성 요소 |
+
+</div>
 
 MediaPipe 모델은 필요할 때 내려받아 보관합니다. 필터 생성 방식마다 사용하는 입력과 모델이 다르므로, 참조 사진 한 장·여러 장·보정 전후 사진 쌍의 흐름은 위의 필터 생성 절에서 따로 설명했습니다.
 
