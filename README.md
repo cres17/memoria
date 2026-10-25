@@ -4,16 +4,12 @@
 
 [![iOS Build](https://github.com/cres17/memoria/actions/workflows/ios-build.yml/badge.svg?branch=main)](https://github.com/cres17/memoria/actions/workflows/ios-build.yml)
 [![MIT License](https://img.shields.io/badge/License-MIT-2EA44F)](LICENSE)
-![Flutter](https://img.shields.io/badge/Flutter-02569B?style=flat&logoColor=white&logo=flutter)
-![LiteRT / TFLite](https://img.shields.io/badge/LiteRT%20%2F%20TFLite-FF6F00?style=flat&logoColor=white&logo=tensorflow)
-![MediaPipe](https://img.shields.io/badge/MediaPipe-0097A7?style=flat&logoColor=white&logo=mediapipe)
-![Swift](https://img.shields.io/badge/Swift-F05138?style=flat&logoColor=white&logo=swift)
-![Core Image](https://img.shields.io/badge/Core%20Image-000000?style=flat&logoColor=white)
-![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=flat&logoColor=white&logo=pytorch)
-![ONNX](https://img.shields.io/badge/ONNX-005CED?style=flat&logoColor=white&logo=onnx)
-![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-2088FF?style=flat&logoColor=white&logo=githubactions)
+
+<p align="center">Flutter · Dart · LiteRT · Swift</p>
 
 </div>
+
+[구조](#architecture) · [주요 흐름](#workflow) · [설계 선택](#핵심-설계-결정) · [실행](#실행--검증)
 
 사진을 고르고 보정하고, 마음에 드는 사진의 색을 나만의 필터로 만들어 다시 쓰는 모바일 사진 편집 앱입니다. 모든 편집과 필터 생성은 서버 없이 기기 안에서 처리합니다. iOS를 기준으로 개발 중이며 Android 프로젝트도 함께 들어 있습니다.
 
@@ -21,11 +17,15 @@
 - **나만의 필터**: 참조 사진 1장, 여러 장, 또는 보정 전후 사진 한 쌍으로 65³ LUT 필터 생성
 - **내보내기**: JPEG · PNG · TIFF · WebP(iOS), 원본 해상도, 사진 앱 저장과 공유
 
-## 전체 아키텍처
+<a id="architecture"></a>
+
+## 구조 한눈에 보기
 
 <p align="center">
   <img src="docs/assets/readme/architecture.svg" alt="Memoria 전체 아키텍처" width="100%">
 </p>
+
+편집은 하나의 recipe와 공통 엔진을 사용합니다. 필터 생성은 별도 작업에서 완료한 뒤 라이브러리에 등록합니다.
 
 | 흐름 | 설명 |
 |------|------|
@@ -34,7 +34,7 @@
 | 필터 제작 | 참조 사진을 LiteRT 모델에 넣어 17³ LUT를 예측하고 65³로 보간, 썸네일 렌더까지 성공하면 LUT와 recipe를 `filters/<id>/`에 저장 |
 | 인물 보정 | MediaPipe Selfie Segmenter로 사람 영역 마스크를 만들어 부드럽게 · 밝기 · 색조 보정에 사용 |
 | 내보내기 | JPEG · PNG · TIFF는 Dart 인코더, WebP는 MethodChannel로 Swift의 ImageIO에 넘겨 인코딩 |
-| 모델 준비 | `ml_pipeline`에서 PyTorch로 학습 → ONNX → TFLite(fp16)로 변환해 앱에 번들 |
+| 모델 준비 | `ml_pipeline`에서 PyTorch로 학습 → ONNX로 출력 검증, litert-torch로 TFLite(fp16) 변환 후 앱에 번들 |
 
 ```text
 lib/
@@ -49,9 +49,16 @@ ios/Runner/          LutEnginePlugin.swift (MethodChannel)
 ml_pipeline/         데이터 생성 · 학습 · 평가 · ONNX/TFLite 변환 스크립트
 ```
 
-## 기능 흐름
+<a id="workflow"></a>
 
-### 1. 편집과 내보내기
+## 주요 흐름
+
+![memoria의 주요 처리 흐름](docs/assets/readme/workflow.svg)
+
+## 세부 동작
+
+<details>
+<summary><b>1. 편집과 내보내기</b></summary>
 
 미리보기와 내보내기는 같은 recipe와 같은 엔진 코드를 쓰고, 해상도만 다릅니다.
 
@@ -70,7 +77,10 @@ flowchart LR
   SW --> S
 ```
 
-### 2. 보정 적용 순서
+</details>
+
+<details>
+<summary><b>2. 보정 적용 순서</b></summary>
 
 `EditorRenderer`가 한 장의 사진에 아래 순서로 보정을 쌓습니다. 켜지 않은 단계는 건너뜁니다.
 
@@ -85,7 +95,10 @@ flowchart LR
   G --> H[블렌드 · 프레임 ·<br/>텍스트 합성]
 ```
 
-### 3. 나만의 필터 생성
+</details>
+
+<details>
+<summary><b>3. 나만의 필터 생성</b></summary>
 
 ```mermaid
 flowchart TD
@@ -107,7 +120,10 @@ flowchart TD
   class SAVE ok
 ```
 
-### 4. 모델 준비 (ml_pipeline)
+</details>
+
+<details>
+<summary><b>4. 모델 준비 (ml_pipeline)</b></summary>
 
 ```mermaid
 flowchart LR
@@ -119,6 +135,9 @@ flowchart LR
   D -. 검증 fixture .-> F
   F --> G[[앱 번들<br/>assets/models/]]
 ```
+
+</details>
+
 
 ## 핵심 설계 결정
 
