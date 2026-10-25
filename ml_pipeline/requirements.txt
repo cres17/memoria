@@ -2,7 +2,7 @@
 # Python 3.11+ 권장 (Pillow 13 이상 요구). 최소 버전은 알려진 취약점이 없는 버전 기준
 
 # 딥러닝
-torch>=2.13.0
+torch>=2.14.1
 torchvision>=0.28.0
 timm>=0.9.12
 # Pinned local runtime for MediaPipe Selfie Multiclass semantic-mask cache.
