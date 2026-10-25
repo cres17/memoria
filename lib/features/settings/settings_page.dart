@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:path_provider/path_provider.dart';
+import '../../core/error/diagnostics_export.dart';
 import '../../core/error/error_handler.dart';
 import '../../core/l10n/app_locale.dart';
 import '../../core/l10n/strings.dart';
@@ -14,18 +15,21 @@ import '../../core/utils/platform_utils.dart';
 import '../../data/repositories/filter_index_recovery_service.dart';
 import '../../data/repositories/preferences_recovery_service.dart';
 import '../../engine/engine_channel.dart';
+import '../../monetization/ad_consent_service.dart';
 import 'settings_recovery_section.dart';
 
 class SettingsPage extends StatefulWidget {
   final PreferencesRecoveryService? preferencesRecovery;
   final FilterIndexRecoveryService? filterIndexRecovery;
   final SettingsRecoveryController? recoveryController;
+  final AdConsentService? adConsent;
 
   const SettingsPage({
     super.key,
     this.preferencesRecovery,
     this.filterIndexRecovery,
     this.recoveryController,
+    this.adConsent,
   });
 
   @override
@@ -38,10 +42,17 @@ class _SettingsPageState extends State<SettingsPage> {
   int _exportQuality = 95;
   bool _webpSupported = false;
   late final SettingsRecoveryController _recoveryController;
+  bool _adPrivacyOptionsRequired = false;
+
+  AdConsentService get _adConsent =>
+      widget.adConsent ?? AdConsentService.instance;
 
   @override
   void initState() {
     super.initState();
+    _adConsent.privacyOptionsRequired().then((required) {
+      if (mounted && required) setState(() => _adPrivacyOptionsRequired = true);
+    });
     _recoveryController = widget.recoveryController ??
         ServiceSettingsRecoveryController(
           preferences:
@@ -224,6 +235,17 @@ class _SettingsPageState extends State<SettingsPage> {
             const SizedBox(height: 8),
           ],
         ),
+      ),
+    );
+  }
+
+  Future<void> _exportDiagnostics() async {
+    final shared = await DiagnosticsExport().exportAndShare();
+    if (!mounted || shared) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(S.get('settings.diagnostics_empty')),
+        behavior: SnackBarBehavior.floating,
       ),
     );
   }
@@ -471,12 +493,28 @@ class _SettingsPageState extends State<SettingsPage> {
                 subtitle: S.get('settings.app_permissions_sub'),
                 onTap: _openSystemPermissionSettings,
               ),
+              if (_adPrivacyOptionsRequired) ...[
+                const _Divider(),
+                _SettingRow(
+                  icon: Icons.privacy_tip_outlined,
+                  title: S.get('settings.ad_privacy'),
+                  subtitle: S.get('settings.ad_privacy_sub'),
+                  onTap: () => _adConsent.showPrivacyOptions(),
+                ),
+              ],
             ],
           ),
           const SizedBox(height: 24),
           _SectionHeader(title: S.get('settings.about')),
           _SettingCard(
             children: [
+              _SettingRow(
+                icon: Icons.bug_report_outlined,
+                title: S.get('settings.diagnostics'),
+                subtitle: S.get('settings.diagnostics_sub'),
+                onTap: _exportDiagnostics,
+              ),
+              const _Divider(),
               _SettingRow(
                 icon: Icons.info_outline_rounded,
                 title: S.get('settings.licenses'),

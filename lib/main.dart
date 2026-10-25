@@ -2,7 +2,6 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'app.dart';
 import 'ai/ai_manager.dart';
 import 'core/l10n/app_locale.dart';
@@ -95,8 +94,8 @@ Future<void> _initializeAfterFirstFrame() async {
     // automatically so skin smoothing never falls back to a whole-image effect.
     unawaited(AiManager.instance.preload(kModelSelfie));
 
-    // AdMob initialization can be slow on device; do it after the first frame.
-    unawaited(MobileAds.instance.initialize());
+    // 광고 SDK는 동의 확인(UMP/ATT)을 마친 뒤 광고가 처음 필요할 때 초기화한다
+    // (AdConsentService). 광고 기능이 꺼져 있으면 SDK를 아예 시작하지 않는다.
   } catch (error, stackTrace) {
     ErrorLogger.log('Post-frame app initialization failed', error, stackTrace);
   }

@@ -5,7 +5,6 @@ env:
 
 on:
   pull_request:
-    branches: [ main ]
   workflow_dispatch:
 
 permissions:
@@ -71,7 +70,7 @@ jobs:
           {
             echo "### iOS simulator (host Mac CPU, not a phone)"
             echo '```'
-            grep -h "DEVICE_PERF" ios-integration.log || echo "no samples"
+            python3 scripts/check_device_perf.py ios-integration.log ci/perf_budgets.json || true
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -82,10 +81,18 @@ jobs:
           name: ios-integration-log
           path: ios-integration.log
 
+      - name: Enforce performance budget
+        run: python3 scripts/check_device_perf.py ios-integration.log ci/perf_budgets.json
+
   android-emulator:
-    name: Integration tests (Android emulator)
+    name: Integration tests (Android API ${{ matrix.api-level }})
     runs-on: ubuntu-latest
     timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        # 34: 기존 기준선, 36: targetSdk(Play 요구 수준) 기기 동작 확인
+        api-level: [34, 36]
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -121,7 +128,7 @@ jobs:
       - name: Run integration tests on emulator
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
-          api-level: 34
+          api-level: ${{ matrix.api-level }}
           arch: x86_64
           target: google_apis
           ram-size: 4096M
@@ -137,7 +144,7 @@ jobs:
           {
             echo "### Android emulator (x86_64 on CI host, not a phone)"
             echo '```'
-            grep -h "DEVICE_PERF" android-integration.log || echo "no samples"
+            python3 scripts/check_device_perf.py android-integration.log ci/perf_budgets.json --optional raw_develop_1200x800 || true
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -145,5 +152,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: android-integration-log
+          name: android-integration-log-api${{ matrix.api-level }}
           path: android-integration.log
+
+      - name: Enforce performance budget
+        run: python3 scripts/check_device_perf.py android-integration.log ci/perf_budgets.json --optional raw_develop_1200x800

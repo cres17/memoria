@@ -21,11 +21,11 @@
         android:theme="@style/LaunchTheme"
         android:requestLegacyExternalStorage="true">
 
-        <!-- TODO(release): replace with real AdMob App ID from AdMob console -->
-        <!-- Current value is Google's official test App ID -->
+        <!-- AdMob 앱 ID는 build.gradle 의 manifestPlaceholders(admobAppId)로 주입한다.
+             기본값은 Google 공식 테스트 ID이고, 릴리스는 ADMOB_ANDROID_APP_ID 로 바꾼다. -->
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
-            android:value="ca-app-pub-3940256099942544~3347511713"/>
+            android:value="${admobAppId}"/>
 
         <activity
             android:name=".MainActivity"

@@ -1,0 +1,6 @@
+// AdMob 앱 ID. 기본값은 Google 공식 테스트 앱 ID다.
+// 릴리스 빌드는 ios/Flutter/AdMobOverride.xcconfig(저장소에 올리지 않음, CI가 생성)에
+//   ADMOB_IOS_APP_ID = ca-app-pub-XXXXXXXXXXXXXXXX~YYYYYYYYYY
+// 를 넣어 덮어쓴다. 아래 #include? 는 파일이 없으면 무시된다.
+ADMOB_IOS_APP_ID = ca-app-pub-3940256099942544~1458002511
+#include? "AdMobOverride.xcconfig"

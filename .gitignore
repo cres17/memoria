@@ -60,3 +60,25 @@ snapseed/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local work leftovers / analysis dumps
+/brain/
+/scratch/
+/analyze_output*.txt
+*.log
+*.orig
+*.rej
+
+# Release signing (never commit)
+*.jks
+*.keystore
+android/key.properties
+android/app/upload-keystore*
+**/AuthKey_*.p8
+*.mobileprovision
+
+# Build outputs
+*.aab
+*.apk
+*.ipa
+ios/Flutter/AdMobOverride.xcconfig

@@ -101,6 +101,18 @@ class EngineChannel {
     }
   }
 
+  /// iOS 앱 추적 투명성(ATT) 권한을 요청하고 상태 문자열을 돌려준다.
+  /// `authorized`, `denied`, `restricted`, `notDetermined`, `unsupported`. 실패하면 null.
+  static Future<String?> requestTrackingAuthorization() async {
+    try {
+      return await _channel.invokeMethod<String>('requestTrackingAuthorization');
+    } on MissingPluginException {
+      return null;
+    } on PlatformException {
+      return null;
+    }
+  }
+
   static Future<bool> supportsWebPEncoding() async {
     try {
       return await _channel.invokeMethod<bool>('supportsWebPEncoding') ?? false;
