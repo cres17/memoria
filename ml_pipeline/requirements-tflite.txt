@@ -2,7 +2,7 @@
 # litert-torch가 PyTorch 모델을 LiteRT(TFLite)로 직접 변환하므로 TensorFlow · keras · onnx-tf를 쓰지 않는다.
 # ai-edge-litert 버전이 requirements.txt(2.1.6, MediaPipe 마스크 캐시용)와 달라 별도 가상환경에 설치한다.
 # Python 3.13에서 검증했다.
-torch>=2.13.0,<2.15
+torch>=2.14.1,<2.15
 torchvision>=0.28.0
 timm>=0.9.12
 numpy>=1.24.0
