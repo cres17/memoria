@@ -44,6 +44,40 @@ void main() {
     debugDefaultTargetPlatformOverride = null;
   });
 
+  test('recovery telemetry distinguishes admission, timeout and quarantine',
+      () async {
+    for (final entry in {
+      'GPU_BUSY': 'busy',
+      'GPU_TIMEOUT': 'timeout',
+      'GPU_INTERRUPTED': 'interrupted',
+      'GPU_BLOCKED': 'blocked',
+      'GPU_FAILED': 'failed',
+    }.entries) {
+      final events = <Map<String, Object?>>[];
+      messenger.setMockMethodCallHandler(GpuOps.channel, (call) async {
+        if (call.method == 'gpuBegin') {
+          throw PlatformException(
+              code: entry.key,
+              details: entry.key == 'GPU_BLOCKED'
+                  ? {'blocked_reason': 'unfinished_lease'}
+                  : null);
+        }
+        fail('Rejected admission must not send pixels');
+      });
+      final pending = GpuOps(enabled: true, onTiming: events.add)
+          .gpuGaussianBlur(pattern(), 5);
+      if (entry.key == 'GPU_INTERRUPTED') {
+        await expectLater(pending, throwsA(isA<GpuWorkInterrupted>()));
+      } else {
+        expect(await pending, isNull);
+      }
+      expect(events.single['reason'], entry.value);
+      if (entry.key == 'GPU_BLOCKED') {
+        expect(events.single['blocked_reason'], 'unfinished_lease');
+      }
+    }
+  });
+
   test('GPU config is opt-in and rejects non-boolean values', () {
     expect(RemoteConfig.defaults.gpuOpsIosEnabled, isFalse);
     expect(RemoteConfig.parse('{"schema":1,"disabled":{}}')!.gpuOpsIosEnabled,

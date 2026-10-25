@@ -9,6 +9,7 @@ final class GpuRequestGate {
         var build: String
         var active: String?
         var blocked: Bool
+        var reason: String?
     }
     private let url: URL
     private let lock = NSLock()
@@ -22,7 +23,8 @@ final class GpuRequestGate {
         if FileManager.default.fileExists(atPath: url.path) {
             let previous = try JSONDecoder().decode(Record.self, from: Data(contentsOf: url))
             record = previous.build == build
-                ? Record(build: build, active: nil, blocked: previous.blocked || previous.active != nil)
+                ? Record(build: build, active: nil, blocked: previous.blocked || previous.active != nil,
+                    reason: previous.reason ?? (previous.active != nil ? "unfinished_lease" : (previous.blocked ? "unknown" : nil)))
                 : Record(build: build, active: nil, blocked: false)
         } else {
             record = Record(build: build, active: nil, blocked: false)
@@ -68,8 +70,14 @@ final class GpuRequestGate {
         catch { record.blocked = true; throw error }
     }
 
-    func disable() throws {
+    var blockedReason: String? {
         lock.lock(); defer { lock.unlock() }
+        return record.reason
+    }
+
+    func disable(reason: String = "unknown") throws {
+        lock.lock(); defer { lock.unlock() }
+        if !record.blocked { record.reason = reason }
         record.blocked = true
         try persist()
     }

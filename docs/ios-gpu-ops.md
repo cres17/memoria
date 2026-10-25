@@ -51,8 +51,10 @@ That false positive keeps the same build on CPU until an update.
 `willResignActive` stops admission and invalidates an active lease. Every tile
 and command submission checks it; returning to foreground cannot revive that
 interrupted operation. `notPermitted` is treated as interruption even if the
-notification raced. The export service returns cancellation and removes partial
-output; previews keep their existing image. No background-task time extension or
+notification raced. The export service raises the typed `systemInterrupted` failure and removes
+partial output. The editor explains that no photo was saved and asks the user to
+retry; if inactive, it defers this notice until resume. Explicit user cancellation
+remains silent. Previews keep their existing image. No background-task time extension or
 completion guarantee is claimed. Background **isolate** tests do not test app
 background suspension; home/phone-call scenarios still require physical devices.
 
@@ -210,3 +212,32 @@ xcrun swiftc -O ios/Runner/GpuRequestGate.swift ios/Runner/GpuOps.swift tool/che
 # Set BENCH_OUTPUT to the directory containing cpu.json and the reference RGBs.
 build/gpu-native/check build/gpu-native/default.metallib "$BENCH_OUTPUT"
 ```
+
+## Second review follow-up (2026-10-25)
+
+- N1: system interruption is distinct from user cancellation through the export
+  failure contract. It never triggers the lower-resolution or CPU retry. The
+  notice is deferred while inactive so it does not expire before the user returns.
+  The conservative `willResignActive` admission/invalidation policy is unchanged;
+  notification/control center and phone interruptions still require device tests.
+- N2: parity logs additionally record `mean_signed_gpu_minus_cpu`,
+  `frac_gpu_darker`, and `frac_gpu_lighter` (RGBA channel values, including alpha).
+  These diagnose direction without changing kernels, rounding, D1 limits, or
+  reference images. Broad saturated highlights in real photos remain a required
+  physical-device input; the synthetic white fixture does not replace them.
+  Uniform-white r5 reached max 2 in the prior f7f8a2a simulator run, so the
+  tolerance is an acceptance threshold, not a demonstrated universal bound.
+- N3/N4: the existing optional timing sink now receives `phase: gpu_recovery`
+  events with reasons `busy`, `timeout`, `interrupted`, `blocked`, `failed`,
+  `invalid_reply`, or `cleanup_failed`. Count events by reason in device runs;
+  an interruption event is cancellation, not a CPU fallback. These events contain
+  no pixels, file paths, or lease IDs. No remote telemetry upload is enabled.
+  Blocked admissions include `blocked_reason`: `unfinished_lease`, `timeout`,
+  `command_error`, `cleanup_failed`, or `unknown`. The reason persists across
+  launches with the quarantine; old state records without a reason remain valid.
+  An unfinished lease does not prove a GPU crash. The same-build quarantine policy
+  remains conservative; no repeated-crash threshold or OS-based reset was added.
+
+Real-device rates, highlight accuracy, profile timing, memory peaks, rollout
+cohorts, and repository-required checks remain unverified or unapplied. The
+feature remains disabled by default.

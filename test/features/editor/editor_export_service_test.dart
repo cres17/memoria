@@ -13,15 +13,18 @@ import 'package:memoria/features/editor/editor_export_service.dart';
 import 'package:memoria/features/editor/editor_render_recipe.dart';
 
 void main() {
-  test('GPU foreground interruption is cancellation and removes partial output',
+  test('GPU interruption is a visible typed failure and removes partial output',
       () async {
     final directory =
         await Directory.systemTemp.createTemp('memoria_gpu_interrupt_');
     addTearDown(() => directory.delete(recursive: true));
     final output = File('${directory.path}/partial.png');
-    final result = await EditorExportService(worker: _gpuInterrupted)
-        .render(_request(outputPath: output.path));
-    expect(result, EditorExportJobResult.cancelled);
+    await expectLater(
+      EditorExportService(worker: _gpuInterrupted)
+          .render(_request(outputPath: output.path)),
+      throwsA(isA<EditorExportFailure>().having((failure) => failure.kind,
+          'kind', EditorExportFailureKind.systemInterrupted)),
+    );
     expect(output.existsSync(), isFalse);
   });
   test('renders a real fixture through the production export boundary',

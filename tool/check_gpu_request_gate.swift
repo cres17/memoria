@@ -28,14 +28,17 @@ import Foundation
         try normalRelaunch.finish(completed)
         _ = try normalRelaunch.begin() // Simulate process death before finish.
         let afterCrash = try GpuRequestGate(url: file, build: "1", foreground: true)
+        precondition(afterCrash.blockedReason == "unfinished_lease")
         rejected(.blocked) { _ = try afterCrash.begin() }
         let stillBlocked = try GpuRequestGate(url: file, build: "1", foreground: true)
         rejected(.blocked) { _ = try stillBlocked.begin() }
         let updated = try GpuRequestGate(url: file, build: "2", foreground: true)
         let updateLease = try updated.begin()
-        try updated.disable() // A timeout stays quarantined even after a late end.
+        try updated.disable(reason: "timeout") // A timeout stays quarantined even after a late end.
         try updated.finish(updateLease)
         rejected(.blocked) { _ = try updated.begin() }
+        let blockedRelaunch = try GpuRequestGate(url: file, build: "2", foreground: true)
+        precondition(blockedRelaunch.blockedReason == "timeout")
         let unreadable = root.appendingPathComponent("bad.json")
         try Data("broken".utf8).write(to: unreadable)
         do {

@@ -774,10 +774,24 @@ class _EditorPageState extends State<EditorPage> {
 
   late List<FilterPreset> _allPresets;
   FullScreenAdService? _adService;
+  late final AppLifecycleListener _exportLifecycle;
+  EditorExportFailure? _pendingExportInterruption;
+
+  void _showExportInterruption() {
+    final failure = _pendingExportInterruption;
+    if (!mounted || failure == null) return;
+    _pendingExportInterruption = null;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(failure.userMessage),
+      behavior: SnackBarBehavior.floating,
+      duration: const Duration(seconds: 8),
+    ));
+  }
 
   @override
   void initState() {
     super.initState();
+    _exportLifecycle = AppLifecycleListener(onResume: _showExportInterruption);
     _liveParamsNotifier = ValueNotifier(AdjustParams.zero);
     _liveIntensityNotifier = ValueNotifier(1.0);
     _history = EditorHistoryController(widget.imagePath ?? '');
@@ -799,6 +813,7 @@ class _EditorPageState extends State<EditorPage> {
 
   @override
   void dispose() {
+    _exportLifecycle.dispose();
     _previewDebounce?.cancel();
     _draftSaveDebounce?.cancel();
     _saveDraft();
@@ -1883,7 +1898,13 @@ class _EditorPageState extends State<EditorPage> {
         failure.diagnostic,
         stackTrace,
       );
-      if (mounted) {
+      if (failure.kind == EditorExportFailureKind.systemInterrupted) {
+        _pendingExportInterruption = failure;
+        if (WidgetsBinding.instance.lifecycleState ==
+            AppLifecycleState.resumed) {
+          _showExportInterruption();
+        }
+      } else if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content:

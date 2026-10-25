@@ -53,7 +53,7 @@ import ImageIO
         return gate
     }
 
-    private static func gpuError(_ error: Error) -> FlutterError {
+    private static func gpuError(_ error: Error, reason: String? = nil) -> FlutterError {
         let code: String
         switch error {
         case GpuRequestGate.Failure.interrupted: code = "GPU_INTERRUPTED"
@@ -62,7 +62,7 @@ import ImageIO
         case GpuOps.Failure.timedOut: code = "GPU_TIMEOUT"
         default: code = "GPU_FAILED"
         }
-        return FlutterError(code: code, message: String(describing: error), details: nil)
+        return FlutterError(code: code, message: String(describing: error), details: reason.map { ["blocked_reason": $0] })
     }
 
     public static func register(with registrar: FlutterPluginRegistrar) {
@@ -78,16 +78,20 @@ import ImageIO
         switch call.method {
         case "gpuBegin":
             do { result(try requestGate().begin()) }
-            catch { result(Self.gpuError(error)) }
+            catch { result(Self.gpuError(error, reason: gpuGate?.blockedReason)) }
         case "gpuEnd":
             guard let args = call.arguments as? [String: Any], let lease = args["lease"] as? String else {
                 result(FlutterError(code: "GPU_INPUT", message: "Missing GPU lease", details: nil)); return
             }
             do { try requestGate().finish(lease); result(nil) }
-            catch { result(Self.gpuError(error)) }
+            catch { result(Self.gpuError(error, reason: gpuGate?.blockedReason)) }
         case "gpuDisable":
-            do { try requestGate().disable(); result(nil) }
-            catch { result(Self.gpuError(error)) }
+            do {
+                let supplied = (call.arguments as? [String: Any])?["reason"] as? String
+                let reason = ["timeout", "cleanup_failed"].contains(supplied ?? "") ? supplied! : "unknown"
+                try requestGate().disable(reason: reason); result(nil)
+            }
+            catch { result(Self.gpuError(error, reason: gpuGate?.blockedReason)) }
         case "gpuOp":
             guard let args = call.arguments as? [String: Any],
                   let bytes = args["bytes"] as? FlutterStandardTypedData,
@@ -108,9 +112,9 @@ import ImageIO
                         detail: args["detail"] as? Double ?? 0, check: { try gate.check(lease) })
                     DispatchQueue.main.async { result(["bytes": FlutterStandardTypedData(bytes: output), "timing": timing]) }
                 } catch {
-                    if case GpuOps.Failure.timedOut = error { try? gate.disable() }
-                    if case GpuOps.Failure.command = error { try? gate.disable() }
-                    DispatchQueue.main.async { result(Self.gpuError(error)) }
+                    if case GpuOps.Failure.timedOut = error { try? gate.disable(reason: "timeout") }
+                    if case GpuOps.Failure.command = error { try? gate.disable(reason: "command_error") }
+                    DispatchQueue.main.async { result(Self.gpuError(error, reason: gate.blockedReason)) }
                 }
             }
         case "generateLut":

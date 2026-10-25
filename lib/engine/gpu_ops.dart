@@ -46,6 +46,16 @@ class GpuOps {
     }
   }
 
+  void _event(String reason, {String? blockedReason}) {
+    // Structured, pixel/path-free events are collected by the same per-request
+    // timing sink used by device tests. No remote reporting is enabled here.
+    onTiming?.call({
+      'phase': 'gpu_recovery',
+      'reason': reason,
+      if (blockedReason != null) 'blocked_reason': blockedReason
+    });
+  }
+
   Future<img.Image?> _run(ImageOperation op) async {
     if (!enabled || kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) {
       return null;
@@ -84,7 +94,10 @@ class GpuOps {
         ...op.parameters,
       }).timeout(operationTimeout);
       final output = reply?['bytes'];
-      if (output is! Uint8List || output.length != bytes.length) return null;
+      if (output is! Uint8List || output.length != bytes.length) {
+        _event('invalid_reply');
+        return null;
+      }
       final unpack = Stopwatch()..start();
       var result = img.Image.fromBytes(
           width: image.width,
@@ -108,17 +121,32 @@ class GpuOps {
       return result;
     } on TimeoutException {
       timedOut = true;
-      await _disable();
+      _event('timeout');
+      await _disable('timeout');
       return null;
     } on PlatformException catch (error) {
+      final reason = switch (error.code) {
+        'GPU_BUSY' => 'busy',
+        'GPU_TIMEOUT' => 'timeout',
+        'GPU_INTERRUPTED' => 'interrupted',
+        'GPU_BLOCKED' => 'blocked',
+        _ => 'failed',
+      };
+      final details = error.details;
+      final blockedReason = details is Map ? details['blocked_reason'] : null;
+      _event(reason,
+          blockedReason: blockedReason is String ? blockedReason : null);
       if (error.code == 'GPU_INTERRUPTED') throw GpuWorkInterrupted();
       return null;
     } on MissingPluginException {
+      _event('failed');
       return null;
     } on TypeError {
+      _event('failed');
       // A broken native protocol must not bypass the CPU recovery path.
       return null;
     } on FormatException {
+      _event('failed');
       return null;
     } finally {
       if (lease != null && !timedOut) {
@@ -126,17 +154,17 @@ class GpuOps {
           await channel.invokeMethod<void>(
               'gpuEnd', {'lease': lease}).timeout(const Duration(seconds: 1));
         } on Object {
-          await _disable();
+          _event('cleanup_failed');
+          await _disable('cleanup_failed');
         }
       }
     }
   }
 
-  Future<void> _disable() async {
+  Future<void> _disable(String reason) async {
     try {
-      await channel
-          .invokeMethod<void>('gpuDisable')
-          .timeout(const Duration(seconds: 1));
+      await channel.invokeMethod<void>(
+          'gpuDisable', {'reason': reason}).timeout(const Duration(seconds: 1));
     } on Object {
       // The on-disk active marker remains if the native channel cannot respond.
     }

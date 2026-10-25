@@ -27,9 +27,14 @@ Map<String, Object> difference(img.Image a, img.Image b) {
   final aa = a.getBytes(order: img.ChannelOrder.rgba);
   final bb = b.getBytes(order: img.ChannelOrder.rgba);
   var max = 0, sum = 0, changed = 0, gt1 = 0;
+  var signedSum = 0, darker = 0, lighter = 0;
   final hist = List<int>.filled(256, 0);
   for (var i = 0; i < aa.length; i++) {
-    final d = (aa[i] - bb[i]).abs();
+    final signed = bb[i] - aa[i]; // GPU minus CPU, including alpha.
+    signedSum += signed;
+    if (signed < 0) darker++;
+    if (signed > 0) lighter++;
+    final d = signed.abs();
     hist[d]++;
     if (d > max) max = d;
     sum += d;
@@ -45,6 +50,9 @@ Map<String, Object> difference(img.Image a, img.Image b) {
     }
   }
   return {
+    'mean_signed_gpu_minus_cpu': signedSum / aa.length,
+    'frac_gpu_darker': darker / aa.length,
+    'frac_gpu_lighter': lighter / aa.length,
     'max_abs': max,
     'mean_abs': sum / aa.length,
     'p99': p99,

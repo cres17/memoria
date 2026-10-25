@@ -136,7 +136,10 @@ class EditorExportService {
     job.messageSubscription = job.messagePort.listen((message) {
       if (message == 'gpu_interrupted') {
         job.cancelled = true;
-        job.complete(EditorExportJobResult.cancelled);
+        job.completeFailure(const EditorExportFailure(
+          EditorExportFailureKind.systemInterrupted,
+          'GPU foreground permission was withdrawn',
+        ));
         return;
       }
       if (message is Map && message['type'] == 'render_timing') {
