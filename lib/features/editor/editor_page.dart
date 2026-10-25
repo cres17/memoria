@@ -1067,9 +1067,11 @@ class _EditorPageState extends State<EditorPage> {
         halationWarmth: _params.halationWarmth,
       );
 
+      final gpuContext = GpuIsolateContext.capture(
+          RemoteConfigService.instance.gpuOpsIosEnabled);
       final workerParams = _PreviewParams(
-        rootIsolateToken: RootIsolateToken.instance,
-        gpuOpsEnabled: RemoteConfigService.instance.gpuOpsIosEnabled,
+        rootIsolateToken: gpuContext.rootToken,
+        gpuOpsEnabled: gpuContext.enabled,
         width: preview.width,
         height: preview.height,
         imageBytes: preview.getBytes(order: img.ChannelOrder.rgba),
@@ -1739,9 +1741,11 @@ class _EditorPageState extends State<EditorPage> {
       );
 
       final previewRaw = preview.getBytes(order: img.ChannelOrder.rgba);
+      final gpuContext = GpuIsolateContext.capture(
+          RemoteConfigService.instance.gpuOpsIosEnabled);
       final params = _PreviewParams(
-        rootIsolateToken: RootIsolateToken.instance,
-        gpuOpsEnabled: RemoteConfigService.instance.gpuOpsIosEnabled,
+        rootIsolateToken: gpuContext.rootToken,
+        gpuOpsEnabled: gpuContext.enabled,
         width: preview.width,
         height: preview.height,
         imageBytes: previewRaw,

@@ -104,14 +104,12 @@ class EditorExportService {
         );
         job.kill();
       });
+      final gpuContext = GpuIsolateContext.capture(
+          RemoteConfigService.instance.gpuOpsIosEnabled);
       job.isolate = await Isolate.spawn(
         _worker,
-        EditorExportWorkerContext(
-            request,
-            job.messagePort.sendPort,
-            RootIsolateToken.instance,
-            RemoteConfigService.instance.gpuOpsIosEnabled,
-            onTiming != null),
+        EditorExportWorkerContext(request, job.messagePort.sendPort,
+            gpuContext.rootToken, gpuContext.enabled, onTiming != null),
         onExit: job.exitPort.sendPort,
         onError: job.errorPort.sendPort,
         errorsAreFatal: true,

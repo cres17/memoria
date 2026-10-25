@@ -4,6 +4,21 @@ import 'package:image/image.dart' as img;
 
 import 'image_operation.dart';
 
+/// Capture policy and token together on the root isolate. Web cannot access
+/// RootIsolateToken.instance at all, even when no platform channel is invoked.
+class GpuIsolateContext {
+  final bool enabled;
+  final RootIsolateToken? rootToken;
+  const GpuIsolateContext._(this.enabled, this.rootToken);
+
+  factory GpuIsolateContext.capture(bool requested) {
+    final enabled =
+        requested && !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+    return GpuIsolateContext._(
+        enabled, enabled ? RootIsolateToken.instance : null);
+  }
+}
+
 /// A request-scoped policy snapshot. Android and disabled recipes do not invoke
 /// the native channel, including capability queries.
 class GpuOps {

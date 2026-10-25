@@ -32,6 +32,8 @@ jobs:
           xcrun metal --version
       - name: Test actual native GPU and export worker
         run: python3 scripts/run_ios_gpu_ci.py
+      - name: Verify Web keeps CPU without accessing isolate tokens
+        run: flutter test --no-pub --platform chrome test/engine/gpu_isolate_context_test.dart
       - name: Upload GPU measurements and diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

@@ -12,6 +12,8 @@ and `~/workspace/memoria-gpu-bench/cpu/lib/*.dart` were not edited.
   `-fno-fast-math`. The kernels are built into `default.metallib`; no runtime
   source compilation is used.
 - D3: iOS only. Android/web execute CPU operations without native GPU calls.
+  Policy and root-isolate token are captured together only for enabled iOS
+  requests. Chrome tests verify that Web never accesses its unsupported token API.
 - D4: production preview and export share the same operation sequence. The
   existing synchronous CPU entry points remain available for numeric goldens.
   NR and convolutions inside HDR, glow, halation, details, artistic effects and
