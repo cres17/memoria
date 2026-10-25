@@ -1,4 +1,20 @@
-# Memoria
+<h1 align="center">Memoria</h1>
+
+<div align="center">
+
+[![iOS Build](https://github.com/cres17/memoria/actions/workflows/ios-build.yml/badge.svg?branch=main)](https://github.com/cres17/memoria/actions/workflows/ios-build.yml)
+[![MIT License](https://img.shields.io/badge/License-MIT-2EA44F)](LICENSE)
+
+![Flutter](https://img.shields.io/badge/Flutter-02569B?style=flat&logoColor=white&logo=flutter)
+![LiteRT / TFLite](https://img.shields.io/badge/LiteRT%20%2F%20TFLite-FF6F00?style=flat&logoColor=white&logo=tensorflow)
+![MediaPipe](https://img.shields.io/badge/MediaPipe-0097A7?style=flat&logoColor=white&logo=mediapipe)
+![Swift](https://img.shields.io/badge/Swift-F05138?style=flat&logoColor=white&logo=swift)
+![Core Image](https://img.shields.io/badge/Core%20Image-000000?style=flat&logoColor=white)
+![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=flat&logoColor=white&logo=pytorch)
+![ONNX](https://img.shields.io/badge/ONNX-005CED?style=flat&logoColor=white&logo=onnx)
+![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-2088FF?style=flat&logoColor=white&logo=githubactions)
+
+</div>
 
 사진을 편집하고, 마음에 드는 사진의 색감을 필터로 만들어 보관하는 앱입니다. 편집과 필터 생성은 기기 안에서 처리합니다. iOS를 기준으로 개발하고 있으며 Android 프로젝트도 포함되어 있습니다.
 
@@ -8,7 +24,7 @@
 
 Fuji 18종과 Leica 5종의 LUT 필터를 제공하며, 노출·커브·HSL을 조절할 수 있습니다. 크롭과 원근 보정, 부분 보정, 인물 보정, 텍스트와 프레임도 같은 편집기에 들어 있습니다.
 
-슬라이더를 움직일 때마다 원본 해상도로 계산하면 조작이 무거워집니다. 화면에는 긴 변 720px의 미리보기를 사용하고, 저장할 때 원본 해상도로 다시 렌더링합니다. 두 작업은 같은 보정값과 같은 엔진 코드를 사용합니다.
+슬라이더를 움직일 때마다 원본 해상도로 계산하면 조작이 무거워집니다. 화면에는 긴 변 720px의 미리보기를 사용하고, 저장할 때 원본 해상도로 다시 렌더링합니다. 미리보기와 저장에 같은 보정값과 엔진을 사용해 결과를 맞춥니다.
 
 적용한 작업은 최대 100개까지 되돌릴 수 있습니다. 편집 중인 상태는 500ms debounce 후 저장하므로 앱을 닫았다 열어도 이어서 편집할 수 있습니다.
 
