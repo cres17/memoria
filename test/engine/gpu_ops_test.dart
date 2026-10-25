@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -28,6 +30,14 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   final messenger =
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+  void mockGpu(Future<Object?> Function(MethodCall) operation) {
+    messenger.setMockMethodCallHandler(GpuOps.channel, (call) async {
+      if (call.method == 'gpuBegin') return 'test-lease';
+      if (call.method == 'gpuEnd' || call.method == 'gpuDisable') return null;
+      return operation(call);
+    });
+  }
+
   setUp(() => debugDefaultTargetPlatformOverride = TargetPlatform.iOS);
   tearDown(() {
     messenger.setMockMethodCallHandler(GpuOps.channel, null);
@@ -87,7 +97,7 @@ void main() {
   test('valid native blur preserves in-place semantics and alpha', () async {
     final input = pattern();
     final expected = fastGaussianBlur(img.Image.from(input), radius: 5);
-    messenger.setMockMethodCallHandler(GpuOps.channel, (call) async {
+    mockGpu((call) async {
       expect(call.method, 'gpuOp');
       expect((call.arguments as Map)['channels'], 4);
       return {'bytes': Uint8List.fromList(expected.toUint8List())};
@@ -100,7 +110,7 @@ void main() {
 
   test('malformed output and channel errors preserve CPU results', () async {
     for (final fail in [0, 1, 2]) {
-      messenger.setMockMethodCallHandler(GpuOps.channel, (_) async {
+      mockGpu((_) async {
         if (fail == 1) throw PlatformException(code: 'GPU_FAILED');
         if (fail == 2) return 'broken native reply';
         return {'bytes': Uint8List(1)};
@@ -115,7 +125,7 @@ void main() {
 
   test('late GPU failure reruns the complete recipe on CPU', () async {
     var calls = 0;
-    messenger.setMockMethodCallHandler(GpuOps.channel, (call) async {
+    mockGpu((call) async {
       calls++;
       if (calls > 1) throw PlatformException(code: 'GPU_FAILED');
       final bytes = (call.arguments as Map)['bytes'] as Uint8List;
@@ -132,8 +142,61 @@ void main() {
     final actual = await EditorRenderer.applyVisual(
         pattern(), recipe, const EditorRenderResources(),
         gpu: const GpuOps(enabled: true));
-    expect(calls, greaterThan(1));
+    expect(calls, 2, reason: 'No further GPU work after the first failure');
     expect(actual.getBytes(), expected.getBytes());
+  });
+
+  test('a stalled GPU reply times out, quarantines, and uses exact CPU output',
+      () async {
+    final methods = <String>[];
+    messenger.setMockMethodCallHandler(GpuOps.channel, (call) async {
+      methods.add(call.method);
+      if (call.method == 'gpuBegin') return 'lease';
+      if (call.method == 'gpuOp') return Completer<Object?>().future;
+      return null;
+    });
+    final input = pattern();
+    final expected = fastGaussianBlur(img.Image.from(input), radius: 5);
+    final op = ImageOperation.blur(input, 5);
+    await const GpuOps(
+            enabled: true, operationTimeout: Duration(milliseconds: 10))
+        .resolve(op);
+    expect(op.result!.getBytes(), expected.getBytes());
+    expect(methods, ['gpuBegin', 'gpuOp', 'gpuDisable']);
+  });
+
+  test('foreground interruption cancels instead of starting a CPU retry',
+      () async {
+    var ended = false;
+    messenger.setMockMethodCallHandler(GpuOps.channel, (call) async {
+      if (call.method == 'gpuBegin') return 'lease';
+      if (call.method == 'gpuEnd') {
+        ended = true;
+        return null;
+      }
+      throw PlatformException(code: 'GPU_INTERRUPTED');
+    });
+    final op = ImageOperation.blur(pattern(), 5);
+    await expectLater(const GpuOps(enabled: true).resolve(op),
+        throwsA(isA<GpuWorkInterrupted>()));
+    expect(op.result, isNull);
+    expect(ended, isTrue);
+  });
+
+  test('quarantined and busy admissions never send packed pixels', () async {
+    for (final code in ['GPU_BLOCKED', 'GPU_BUSY']) {
+      final methods = <String>[];
+      messenger.setMockMethodCallHandler(GpuOps.channel, (call) async {
+        methods.add(call.method);
+        throw PlatformException(code: code);
+      });
+      final input = pattern();
+      final expected = fastGaussianBlur(img.Image.from(input), radius: 5);
+      final op = ImageOperation.blur(input, 5);
+      await const GpuOps(enabled: true).resolve(op);
+      expect(op.result!.getBytes(), expected.getBytes());
+      expect(methods, ['gpuBegin']);
+    }
   });
 
   test('asynchronous CPU driver is byte identical for composed effects',

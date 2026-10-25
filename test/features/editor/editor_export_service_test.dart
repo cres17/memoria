@@ -13,6 +13,17 @@ import 'package:memoria/features/editor/editor_export_service.dart';
 import 'package:memoria/features/editor/editor_render_recipe.dart';
 
 void main() {
+  test('GPU foreground interruption is cancellation and removes partial output',
+      () async {
+    final directory =
+        await Directory.systemTemp.createTemp('memoria_gpu_interrupt_');
+    addTearDown(() => directory.delete(recursive: true));
+    final output = File('${directory.path}/partial.png');
+    final result = await EditorExportService(worker: _gpuInterrupted)
+        .render(_request(outputPath: output.path));
+    expect(result, EditorExportJobResult.cancelled);
+    expect(output.existsSync(), isFalse);
+  });
   test('renders a real fixture through the production export boundary',
       () async {
     final directory = await Directory.systemTemp.createTemp(
@@ -282,6 +293,11 @@ EditorExportRequest _request({
     );
 
 Future<void> _exitWithoutTerminal(EditorExportWorkerContext _) async {}
+
+Future<void> _gpuInterrupted(EditorExportWorkerContext context) async {
+  await File(context.request.outputPath).writeAsBytes(const [1, 2, 3]);
+  context.sendPort.send('gpu_interrupted');
+}
 
 Future<void> _neverFinishes(EditorExportWorkerContext context) async {
   if (context.request.quality == 2) {

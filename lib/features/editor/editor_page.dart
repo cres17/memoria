@@ -1109,6 +1109,8 @@ class _EditorPageState extends State<EditorPage> {
           _isSliding = true;
         });
       }
+    } on GpuWorkInterrupted {
+      // Keep the existing preview when foreground GPU permission is withdrawn.
     } catch (error, stackTrace) {
       // CPU preview updates continue while the live GPU path is unavailable.
       ErrorLogger.log(
@@ -1763,6 +1765,8 @@ class _EditorPageState extends State<EditorPage> {
       }
       _previewRenderCache[previewKey] = bytes;
       setState(() => _previewBytes = bytes);
+    } on GpuWorkInterrupted {
+      // A background transition cancels this render without a CPU retry.
     } catch (e, stackTrace) {
       ErrorLogger.log('Preview rendering failed', e, stackTrace);
       if (mounted) {

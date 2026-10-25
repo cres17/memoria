@@ -134,6 +134,11 @@ class EditorExportService {
 
   void _listen(_EditorExportJob job) {
     job.messageSubscription = job.messagePort.listen((message) {
+      if (message == 'gpu_interrupted') {
+        job.cancelled = true;
+        job.complete(EditorExportJobResult.cancelled);
+        return;
+      }
       if (message is Map && message['type'] == 'render_timing') {
         job.onTiming?.call(Map<String, dynamic>.from(message['data'] as Map));
         return;
@@ -353,6 +358,8 @@ Future<void> _editorExportWorker(EditorExportWorkerContext context) async {
     context.sendPort.send(0.95);
     timing({'phase': 'encode_write', 'ms': phase.elapsedMicroseconds / 1000});
     context.sendPort.send('done');
+  } on GpuWorkInterrupted {
+    context.sendPort.send('gpu_interrupted');
   } catch (error) {
     context.sendPort.send(
       EditorExportFailure.fromError(error).toWorkerMessage(),

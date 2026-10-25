@@ -1,6 +1,6 @@
 import Foundation
 
-/// Compile with ios/Runner/GpuOps.swift. Takes a precompiled macOS metallib
+/// Compile with GpuRequestGate.swift and GpuOps.swift. Takes a macOS metallib
 /// and memoria-gpu-bench/out. This is native Mac evidence, not an iOS test.
 @main enum NativeCheck {
     static func main() throws {

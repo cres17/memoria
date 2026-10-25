@@ -4,7 +4,8 @@ using namespace metal;
 
 struct BlurParams { int lines; int length; int lineStride; int step; int radius; int channels; };
 
-// fast_blur.dart 의 _pass. 반사 규칙, 탭 순서 합산, toInt()(버림)까지 같다.
+// fast_blur.dart의 반사 규칙과 탭 순서, 정수 버림을 유지한다.
+// CPU는 double, 이 커널은 float로 합산하므로 바이트 동일성은 보장하지 않는다.
 kernel void blur_pass(device const uchar *from [[buffer(0)]],
                       device uchar *to [[buffer(1)]],
                       constant BlurParams &p [[buffer(2)]],

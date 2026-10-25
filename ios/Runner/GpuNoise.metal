@@ -118,4 +118,3 @@ kernel void lab_to_rgb(device const float4 *lab [[buffer(0)]],
   dst[gid * channels] = to8(r); dst[gid * channels + 1] = to8(g); dst[gid * channels + 2] = to8(b);
   if (channels == 4) dst[gid * channels + 3] = src[gid * channels + 3];
 }
-

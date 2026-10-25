@@ -88,12 +88,15 @@ class EditorPreviewRenderRequest {
   });
 }
 
+class _GpuRecipeFallback implements Exception {}
+
 /// Canonical production renderer shared by preview and export.
 class EditorRenderer {
   /// Preview isolate entrypoint used by the production editor page.
   static Future<Uint8List> renderPreviewBytes(
-    EditorPreviewRenderRequest request,
-  ) async {
+    EditorPreviewRenderRequest request, {
+    GpuOps? gpu,
+  }) async {
     var image = img.Image.fromBytes(
       width: request.width,
       height: request.height,
@@ -103,7 +106,7 @@ class EditorRenderer {
       order: img.ChannelOrder.rgba,
     );
     image = await applyVisual(image, request.recipe, request.resources,
-        gpu: GpuOps(enabled: request.gpuOpsEnabled));
+        gpu: gpu ?? GpuOps(enabled: request.gpuOpsEnabled));
     return Uint8List.fromList(img.encodePng(image));
   }
 
@@ -280,20 +283,22 @@ class EditorRenderer {
     void Function(double progress)? onProgress,
     GpuOps gpu = const GpuOps(),
   }) async {
-    var failed = false;
     final scoped = GpuOps(
         enabled: gpu.enabled,
+        operationTimeout: gpu.operationTimeout,
         onTiming: gpu.onTiming,
         onFallback: () {
-          failed = true;
           gpu.onFallback?.call();
+          throw _GpuRecipeFallback();
         });
-    final output = await _applyVisual(image, recipe, resources,
-        onProgress: onProgress, gpu: scoped);
-    if (failed) {
+    try {
+      return await _applyVisual(image, recipe, resources,
+          onProgress: onProgress, gpu: scoped);
+    } on _GpuRecipeFallback {
+      // Stop the partial attempt immediately; do not calculate its remaining
+      // CPU stages and then calculate the complete CPU recipe a second time.
       return _applyVisual(image, recipe, resources, onProgress: onProgress);
     }
-    return output;
   }
 
   static Future<img.Image> _applyVisual(

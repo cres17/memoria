@@ -1,0 +1,169 @@
+{
+  "environment": "Native macOS Metal module, not iOS MethodChannel or physical iPhone",
+  "os": "ProductName:\t\tmacOS\nProductVersion:\t\t26.6.2\nBuildVersion:\t\t25G83",
+  "chip": "Apple M5",
+  "samples_each": 1,
+  "purpose": "PR14 review: dynamic threadgroups and unchanged primitive parity",
+  "results": [
+    {
+      "frac_nonzero": 3.0477911285358785e-05,
+      "max_abs": 1,
+      "mean_abs": 3.0477911285358785e-05,
+      "test": "nr_A",
+      "timing": {
+        "allocation_copy_submit_ms": 39.91217818111181,
+        "gpu": "Apple M5",
+        "kernel_ms": 26.475832797586918,
+        "math": "fast",
+        "native_wall_ms": 66.38801097869873,
+        "pipeline_limits": {
+          "bilateral_lab": {
+            "execution_width": 32,
+            "group_height": 8,
+            "group_width": 32,
+            "max_threads": 1024
+          },
+          "blur_pass": {
+            "execution_width": 32,
+            "group_height": 8,
+            "group_width": 32,
+            "max_threads": 1024
+          },
+          "lab_to_rgb": {
+            "execution_width": 32,
+            "group_height": 1,
+            "group_width": 256,
+            "max_threads": 1024
+          },
+          "rgb_to_lab": {
+            "execution_width": 32,
+            "group_height": 1,
+            "group_width": 256,
+            "max_threads": 1024
+          }
+        },
+        "tiles": 16
+      }
+    },
+    {
+      "frac_nonzero": 3.990236486546069e-05,
+      "max_abs": 1,
+      "mean_abs": 3.990236486546069e-05,
+      "test": "nr_B",
+      "timing": {
+        "allocation_copy_submit_ms": 26.35406842455268,
+        "gpu": "Apple M5",
+        "kernel_ms": 42.7578748203814,
+        "math": "fast",
+        "native_wall_ms": 69.11194324493408,
+        "pipeline_limits": {
+          "bilateral_lab": {
+            "execution_width": 32,
+            "group_height": 8,
+            "group_width": 32,
+            "max_threads": 1024
+          },
+          "blur_pass": {
+            "execution_width": 32,
+            "group_height": 8,
+            "group_width": 32,
+            "max_threads": 1024
+          },
+          "lab_to_rgb": {
+            "execution_width": 32,
+            "group_height": 1,
+            "group_width": 256,
+            "max_threads": 1024
+          },
+          "rgb_to_lab": {
+            "execution_width": 32,
+            "group_height": 1,
+            "group_width": 256,
+            "max_threads": 1024
+          }
+        },
+        "tiles": 16
+      }
+    },
+    {
+      "frac_nonzero": 0.026368243273034466,
+      "max_abs": 2,
+      "mean_abs": 0.027143941939193204,
+      "test": "blur_r5",
+      "timing": {
+        "allocation_copy_submit_ms": 18.569803331047297,
+        "gpu": "Apple M5",
+        "kernel_ms": 12.636208441108465,
+        "math": "precise",
+        "native_wall_ms": 31.20601177215576,
+        "pipeline_limits": {
+          "bilateral_lab": {
+            "execution_width": 32,
+            "group_height": 8,
+            "group_width": 32,
+            "max_threads": 1024
+          },
+          "blur_pass": {
+            "execution_width": 32,
+            "group_height": 8,
+            "group_width": 32,
+            "max_threads": 1024
+          },
+          "lab_to_rgb": {
+            "execution_width": 32,
+            "group_height": 1,
+            "group_width": 256,
+            "max_threads": 1024
+          },
+          "rgb_to_lab": {
+            "execution_width": 32,
+            "group_height": 1,
+            "group_width": 256,
+            "max_threads": 1024
+          }
+        },
+        "tiles": 1
+      }
+    },
+    {
+      "frac_nonzero": 0.001738811685528801,
+      "max_abs": 1,
+      "mean_abs": 0.001738811685528801,
+      "test": "blur_r20",
+      "timing": {
+        "allocation_copy_submit_ms": 10.656919097527862,
+        "gpu": "Apple M5",
+        "kernel_ms": 18.373999977484345,
+        "math": "precise",
+        "native_wall_ms": 29.030919075012207,
+        "pipeline_limits": {
+          "bilateral_lab": {
+            "execution_width": 32,
+            "group_height": 8,
+            "group_width": 32,
+            "max_threads": 1024
+          },
+          "blur_pass": {
+            "execution_width": 32,
+            "group_height": 8,
+            "group_width": 32,
+            "max_threads": 1024
+          },
+          "lab_to_rgb": {
+            "execution_width": 32,
+            "group_height": 1,
+            "group_width": 256,
+            "max_threads": 1024
+          },
+          "rgb_to_lab": {
+            "execution_width": 32,
+            "group_height": 1,
+            "group_width": 256,
+            "max_threads": 1024
+          }
+        },
+        "tiles": 1
+      }
+    }
+  ]
+}

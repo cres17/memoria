@@ -1,8 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
 
 import 'image_operation.dart';
+
+/// Foreground permission was withdrawn. Do not start a long CPU retry while the
+/// app is resigning active; the export boundary treats this as cancellation.
+class GpuWorkInterrupted implements Exception {}
 
 /// Capture policy and token together on the root isolate. Web cannot access
 /// RootIsolateToken.instance at all, even when no platform channel is invoked.
@@ -26,8 +32,13 @@ class GpuOps {
   final bool enabled;
   final void Function(Map<String, Object?> timing)? onTiming;
   final VoidCallback? onFallback;
+  final Duration operationTimeout;
 
-  const GpuOps({this.enabled = false, this.onTiming, this.onFallback});
+  const GpuOps(
+      {this.enabled = false,
+      this.onTiming,
+      this.onFallback,
+      this.operationTimeout = const Duration(seconds: 30)});
 
   static void initializeBackground(RootIsolateToken? token) {
     if (token != null) {
@@ -52,18 +63,26 @@ class GpuOps {
       return null;
     }
     final watch = Stopwatch()..start();
+    String? lease;
+    var timedOut = false;
     try {
+      // Persist before allocating a packed request, including possible OOM here.
+      lease = await channel
+          .invokeMethod<String>('gpuBegin')
+          .timeout(operationTimeout);
+      if (lease == null) return null;
       final packing = Stopwatch()..start();
-      final bytes = Uint8List.fromList(image.toUint8List());
+      final bytes = image.toUint8List();
       final packUs = packing.elapsedMicroseconds;
       final reply = await channel.invokeMapMethod<String, dynamic>('gpuOp', {
         'op': op.kind,
+        'lease': lease,
         'width': image.width,
         'height': image.height,
         'channels': image.numChannels,
         'bytes': bytes,
         ...op.parameters,
-      });
+      }).timeout(operationTimeout);
       final output = reply?['bytes'];
       if (output is! Uint8List || output.length != bytes.length) return null;
       final unpack = Stopwatch()..start();
@@ -87,7 +106,12 @@ class GpuOps {
         'native': reply?['timing'],
       });
       return result;
-    } on PlatformException {
+    } on TimeoutException {
+      timedOut = true;
+      await _disable();
+      return null;
+    } on PlatformException catch (error) {
+      if (error.code == 'GPU_INTERRUPTED') throw GpuWorkInterrupted();
       return null;
     } on MissingPluginException {
       return null;
@@ -96,6 +120,25 @@ class GpuOps {
       return null;
     } on FormatException {
       return null;
+    } finally {
+      if (lease != null && !timedOut) {
+        try {
+          await channel.invokeMethod<void>(
+              'gpuEnd', {'lease': lease}).timeout(const Duration(seconds: 1));
+        } on Object {
+          await _disable();
+        }
+      }
+    }
+  }
+
+  Future<void> _disable() async {
+    try {
+      await channel
+          .invokeMethod<void>('gpuDisable')
+          .timeout(const Duration(seconds: 1));
+    } on Object {
+      // The on-disk active marker remains if the native channel cannot respond.
     }
   }
 

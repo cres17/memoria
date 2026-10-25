@@ -1,8 +1,8 @@
 # iOS GPU operations
 
 Base: `f566062807ee7458966dd1ac5be2b635de7e63e0` (`feat/platform-hardening-2`).
-Implementation lives in a separate checkout; the existing dirty app checkout
-and `~/workspace/memoria-gpu-bench/cpu/lib/*.dart` were not edited.
+The benchmark CPU implementation is an immutable reference. CPU goldens and
+committed reference PNGs remain unchanged.
 
 ## Decisions and behavior
 
@@ -25,11 +25,49 @@ and `~/workspace/memoria-gpu-bench/cpu/lib/*.dart` were not edited.
   The effective expiry is checked at every render boundary. Existing refresh
   throttling is six hours, so a remote disable is **not an immediate guarantee**.
   A request freezes its flag at entry; a new setting applies to later requests.
+  A persistent local operation guard can veto an opt-in even while offline.
 
 CPU goldens and reference PNGs are retained. A failed or malformed native reply
 uses the CPU implementation. If any GPU operation fails during visual rendering,
-the entire visual recipe is rerun from its original input on CPU, avoiding a
-mixture of earlier approximate GPU results and later CPU results.
+the partial attempt stops immediately and the entire visual recipe is rerun
+from its original input on CPU. Foreground interruption instead cancels the
+render, avoiding a long new CPU retry while the app is being deactivated.
+
+## Operation admission, interruption and crash recovery
+
+`gpuBegin` persists and synchronizes an active lease **before** Dart packs pixels.
+`gpuEnd` clears it after output validation/unpacking. Only one lease is admitted;
+another preview/export request uses CPU rather than waiting behind a serial GPU
+queue. A stale end cannot release a newer lease.
+
+On a subsequent process launch, an unfinished lease disables GPU operations for
+the same app version/build. Timeouts and command failures also persist that
+quarantine. It survives offline launches and remote opt-in; a different app
+version/build resets it. Unreadable guard state fails closed. This is a
+conservative interruption detector, not proof of a GPU-caused crash: force-quit,
+OS termination or an isolate killed before cleanup can also leave a lease.
+That false positive keeps the same build on CPU until an update.
+
+`willResignActive` stops admission and invalidates an active lease. Every tile
+and command submission checks it; returning to foreground cannot revive that
+interrupted operation. `notPermitted` is treated as interruption even if the
+notification raced. The export service returns cancellation and removes partial
+output; previews keep their existing image. No background-task time extension or
+completion guarantee is claimed. Background **isolate** tests do not test app
+background suspension; home/phone-call scenarios still require physical devices.
+
+Native command completion has a 20-second deadline for the operation. Dart
+channel admission/operation calls each have a 30-second timeout, with bounded
+cleanup. These are recovery policy values, not measured latencies. A committed
+Metal command cannot be cancelled by this code: a timed-out command may still
+hold its retained buffers until the driver completes it. The build is quarantined
+before a CPU retry; the implementation does not enqueue further GPU work.
+
+2D groups use the pipeline execution width and a total-thread budget capped at
+`min(256, maxTotalThreadsPerThreadgroup)`. Timing replies log each pipeline's
+limit and chosen dimensions. Tests exercise limits below 256; the iPhone limits
+remain to be measured. This follows Apple's [threadgroup guidance](https://developer.apple.com/documentation/metal/calculating-threadgroup-and-grid-sizes?changes=_5_6)
+and [background guidance](https://developer.apple.com/documentation/metal/preparing-your-metal-app-to-run-in-the-background?changes=_1_5).
 
 ## Memory and pixel contracts
 
@@ -40,6 +78,10 @@ boundaries retain the original neighborhood samples; only interior rows are
 copied to output. Native requests are serialized and checked against buffer
 limits and one quarter of physical memory before scratch allocation. This is a
 conservative guard, not a measured iPhone peak-memory guarantee.
+Dart sends the existing uint8 view instead of an extra full-image packing copy;
+blur no longer allocates an unused full-image output before its final copy.
+Codec copies, returned bytes, NR's RGB conversion and other Dart images remain.
+An Instruments peak-memory/jetsam check is still required.
 
 RGB and RGBA are supported. A 12MP RGBA transfer is 48,384,768 bytes each way.
 Blur processes alpha as the CPU primitive does. NR keeps the existing RGB
@@ -76,6 +118,12 @@ ignored Dart file imported only by the integration target; production Runner
 does not bundle these additional test fixtures. Tests cover NR settings/detail,
 RGBA, row-tile boundaries, blur radii, a real background-isolate native call,
 existing reference tolerances, and the actual `EditorExportService`.
+The review follow-up adds black, white, saturated primaries, a one-pixel
+checkerboard and seeded noise (64×270 RGBA, crossing a tile boundary): 30 more
+primitive comparisons. `GPU_PIPELINES` logs actual native limits. The Swift
+guard check simulates process relaunch with an unfinished lease, corrupt state,
+foreground interruption, timeout quarantine and a stale reply. These are
+automated state/protocol checks, not physical lifecycle or driver-hang tests.
 
 The first simulator run exposed an existing reference limitation: `film_look`
 was generated in a plain unit-test environment where optional vintage textures
@@ -111,6 +159,18 @@ service call includes worker startup and other overhead outside the phase timers
 Do not enable production before physical iPhone correctness, memory and
 end-to-end latency checks.
 
+At `8f47099`, another single debug CI sample measured CPU 39749.172ms and GPU
+9676.236ms on Apple M1 (Virtual), macOS 26.6.2, iOS 26.5 simulator. These samples
+show substantial host variation; neither the ratio nor the ceiling establishes
+release/profile speed on an iPhone. Native pipelines were warmed by preceding
+parity checks. No speedup for the remaining Dart stages is inferred by subtraction.
+
+`GPU_PREVIEW` separately records three preview-worker samples and their median
+after an explicit warm-up at long edges 320 and 720, for basic and compound
+recipes. It includes isolate transfer and PNG encoding. A pixel-count cutoff is
+not selected from debug host timings: profile-mode preview latency on physical
+iPhones is still required before rollout.
+
 Primitive parity uses the two photos resized to width 320. Its RGBA channel
 metrics include alpha; full-resolution 12MP native Mac evidence is separate.
 
@@ -120,6 +180,9 @@ metrics include alpha; full-resolution 12MP native Mac evidence is separate.
   operation refactor. The full suite passed 636 tests at that revision (one
   existing external-model case prints a skip message).
 - Swift module compiled for macOS and typechecked against the iOS Simulator SDK.
+- Review follow-up: full local suite passed 643 tests (one VM skip), plus native
+  guard persistence/dispatch-limit checks. M5 12MP comparison after dynamic
+  groups retained NR A/B max=1, blur r5 max=2, r20 max=1.
 - Precompiled native Mac module checked against the original 12MP CPU outputs:
   NR A/B max=1; blur r5 max=2; blur r20 max=1. This was a single native invocation
   per case including tiled allocation/copy work, not the original benchmark's
@@ -127,12 +190,14 @@ metrics include alpha; full-resolution 12MP native Mac evidence is separate.
 - iOS GPU integration CI passed at `88e219c`: 16 primitive comparisons, real
   background channels, five app-asset CPU/GPU comparisons, five legacy reference
   comparisons and complete export service timing. [Run](https://github.com/cres17/memoria/actions/runs/40166810087).
-- Local Xcode Metal asset discovery failed despite downloading the component.
-  The Apple toolchain image was mounted read-only to compile and validate the
-  native Mac module. Local Runner simulator build failed before app compilation: CoreSimulator
-  1171.7.0 is older than Xcode build 1174.9.2; Flutter framework preparation
-  also rejected the combined architecture string. Remote CI is checked
-  separately; no iPhone result is claimed here.
+- Physical validation remains HOLD: correctness, repeated profile/release
+  exports, Instruments peak memory, background/interruption, thermal/low-power
+  behavior and preview latency. The current opt-in defaults to off. Before any
+  rollout, define a small explicit cohort/percentage with a stable installation
+  assignment; no percentage policy is implemented by the current boolean flag.
+- Repository administration remains separate: add the GPU job to required checks
+  when applying branch protection and follow the dependency merge order. Commit
+  identity/history and protection rules are not rewritten by this implementation.
 
 Native Mac check (with an available Metal compiler):
 
@@ -141,6 +206,7 @@ mkdir -p build/gpu-native
 xcrun -sdk macosx metal -ffast-math -c ios/Runner/GpuNoise.metal -o build/gpu-native/noise.air
 xcrun -sdk macosx metal -fno-fast-math -c ios/Runner/GpuBlur.metal -o build/gpu-native/blur.air
 xcrun metallib build/gpu-native/noise.air build/gpu-native/blur.air -o build/gpu-native/default.metallib
-xcrun swiftc -O ios/Runner/GpuOps.swift tool/check_gpu_native.swift -o build/gpu-native/check
-build/gpu-native/check build/gpu-native/default.metallib ~/workspace/memoria-gpu-bench/out
+xcrun swiftc -O ios/Runner/GpuRequestGate.swift ios/Runner/GpuOps.swift tool/check_gpu_native.swift -o build/gpu-native/check
+# Set BENCH_OUTPUT to the directory containing cpu.json and the reference RGBs.
+build/gpu-native/check build/gpu-native/default.metallib "$BENCH_OUTPUT"
 ```

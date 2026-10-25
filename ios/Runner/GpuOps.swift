@@ -5,7 +5,7 @@ import Metal
 /// NR processes row tiles with a full-radius halo, preserving neighborhood math
 /// while avoiding two full-resolution float4 Lab buffers on iPhone.
 final class GpuOps {
-    enum Failure: Error { case unavailable, invalidInput, allocation, command(String) }
+    enum Failure: Error { case unavailable, invalidInput, allocation, timedOut, command(String) }
     struct NrParams {
         var width: Int32; var height: Int32; var lumRadius: Int32; var colRadius: Int32
         var sigRangeL2: Float; var sigRangeC2: Float; var detailBlend: Float
@@ -63,24 +63,42 @@ final class GpuOps {
     private func dispatch(_ e: MTLComputeCommandEncoder, _ p: MTLComputePipelineState,
                           width: Int, height: Int = 1) {
         e.setComputePipelineState(p)
+        let (w, h) = GpuDispatchShape.make(executionWidth: p.threadExecutionWidth,
+            maxThreads: p.maxTotalThreadsPerThreadgroup, twoDimensional: height > 1)
         e.dispatchThreads(MTLSize(width: width, height: height, depth: 1),
-            threadsPerThreadgroup: height == 1
-                ? MTLSize(width: min(p.maxTotalThreadsPerThreadgroup, 256), height: 1, depth: 1)
-                : MTLSize(width: 16, height: 16, depth: 1))
+            threadsPerThreadgroup: MTLSize(width: w, height: h, depth: 1))
     }
 
-    private func submit(_ encode: (MTLComputeCommandEncoder) -> Void) throws -> Double {
+    private func submit(deadline: DispatchTime, check: () throws -> Void,
+                        _ encode: (MTLComputeCommandEncoder) -> Void) throws -> Double {
+        try check()
         guard let cb = queue.makeCommandBuffer(), let e = cb.makeComputeCommandEncoder() else {
             throw Failure.allocation
         }
-        encode(e); e.endEncoding(); cb.commit(); cb.waitUntilCompleted()
+        let completed = DispatchSemaphore(value: 0)
+        cb.addCompletedHandler { _ in completed.signal() }
+        encode(e); e.endEncoding()
+        try check()
+        guard DispatchTime.now().uptimeNanoseconds < deadline.uptimeNanoseconds else { throw Failure.timedOut }
+        cb.commit()
+        // Metal cannot cancel a committed command. On timeout the plugin
+        // quarantines this build; retainedReferences keeps its buffers alive.
+        guard completed.wait(timeout: deadline) == .success else { throw Failure.timedOut }
+        try check()
+        if let error = cb.error as NSError?, error.domain == MTLCommandBufferErrorDomain,
+           error.code == MTLCommandBufferError.notPermitted.rawValue {
+            throw GpuRequestGate.Failure.interrupted
+        }
         guard cb.status == .completed else { throw Failure.command(String(describing: cb.error)) }
         return (cb.gpuEndTime - cb.gpuStartTime) * 1000
     }
 
     func run(input: Data, width: Int, height: Int, channels: Int,
              operation: String, radius: Int = 0,
-             luma: Double = 0, chroma: Double = 0, detail: Double = 0) throws -> (Data, [String: Any]) {
+             luma: Double = 0, chroma: Double = 0, detail: Double = 0,
+             check: () throws -> Void = {}) throws -> (Data, [String: Any]) {
+        let deadline = DispatchTime.now() + .seconds(20)
+        try check()
         guard width > 0, height > 0, width <= 32768, height <= 32768,
               channels == 3 || channels == 4, input.count == width * height * channels,
               luma.isFinite, chroma.isFinite, detail.isFinite,
@@ -95,8 +113,10 @@ final class GpuOps {
         guard UInt64(scratch + input.count * 2) <= ProcessInfo.processInfo.physicalMemory / 4 else {
             throw Failure.allocation
         }
-        var output = Data(count: input.count), kernelMs = 0.0, tiles = 0
+        let output: Data
+        var kernelMs = 0.0, tiles = 0
         if operation == "noise" {
+            var nrOutput = Data(count: input.count)
             let lr = luma > 0 ? min(max(Int((luma / 50 * 2 + 1).rounded()), 1), 3) : 0
             let cr = chroma > 0 ? min(max(Int((chroma / 50 * 2 + 1).rounded()), 1), 3) : 0
             let halo = max(lr, cr), stride = width * channels
@@ -105,6 +125,7 @@ final class GpuOps {
             let cb = try ct.withUnsafeBytes { try buffer($0.count, bytes: $0.baseAddress) }
             for top in Swift.stride(from: 0, to: height, by: 256) {
                 try autoreleasepool {
+                    try check()
                     let start = max(0, top - halo), end = min(height, top + 256 + halo)
                     let rows = end - start, count = width * rows, byteCount = count * channels
                     let src = try input.withUnsafeBytes { try buffer(byteCount, bytes: $0.baseAddress!.advanced(by: start * stride)) }
@@ -115,7 +136,7 @@ final class GpuOps {
                     var p = NrParams(width: Int32(width), height: Int32(rows), lumRadius: Int32(lr), colRadius: Int32(cr),
                         sigRangeL2: Float(2 * sl * sl), sigRangeC2: Float(2 * sc * sc), detailBlend: Float(detail / 100))
                     var nc = Int32(channels)
-                    kernelMs += try submit { e in
+                    kernelMs += try submit(deadline: deadline, check: check) { e in
                         e.setBuffer(src, offset: 0, index: 0); e.setBuffer(lab, offset: 0, index: 1)
                         e.setBytes(&nc, length: 4, index: 2); dispatch(e, toLab, width: count)
                         e.memoryBarrier(scope: .buffers)
@@ -129,13 +150,14 @@ final class GpuOps {
                         dispatch(e, toRgb, width: count)
                     }
                     let keep = min(256, height - top) * stride
-                    output.withUnsafeMutableBytes { raw in
+                    nrOutput.withUnsafeMutableBytes { raw in
                         raw.baseAddress!.advanced(by: top * stride).copyMemory(
                             from: dst.contents().advanced(by: (top - start) * stride), byteCount: keep)
                     }
                     tiles += 1
                 }
             }
+            output = nrOutput
         } else {
             let src = try input.withUnsafeBytes { try buffer($0.count, bytes: $0.baseAddress) }
             let tmp = try buffer(input.count, privateStorage: true), dst = try buffer(input.count)
@@ -147,7 +169,7 @@ final class GpuOps {
                                step: Int32(channels), radius: Int32(radius), channels: Int32(channels))
             var v = BlurParams(lines: Int32(width), length: Int32(height), lineStride: Int32(channels),
                                step: Int32(width * channels), radius: Int32(radius), channels: Int32(channels))
-            kernelMs = try submit { e in
+            kernelMs = try submit(deadline: deadline, check: check) { e in
                 e.setBuffer(src, offset: 0, index: 0); e.setBuffer(tmp, offset: 0, index: 1)
                 e.setBytes(&h, length: MemoryLayout<BlurParams>.stride, index: 2); e.setBuffer(kb, offset: 0, index: 3)
                 dispatch(e, blur, width: width, height: height)
@@ -158,9 +180,18 @@ final class GpuOps {
             }
             output = Data(bytes: dst.contents(), count: input.count); tiles = 1
         }
+        var pipelineLimits: [String: Any] = [:]
+        for (name, pipeline, twoD) in [("rgb_to_lab", toLab, false), ("bilateral_lab", bilateral, true),
+                                       ("lab_to_rgb", toRgb, false), ("blur_pass", blur, true)] {
+            let (w, h) = GpuDispatchShape.make(executionWidth: pipeline.threadExecutionWidth,
+                maxThreads: pipeline.maxTotalThreadsPerThreadgroup, twoDimensional: twoD)
+            pipelineLimits[name] = ["execution_width": pipeline.threadExecutionWidth,
+                "max_threads": pipeline.maxTotalThreadsPerThreadgroup, "group_width": w, "group_height": h]
+        }
         let wall = (CFAbsoluteTimeGetCurrent() - t0) * 1000
         return (output, ["kernel_ms": kernelMs, "native_wall_ms": wall,
                          "allocation_copy_submit_ms": max(0, wall - kernelMs), "tiles": tiles,
-                         "gpu": device.name, "math": operation == "noise" ? "fast" : "precise"])
+                         "gpu": device.name, "math": operation == "noise" ? "fast" : "precise",
+                         "pipeline_limits": pipelineLimits])
     }
 }

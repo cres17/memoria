@@ -21,6 +21,7 @@
 		D05000000000000000000001 /* GpuOps.swift in Sources */ = {isa = PBXBuildFile; fileRef = D05000000000000000000011 /* GpuOps.swift */; };
 		D05000000000000000000002 /* GpuNoise.metal in Sources */ = {isa = PBXBuildFile; fileRef = D05000000000000000000012 /* GpuNoise.metal */; settings = {COMPILER_FLAGS = "-ffast-math"; }; };
 		D05000000000000000000003 /* GpuBlur.metal in Sources */ = {isa = PBXBuildFile; fileRef = D05000000000000000000013 /* GpuBlur.metal */; settings = {COMPILER_FLAGS = "-fno-fast-math"; }; };
+		D05000000000000000000004 /* GpuRequestGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = D05000000000000000000014 /* GpuRequestGate.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -70,6 +71,7 @@
 		D05000000000000000000011 /* GpuOps.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GpuOps.swift; sourceTree = "<group>"; };
 		D05000000000000000000012 /* GpuNoise.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = GpuNoise.metal; sourceTree = "<group>"; };
 		D05000000000000000000013 /* GpuBlur.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = GpuBlur.metal; sourceTree = "<group>"; };
+		D05000000000000000000014 /* GpuRequestGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GpuRequestGate.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -147,6 +149,7 @@
 				D05000000000000000000013 /* GpuBlur.metal */,
 				D05000000000000000000012 /* GpuNoise.metal */,
 				D05000000000000000000011 /* GpuOps.swift */,
+				D05000000000000000000014 /* GpuRequestGate.swift */,
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
 			);
 			path = Runner;
@@ -314,6 +317,7 @@
 				D05000000000000000000003 /* GpuBlur.metal in Sources */,
 				D05000000000000000000002 /* GpuNoise.metal in Sources */,
 				D05000000000000000000001 /* GpuOps.swift in Sources */,
+				D05000000000000000000004 /* GpuRequestGate.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
