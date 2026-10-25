@@ -44,6 +44,7 @@ Blur processes alpha as the CPU primitive does. NR keeps the existing RGB
 intermediate contract; the pipeline restores exact source alpha at its boundary.
 Small images with unsupported blur radii and non-uint8/palette/multiframe inputs
 use CPU. Half precision is not used.
+Physical iOS GPUs below Apple family 4 also use CPU before command encoding.
 
 ## Reproducible checks
 
@@ -61,6 +62,13 @@ ignored Dart file imported only by the integration target; production Runner
 does not bundle these additional test fixtures. Tests cover NR settings/detail,
 RGBA, row-tile boundaries, blur radii, a real background-isolate native call,
 existing reference tolerances, and the actual `EditorExportService`.
+
+The first simulator run exposed an existing reference limitation: `film_look`
+was generated in a plain unit-test environment where optional vintage textures
+were not loaded. The integration test checks real bundled-asset CPU/GPU parity,
+then separately reproduces that legacy asset-unavailable contract to compare the
+unchanged PNG. It does not regenerate a golden or widen a tolerance to hide the
+asset difference. The other reference cases use the normal app asset path.
 
 `GPU_EXPORT` records one complete CPU and GPU export: isolate spawn, input file
 read/decode/orientation, spatial/visual processing, encoding and file write.

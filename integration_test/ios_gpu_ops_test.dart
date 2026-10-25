@@ -144,15 +144,39 @@ void main() {
     }
     expect(measurements.length, greaterThanOrEqualTo(16));
 
+    // Production has bundled textures. Legacy PNGs were produced by a plain
+    // `test` binding where optional rootBundle texture loads were unavailable.
+    // Validate real app CPU/GPU parity first, then the unchanged legacy contract.
+    expect(
+        (await rootBundle.load('assets/overlays/curves/film_curves_def.png'))
+            .lengthInBytes,
+        greaterThan(0));
     for (final entry in visual.gpuVisualReferenceCases.entries) {
       final photo = entry.value.photo == 'p1' ? 0 : 1;
       final source = visual.prepareVisualReferenceImage(
           img.decodeJpg(base64Decode(gpuTestPhotos[photo]))!);
       final actual = await EditorRenderer.renderExport(
-          source: source, recipe: entry.value.recipe, gpu: gpu);
+          source: source.clone(), recipe: entry.value.recipe, gpu: gpu);
+      final appCpu = await EditorRenderer.renderExport(
+          source: source.clone(), recipe: entry.value.recipe);
+      final appDiff = visual.compareVisualReference(actual, appCpu);
+      debugPrint('GPU_REFERENCE_APP ${entry.key} $appDiff');
+      expect(appDiff.ok, isTrue, reason: 'App CPU/GPU ${entry.key}: $appDiff');
+      var legacyOutput = actual;
+      if (entry.key == 'film_look') {
+        final messenger =
+            TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+        messenger.setMockMessageHandler('flutter/assets', (_) async => null);
+        try {
+          legacyOutput = await EditorRenderer.renderExport(
+              source: source.clone(), recipe: entry.value.recipe, gpu: gpu);
+        } finally {
+          messenger.setMockMessageHandler('flutter/assets', null);
+        }
+      }
       final reference =
           img.decodePng(base64Decode(gpuVisualReferences[entry.key]!))!;
-      final diff = visual.compareVisualReference(actual, reference);
+      final diff = visual.compareVisualReference(legacyOutput, reference);
       debugPrint('GPU_REFERENCE ${entry.key} $diff');
       expect(diff.ok, isTrue, reason: '${entry.key}: $diff');
     }

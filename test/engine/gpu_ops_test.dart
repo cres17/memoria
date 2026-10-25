@@ -99,9 +99,10 @@ void main() {
   });
 
   test('malformed output and channel errors preserve CPU results', () async {
-    for (final fail in [false, true]) {
+    for (final fail in [0, 1, 2]) {
       messenger.setMockMethodCallHandler(GpuOps.channel, (_) async {
-        if (fail) throw PlatformException(code: 'GPU_FAILED');
+        if (fail == 1) throw PlatformException(code: 'GPU_FAILED');
+        if (fail == 2) return 'broken native reply';
         return {'bytes': Uint8List(1)};
       });
       final input = pattern();

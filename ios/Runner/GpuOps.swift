@@ -25,6 +25,11 @@ final class GpuOps {
         guard let d = MTLCreateSystemDefaultDevice(), let q = d.makeCommandQueue() else {
             throw Failure.unavailable
         }
+        #if os(iOS) && !targetEnvironment(simulator)
+        // dispatchThreads uses nonuniform threadgroups. Older iOS GPUs use
+        // the CPU fallback before encoding an unsupported command.
+        guard d.supportsFamily(.apple4) else { throw Failure.unavailable }
+        #endif
         device = d; queue = q
         let library: MTLLibrary
         if let url = libraryURL { library = try d.makeLibrary(URL: url) }
