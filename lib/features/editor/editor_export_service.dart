@@ -241,11 +241,15 @@ class _EditorExportJob {
 Future<void> _editorExportWorker(EditorExportWorkerContext context) async {
   final request = context.request;
   try {
+    // 원본 디코딩은 큰 사진에서 수 초 걸릴 수 있다. 그동안 0%에 멈춰 보이지 않도록
+    // 작업 시작과 디코딩 완료 시점에도 진행률을 보낸다.
+    context.sendPort.send(0.02);
     img.Image? source;
     try {
       final decoded =
           img.decodeImage(File(request.imagePath).readAsBytesSync());
       source = decoded == null ? null : img.bakeOrientation(decoded);
+      context.sendPort.send(0.10);
     } catch (error) {
       context.sendPort.send(
         EditorExportFailure(

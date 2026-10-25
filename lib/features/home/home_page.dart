@@ -9,6 +9,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/utils/platform_utils.dart';
 import '../../monetization/banner_ad_widget.dart';
 import '../../monetization/feature_flags_service.dart';
+import '../editor/utils/raw_pick.dart';
 import '../create_filter/create_filter_page.dart'
     show kPhotoFilterGenerationEnabled, kPhotoFilterGenerationIsBeta;
 
@@ -55,13 +56,15 @@ class _HomePageState extends State<HomePage> {
       return;
     }
     final xFile = await ImagePicker().pickImage(source: ImageSource.gallery);
-    if (xFile != null && mounted) {
+    if (xFile == null || !mounted) return;
+    final photoPath = await resolvePickedPhotoPath(context, xFile.path);
+    if (photoPath != null && mounted) {
       context.pushNamed(
         'editor',
         extra: presetId == null
-            ? xFile.path
+            ? photoPath
             : <String, String?>{
-                'imagePath': xFile.path,
+                'imagePath': photoPath,
                 'presetId': presetId,
               },
       );
@@ -192,6 +195,12 @@ class _HomePageState extends State<HomePage> {
             onPressed: () => _pickImage(),
             icon: const Icon(Icons.add_a_photo_outlined),
             label: Text(S.get('home.cta')),
+          ),
+          const SizedBox(height: 8),
+          TextButton.icon(
+            onPressed: () => context.pushNamed('batchApply'),
+            icon: const Icon(Icons.photo_library_outlined),
+            label: const Text('여러 장에 같은 보정 적용'),
           ),
         ],
       ),

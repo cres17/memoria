@@ -436,6 +436,17 @@ class EditorEffectState {
   final double selectiveSaturation;
   final double selectiveRadius;
 
+  /// 첫 번째 지점(위 selective* 값) 외에 추가로 찍은 부분 보정 지점.
+  final List<SelectivePointState> selectiveExtras;
+
+  /// 지우개(힐링) 획. 원본 사진 기준 정규화 좌표.
+  final List<HealHistoryStroke> healStrokes;
+
+  /// 하늘 영역 보정값(-100..100). 모두 0이면 적용하지 않는다.
+  final double skyBrightness;
+  final double skySaturation;
+  final double skyWarmth;
+
   final bool dodgeBurnActive;
   final String brushMode;
   final double dodgeY;
@@ -466,6 +477,11 @@ class EditorEffectState {
     this.selectiveContrast = 0.0,
     this.selectiveSaturation = 0.0,
     this.selectiveRadius = 0.3,
+    this.selectiveExtras = const [],
+    this.healStrokes = const [],
+    this.skyBrightness = 0.0,
+    this.skySaturation = 0.0,
+    this.skyWarmth = 0.0,
     this.dodgeBurnActive = false,
     this.brushMode = 'dodge',
     this.dodgeY = 0.25,
@@ -497,6 +513,11 @@ class EditorEffectState {
         'selectiveContrast': selectiveContrast,
         'selectiveSaturation': selectiveSaturation,
         'selectiveRadius': selectiveRadius,
+        'selectiveExtras': selectiveExtras.map((p) => p.toJson()).toList(),
+        'healStrokes': healStrokes.map((s) => s.toJson()).toList(),
+        'skyBrightness': skyBrightness,
+        'skySaturation': skySaturation,
+        'skyWarmth': skyWarmth,
         'dodgeBurnActive': dodgeBurnActive,
         'brushMode': brushMode,
         'dodgeY': dodgeY,
@@ -530,6 +551,15 @@ class EditorEffectState {
         selectiveSaturation:
             (json['selectiveSaturation'] as num? ?? 0.0).toDouble(),
         selectiveRadius: (json['selectiveRadius'] as num? ?? 0.3).toDouble(),
+        selectiveExtras: (json['selectiveExtras'] as List<dynamic>? ?? const [])
+            .map((p) => SelectivePointState.fromJson(p as Map<String, dynamic>))
+            .toList(growable: false),
+        healStrokes: (json['healStrokes'] as List<dynamic>? ?? const [])
+            .map((s) => HealHistoryStroke.fromJson(s as Map<String, dynamic>))
+            .toList(growable: false),
+        skyBrightness: (json['skyBrightness'] as num? ?? 0.0).toDouble(),
+        skySaturation: (json['skySaturation'] as num? ?? 0.0).toDouble(),
+        skyWarmth: (json['skyWarmth'] as num? ?? 0.0).toDouble(),
         dodgeBurnActive: json['dodgeBurnActive'] as bool? ?? false,
         brushMode: json['brushMode'] as String? ?? 'dodge',
         dodgeY: (json['dodgeY'] as num? ?? 0.25).toDouble(),
@@ -550,6 +580,67 @@ class EditorEffectState {
         lensActive: json['lensActive'] as bool? ?? false,
         lensFocusDepth: (json['lensFocusDepth'] as num? ?? 0.0).toDouble(),
         lensMaxRadius: (json['lensMaxRadius'] as num? ?? 8.0).toDouble(),
+      );
+}
+
+class SelectivePointState {
+  final double x;
+  final double y;
+  final double brightness;
+  final double contrast;
+  final double saturation;
+  final double radius;
+
+  const SelectivePointState({
+    required this.x,
+    required this.y,
+    required this.brightness,
+    required this.contrast,
+    required this.saturation,
+    required this.radius,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'x': x,
+        'y': y,
+        'brightness': brightness,
+        'contrast': contrast,
+        'saturation': saturation,
+        'radius': radius,
+      };
+
+  factory SelectivePointState.fromJson(Map<String, dynamic> j) =>
+      SelectivePointState(
+        x: (j['x'] as num? ?? 0.5).toDouble(),
+        y: (j['y'] as num? ?? 0.5).toDouble(),
+        brightness: (j['brightness'] as num? ?? 0).toDouble(),
+        contrast: (j['contrast'] as num? ?? 0).toDouble(),
+        saturation: (j['saturation'] as num? ?? 0).toDouble(),
+        radius: (j['radius'] as num? ?? 0.3).toDouble(),
+      );
+}
+
+class HealHistoryStroke {
+  /// 원본 사진 기준 0..1 좌표.
+  final double x;
+  final double y;
+
+  /// 사진 짧은 변에 대한 비율.
+  final double radius;
+
+  const HealHistoryStroke({
+    required this.x,
+    required this.y,
+    required this.radius,
+  });
+
+  Map<String, dynamic> toJson() => {'x': x, 'y': y, 'radius': radius};
+
+  factory HealHistoryStroke.fromJson(Map<String, dynamic> j) =>
+      HealHistoryStroke(
+        x: (j['x'] as num? ?? 0.5).toDouble(),
+        y: (j['y'] as num? ?? 0.5).toDouble(),
+        radius: (j['radius'] as num? ?? 0.03).toDouble(),
       );
 }
 

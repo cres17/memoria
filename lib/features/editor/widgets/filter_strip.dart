@@ -75,7 +75,7 @@ class FilterStrip extends StatelessWidget {
                     preset.name,
                     style: TextStyle(
                       fontFamily: 'NotoSerif',
-                      fontSize: 11,
+                      fontSize: 12,
                       fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
                       color: selected
                           ? AppColors.oceanFoam

@@ -1,0 +1,149 @@
+name: Device Tests (simulator / emulator)
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  FLUTTER_VERSION: '3.44.6'
+
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: device-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ios-simulator:
+    name: Integration tests (iOS simulator)
+    runs-on: macos-latest
+    timeout-minutes: 75
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          lfs: true
+          persist-credentials: false
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+          architecture: 'arm64'
+
+      - name: Install locked dependencies
+        run: flutter pub get --enforce-lockfile
+
+      - name: Boot an iPhone simulator
+        id: sim
+        run: |
+          udid=$(xcrun simctl list devices available -j | python3 -c "
+          import json,sys
+          d=json.load(sys.stdin)['devices']
+          c=[(r,x) for r,l in d.items() if 'iOS' in r for x in l if x['name'].startswith('iPhone')]
+          c.sort(key=lambda t: t[0])
+          r,x=c[-1]
+          print(x['udid'])
+          print(r, x['name'], file=sys.stderr)
+          ")
+          xcrun simctl boot "$udid" || true
+          # 러너에서 부팅이 간헐적으로 실패해 테스트가 시작되지 못한 적이 있어 한 번 재시도한다.
+          xcrun simctl bootstatus "$udid" -b || {
+            xcrun simctl shutdown "$udid" || true
+            xcrun simctl boot "$udid"
+            xcrun simctl bootstatus "$udid" -b
+          }
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+
+      - name: Run integration tests
+        run: |
+          set -o pipefail
+          flutter test integration_test -d "${{ steps.sim.outputs.udid }}" \
+            --reporter expanded 2>&1 | tee ios-integration.log
+
+      - name: Performance summary
+        if: always()
+        run: |
+          {
+            echo "### iOS simulator (host Mac CPU, not a phone)"
+            echo '```'
+            grep -h "DEVICE_PERF" ios-integration.log || echo "no samples"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload log
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ios-integration-log
+          path: ios-integration.log
+
+  android-emulator:
+    name: Integration tests (Android emulator)
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          lfs: true
+          persist-credentials: false
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Set up Java
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Install locked dependencies
+        run: flutter pub get --enforce-lockfile
+
+      - name: Build debug APK
+        run: flutter build apk --debug
+
+      - name: Run integration tests on emulator
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          ram-size: 4096M
+          disk-size: 6000M
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          # 실행기는 sh(dash)로 각 줄을 돌리므로 pipefail이 되도록 bash로 감싼다.
+          script: bash -o pipefail -c "flutter test integration_test -d emulator-5554 --reporter expanded 2>&1 | tee android-integration.log"
+
+      - name: Performance summary
+        if: always()
+        run: |
+          {
+            echo "### Android emulator (x86_64 on CI host, not a phone)"
+            echo '```'
+            grep -h "DEVICE_PERF" android-integration.log || echo "no samples"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload log
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: android-integration-log
+          path: android-integration.log

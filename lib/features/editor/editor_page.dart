@@ -26,6 +26,9 @@ import 'package:memoria/ai/ai_manager.dart';
 import 'package:memoria/ai/models/segmenter.dart';
 import 'package:memoria/engine/portrait_engine.dart';
 import 'package:memoria/domain/models/adjust_params.dart';
+import 'package:memoria/domain/models/editor_look.dart';
+import 'package:memoria/features/editor/editor_look_clipboard.dart';
+import 'package:memoria/features/editor/utils/raw_pick.dart';
 import 'package:memoria/domain/models/curve_data.dart';
 import 'package:memoria/domain/models/filter_preset.dart';
 import 'package:memoria/domain/models/edit_operation.dart';
@@ -241,6 +244,8 @@ class _EditorPageState extends State<EditorPage> {
   set _selSat(double value) => _editState.selectiveSaturation = value;
   double get _selRadius => _editState.selectiveRadius;
   set _selRadius(double value) => _editState.selectiveRadius = value;
+  List<SelectivePointState> get _selExtras => _editState.selectiveExtras;
+  List<HealHistoryStroke> get _healSpots => _editState.healStrokes;
   bool get _dbActive => _editState.dodgeBurnActive;
   set _dbActive(bool value) => _editState.dodgeBurnActive = value;
   String get _brushMode => _editState.brushMode;
@@ -408,7 +413,16 @@ class _EditorPageState extends State<EditorPage> {
             hsl: {for (final band in HslBand.values) band: HslBandParams.zero},
           );
           break;
+        case 'heal':
+          _healSpots.clear();
+          break;
+        case 'sky':
+          _editState.skyBrightness = 0;
+          _editState.skySaturation = 0;
+          _editState.skyWarmth = 0;
+          break;
         case 'selective':
+          _selExtras.clear();
           _selActive = false;
           _selX = 0.5;
           _selY = 0.5;
@@ -527,6 +541,11 @@ class _EditorPageState extends State<EditorPage> {
   EditorStateSnapshot _currentEditorState() =>
       _editState.toSnapshot(localSubTabName: _localSubTab.name);
 
+  bool get _skyNeutral =>
+      _editState.skyBrightness == 0 &&
+      _editState.skySaturation == 0 &&
+      _editState.skyWarmth == 0;
+
   EditorRenderRecipe _currentRenderRecipe({
     AdjustParams? adjustParams,
     Uint8List? lutBytes,
@@ -534,6 +553,8 @@ class _EditorPageState extends State<EditorPage> {
     double? intensity,
   }) =>
       _currentEditorState().toRenderRecipe(
+        // 하늘 도구를 열고 값이 0일 때는 인식한 영역을 붉게 보여 준다.
+        skyShowMask: _isToolActive && _activeToolId == 'sky' && _skyNeutral,
         lutBytes: _lutBytes,
         cropAspectRatio: _currentCropRect(),
         adjustParamsOverride: adjustParams,
@@ -953,6 +974,7 @@ class _EditorPageState extends State<EditorPage> {
 
   void _setComparePreviewVisible(bool visible) {
     if (_showComparePreview == visible) return;
+    if (!visible) _compareLocked = false;
     setState(() => _showComparePreview = visible);
   }
 
@@ -1335,8 +1357,14 @@ class _EditorPageState extends State<EditorPage> {
       value is num ? value.toDouble() : fallback;
 
   String _previewBaseKey() {
-    if (_isToolActive && _activeToolId == 'crop') return 'crop_active';
+    final healKey = [
+      for (final spot in _healSpots)
+        '${spot.x.toStringAsFixed(4)},${spot.y.toStringAsFixed(4)},${spot.radius.toStringAsFixed(4)}',
+    ].join(';');
+    if (_isToolActive && _activeToolId == 'crop') return 'crop_active|$healKey';
+    if (_isToolActive && _activeToolId == 'heal') return 'heal_active|$healKey';
     return [
+      healKey,
       widget.imagePath,
       _cropRatio.name,
       _cropCenterX.toStringAsFixed(4),
@@ -1373,6 +1401,14 @@ class _EditorPageState extends State<EditorPage> {
         _selActive, _selX.toStringAsFixed(3), _selY.toStringAsFixed(3),
         _selBright.toStringAsFixed(2), _selContrast.toStringAsFixed(2),
         _selSat.toStringAsFixed(2), _selRadius.toStringAsFixed(2),
+        _selExtras
+            .map((p) =>
+                '${p.x.toStringAsFixed(3)},${p.y.toStringAsFixed(3)},${p.brightness.toStringAsFixed(1)},${p.contrast.toStringAsFixed(1)},${p.saturation.toStringAsFixed(1)},${p.radius.toStringAsFixed(2)}')
+            .join(';'),
+        _editState.skyBrightness.toStringAsFixed(1),
+        _editState.skySaturation.toStringAsFixed(1),
+        _editState.skyWarmth.toStringAsFixed(1),
+        _isToolActive && _activeToolId == 'sky' && _skyNeutral,
         // Dodge / burn
         _dbActive,
         _dodgeStrength.toStringAsFixed(2), _dodgeY.toStringAsFixed(3),
@@ -1434,12 +1470,15 @@ class _EditorPageState extends State<EditorPage> {
     // flip controls noticeably slow on real devices.
     final previewingSpatialTransform =
         _isToolActive && _activeToolId == 'rotate';
+    // 지우개는 원본 좌표로 찍으므로 열려 있는 동안은 자르기·회전·확장 없이 보여 준다.
+    final healing = _isToolActive && _activeToolId == 'heal';
     final preview = EditorRenderer.preparePreviewSource(
       decoded,
       _currentRenderRecipe(),
       maxLongEdge: 720,
-      skipCrop: _isToolActive && _activeToolId == 'crop',
-      skipTransforms: previewingSpatialTransform,
+      skipCrop: (_isToolActive && _activeToolId == 'crop') || healing,
+      skipTransforms: previewingSpatialTransform || healing,
+      skipExpand: healing,
     );
 
     _previewBaseCacheKey = key;
@@ -1514,6 +1553,7 @@ class _EditorPageState extends State<EditorPage> {
         return;
       }
       final preview = _previewBaseImage(decoded);
+      _updateSplitBefore(preview);
       final previewKey = _previewPipelineKey();
       final cachedPreview = _previewRenderCache[previewKey];
       if (cachedPreview != null) {
@@ -1770,6 +1810,7 @@ class _EditorPageState extends State<EditorPage> {
       name: name,
       params: _params,
       createdAt: DateTime.now(),
+      look: _editState.captureLook(),
     );
     await _adjRepo.save(adj);
     final all = await _adjRepo.getAll();
@@ -1783,6 +1824,11 @@ class _EditorPageState extends State<EditorPage> {
   }
 
   void _applyCustomAdjustment(CustomAdjustment adj) {
+    final look = adj.look;
+    if (look != null) {
+      _applyLook(look);
+      return;
+    }
     setState(() {
       _params = adj.params;
       _selectedPreset =
@@ -1792,6 +1838,205 @@ class _EditorPageState extends State<EditorPage> {
       _syncCurvesFromParams();
     });
     _renderPreview();
+  }
+
+  EditorLook? get _lookClipboard => EditorLookClipboard.value;
+
+  void _applyLook(EditorLook look) {
+    setState(() {
+      _editState.applyLook(look, resolvedPreset: _presetForId(look.presetId));
+      _lutBytes = null;
+    });
+    _liveParamsNotifier.value = _params;
+    _liveIntensityNotifier.value = _intensity;
+    _reloadSelectedPresetLut();
+    _saveToHistory();
+    _renderPreview();
+  }
+
+  void _copyLook() {
+    EditorLookClipboard.value = _editState.captureLook();
+    _showLookMessage('보정을 복사했어요. 크롭·부분 보정·텍스트는 제외돼요.');
+  }
+
+  void _pasteLook() {
+    final look = _lookClipboard;
+    if (look == null) {
+      _showLookMessage('복사한 보정이 없어요.');
+      return;
+    }
+    _applyLook(look);
+    _showLookMessage('보정을 붙여넣었어요.');
+  }
+
+  /// 분할 비교: 왼쪽은 보정 전(자르기·회전만 반영), 오른쪽은 보정 후.
+  bool _splitCompare = false;
+  double _splitPosition = 0.5;
+  Uint8List? _splitBeforeBytes;
+  String? _splitBeforeKey;
+
+  void _updateSplitBefore(img.Image base) {
+    if (!_splitCompare) return;
+    final key = _previewBaseKey();
+    if (_splitBeforeKey == key && _splitBeforeBytes != null) return;
+    final bytes = Uint8List.fromList(img.encodeJpg(base, quality: 88));
+    _splitBeforeKey = key;
+    if (mounted) setState(() => _splitBeforeBytes = bytes);
+  }
+
+  void _toggleSplitCompare() {
+    setState(() {
+      _splitCompare = !_splitCompare;
+      _splitPosition = 0.5;
+      if (!_splitCompare) {
+        _splitBeforeBytes = null;
+        _splitBeforeKey = null;
+      }
+    });
+    if (_splitCompare) _renderPreview();
+  }
+
+  Widget _buildSplitCompareOverlay() {
+    final before = _splitBeforeBytes;
+    if (before == null) return const SizedBox.shrink();
+    return Positioned.fill(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final width = constraints.maxWidth;
+          return GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onHorizontalDragUpdate: (details) {
+              if (width <= 0) return;
+              setState(() {
+                _splitPosition =
+                    (_splitPosition + details.delta.dx / width).clamp(0.0, 1.0);
+              });
+            },
+            onTapDown: (details) {
+              if (width <= 0) return;
+              setState(() {
+                _splitPosition =
+                    (details.localPosition.dx / width).clamp(0.0, 1.0);
+              });
+            },
+            child: Stack(
+              children: [
+                ClipRect(
+                  clipper: _SplitClipper(_splitPosition),
+                  child: Center(
+                    child: Image.memory(
+                      before,
+                      fit: BoxFit.contain,
+                      width: double.infinity,
+                      filterQuality: FilterQuality.high,
+                      gaplessPlayback: true,
+                    ),
+                  ),
+                ),
+                Positioned(
+                  left: _splitPosition * width - 1,
+                  top: 0,
+                  bottom: 0,
+                  child: Container(width: 2, color: Colors.white),
+                ),
+                Positioned(
+                  left: _splitPosition * width - 18,
+                  top: constraints.maxHeight / 2 - 18,
+                  child: Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: Colors.black54,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 2),
+                    ),
+                    child: const Icon(Icons.swap_horiz_rounded,
+                        color: Colors.white, size: 20),
+                  ),
+                ),
+                const Positioned(left: 10, top: 10, child: _SplitLabel('원본')),
+                const Positioned(
+                    right: 10, top: 10, child: _SplitLabel('보정 후')),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  void _showLookMessage(String text) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(content: Text(text), behavior: SnackBarBehavior.floating),
+      );
+  }
+
+  void _showLookMenu() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppColors.oceanMid,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: Icon(Icons.vertical_split_rounded,
+                  color: _splitCompare
+                      ? const Color(0xFFFFC400)
+                      : AppColors.textOnDark),
+              title: Text(_splitCompare ? '분할 비교 끄기' : '원본과 분할 비교',
+                  style: const TextStyle(color: AppColors.textOnDark)),
+              subtitle: const Text('가운데 선을 좌우로 끌어 비교',
+                  style: TextStyle(color: AppColors.textOnDarkTert)),
+              onTap: () {
+                Navigator.pop(ctx);
+                _toggleSplitCompare();
+              },
+            ),
+            ListTile(
+              leading:
+                  const Icon(Icons.copy_rounded, color: AppColors.textOnDark),
+              title: const Text('보정 복사',
+                  style: TextStyle(color: AppColors.textOnDark)),
+              subtitle: const Text('기본 보정·필터·효과·인물 보정',
+                  style: TextStyle(color: AppColors.textOnDarkTert)),
+              onTap: () {
+                Navigator.pop(ctx);
+                _copyLook();
+              },
+            ),
+            ListTile(
+              enabled: _lookClipboard != null,
+              leading: Icon(Icons.paste_rounded,
+                  color: _lookClipboard != null
+                      ? AppColors.textOnDark
+                      : AppColors.textOnDarkTert),
+              title: Text('보정 붙여넣기',
+                  style: TextStyle(
+                      color: _lookClipboard != null
+                          ? AppColors.textOnDark
+                          : AppColors.textOnDarkTert)),
+              subtitle: Text(
+                  _lookClipboard != null ? '복사한 보정을 이 사진에 적용' : '먼저 보정을 복사하세요',
+                  style: const TextStyle(color: AppColors.textOnDarkTert)),
+              onTap: _lookClipboard == null
+                  ? null
+                  : () {
+                      Navigator.pop(ctx);
+                      _pasteLook();
+                    },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
   }
 
   void _showSaveAdjustmentDialog() {
@@ -1905,7 +2150,7 @@ class _EditorPageState extends State<EditorPage> {
                       _formatAdjSummary(adj.params),
                       style: const TextStyle(
                         fontFamily: 'NotoSerif',
-                        fontSize: 11,
+                        fontSize: 12,
                         color: AppColors.textOnDarkTert,
                       ),
                     ),
@@ -2481,7 +2726,12 @@ class _EditorPageState extends State<EditorPage> {
                 },
               ),
             ] else
-              const SizedBox(width: 48),
+              _EditorOverlayIconButton(
+                icon: Icons.content_copy_rounded,
+                tooltip: '보정 복사·분할 비교',
+                enabled: widget.imagePath != null,
+                onTap: _showLookMenu,
+              ),
           ],
         ),
       ),
@@ -2504,8 +2754,11 @@ class _EditorPageState extends State<EditorPage> {
       }
       final xFile = await ImagePicker().pickImage(source: ImageSource.gallery);
       if (xFile != null && mounted) {
-        context.pop();
-        context.pushNamed('editor', extra: xFile.path);
+        final photoPath = await resolvePickedPhotoPath(context, xFile.path);
+        if (photoPath != null && mounted) {
+          context.pop();
+          context.pushNamed('editor', extra: photoPath);
+        }
       }
     } finally {
       _pickingEmptyImage = false;
@@ -2676,6 +2929,7 @@ class _EditorPageState extends State<EditorPage> {
                 _activeToolId == 'text' &&
                 _overlayText.trim().isNotEmpty)
               _buildLiveTextOverlay(constraints),
+            if (_splitCompare && !_isToolActive) _buildSplitCompareOverlay(),
             if (_isToolActive && _activeToolId == 'crop')
               CropOverlayWidget(
                 imageSize: _currentImageSize,
@@ -2701,6 +2955,8 @@ class _EditorPageState extends State<EditorPage> {
               ),
             if (_isToolActive && _activeToolId == 'selective')
               _buildSelectiveTouchOverlay(),
+            if (_isToolActive && _activeToolId == 'heal')
+              _buildHealTouchOverlay(),
             if (_isToolActive && _activeToolId == 'brush')
               BrushOverlayWidget(
                 imageSize: _currentImageSize,
@@ -2852,42 +3108,212 @@ class _EditorPageState extends State<EditorPage> {
     );
   }
 
+  static const int _maxSelectivePoints = 8;
+  static const double _pinHitRadius = 28;
+  bool _selectivePanStartedOnPin = false;
+
+  SelectivePointState _currentSelectivePoint() => SelectivePointState(
+        x: _selX,
+        y: _selY,
+        brightness: _selBright,
+        contrast: _selContrast,
+        saturation: _selSat,
+        radius: _selRadius,
+      );
+
+  void _loadSelectivePoint(SelectivePointState point) {
+    _selX = point.x;
+    _selY = point.y;
+    _selBright = point.brightness;
+    _selContrast = point.contrast;
+    _selSat = point.saturation;
+    _selRadius = point.radius;
+    _selActive = true;
+  }
+
+  int get _selectivePointCount => (_selActive ? 1 : 0) + _selExtras.length;
+
+  /// 다른 지점의 핀을 누르면 그 지점을 편집 대상으로 바꾼다.
+  bool _pickSelectivePin(Offset position, Size size) {
+    for (var i = 0; i < _selExtras.length; i++) {
+      final pin = _selExtras[i];
+      final dx = pin.x * size.width - position.dx;
+      final dy = pin.y * size.height - position.dy;
+      if (dx * dx + dy * dy > _pinHitRadius * _pinHitRadius) continue;
+      setState(() {
+        final picked = _selExtras.removeAt(i);
+        if (_selActive) _selExtras.add(_currentSelectivePoint());
+        _loadSelectivePoint(picked);
+      });
+      return true;
+    }
+    return false;
+  }
+
+  bool _nearCurrentSelectivePin(Offset position, Size size) {
+    if (!_selActive) return false;
+    final dx = _selX * size.width - position.dx;
+    final dy = _selY * size.height - position.dy;
+    return dx * dx + dy * dy <= _pinHitRadius * _pinHitRadius;
+  }
+
+  /// 빈 곳을 누르면 새 지점을 만든다(최대 8개). 이미 편집 중인 지점은
+  /// 목록에 넣어 두고 새 지점이 편집 대상이 된다.
+  void _addSelectivePoint(Offset position, Size size) {
+    if (size.width <= 0 || size.height <= 0) return;
+    final x = (position.dx / size.width).clamp(0.0, 1.0);
+    final y = (position.dy / size.height).clamp(0.0, 1.0);
+    if (!_selActive) {
+      setState(() {
+        _selX = x;
+        _selY = y;
+        _selActive = true;
+      });
+    } else if (_selectivePointCount >= _maxSelectivePoints) {
+      _showLookMessage('부분 보정 지점은 최대 $_maxSelectivePoints개예요.');
+      return;
+    } else {
+      setState(() {
+        _selExtras.add(_currentSelectivePoint());
+        _selX = x;
+        _selY = y;
+        _selBright = 0;
+        _selContrast = 0;
+        _selSat = 0;
+        _selRadius = 0.3;
+      });
+    }
+    _debouncedPreview();
+  }
+
+  void _removeCurrentSelectivePoint() {
+    setState(() {
+      if (_selExtras.isNotEmpty) {
+        _loadSelectivePoint(_selExtras.removeLast());
+      } else {
+        _selActive = false;
+        _selX = 0.5;
+        _selY = 0.5;
+        _selBright = 0;
+        _selContrast = 0;
+        _selSat = 0;
+        _selRadius = 0.3;
+      }
+    });
+    _renderPreview();
+  }
+
+  Widget _selectivePin({required bool current, required int number}) {
+    return IgnorePointer(
+      child: Container(
+        width: current ? 36 : 28,
+        height: current ? 36 : 28,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: current ? null : Colors.black45,
+          border: Border.all(
+            color: current ? const Color(0xFFFFC400) : Colors.white,
+            width: 2,
+          ),
+          boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 4)],
+        ),
+        child: current
+            ? const Icon(Icons.adjust_rounded, color: Colors.white, size: 18)
+            : Text('$number',
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700)),
+      ),
+    );
+  }
+
   Widget _buildSelectiveTouchOverlay() {
     return LayoutBuilder(
       builder: (context, constraints) {
-        void updatePoint(Offset localPosition) {
-          if (constraints.maxWidth <= 0 || constraints.maxHeight <= 0) return;
-          setState(() {
-            _selX = (localPosition.dx / constraints.maxWidth).clamp(0.0, 1.0);
-            _selY = (localPosition.dy / constraints.maxHeight).clamp(0.0, 1.0);
-            _selActive = true;
-          });
-          _debouncedPreview();
-        }
-
+        final size = Size(constraints.maxWidth, constraints.maxHeight);
         return GestureDetector(
           behavior: HitTestBehavior.translucent,
-          onTapDown: (details) => updatePoint(details.localPosition),
-          onPanUpdate: (details) => updatePoint(details.localPosition),
+          onTapUp: (details) {
+            if (_pickSelectivePin(details.localPosition, size)) {
+              _renderPreview();
+              return;
+            }
+            if (_nearCurrentSelectivePin(details.localPosition, size)) return;
+            _addSelectivePoint(details.localPosition, size);
+          },
+          onPanStart: (details) {
+            _selectivePanStartedOnPin =
+                _nearCurrentSelectivePin(details.localPosition, size);
+          },
+          onPanUpdate: (details) {
+            if (!_selectivePanStartedOnPin || size.isEmpty) return;
+            setState(() {
+              _selX = (details.localPosition.dx / size.width).clamp(0.0, 1.0);
+              _selY = (details.localPosition.dy / size.height).clamp(0.0, 1.0);
+            });
+            _debouncedPreview();
+          },
           child: Stack(
             children: [
+              for (var i = 0; i < _selExtras.length; i++)
+                Positioned(
+                  left: _selExtras[i].x * size.width - 14,
+                  top: _selExtras[i].y * size.height - 14,
+                  child: _selectivePin(current: false, number: i + 1),
+                ),
               if (_selActive)
                 Positioned(
-                  left: _selX * constraints.maxWidth - 18,
-                  top: _selY * constraints.maxHeight - 18,
+                  left: _selX * size.width - 18,
+                  top: _selY * size.height - 18,
+                  child: _selectivePin(current: true, number: 0),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  double _healRadius = 0.03;
+
+  Widget _buildHealTouchOverlay() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final size = Size(constraints.maxWidth, constraints.maxHeight);
+        final shortSide = math.min(size.width, size.height);
+        return GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onTapUp: (details) {
+            if (size.isEmpty) return;
+            setState(() {
+              _healSpots.add(HealHistoryStroke(
+                x: (details.localPosition.dx / size.width).clamp(0.0, 1.0),
+                y: (details.localPosition.dy / size.height).clamp(0.0, 1.0),
+                radius: _healRadius,
+              ));
+            });
+            hapticLight();
+            _renderPreview();
+          },
+          child: Stack(
+            children: [
+              for (final spot in _healSpots)
+                Positioned(
+                  left: spot.x * size.width - spot.radius * shortSide,
+                  top: spot.y * size.height - spot.radius * shortSide,
                   child: IgnorePointer(
                     child: Container(
-                      width: 36,
-                      height: 36,
+                      width: spot.radius * shortSide * 2,
+                      height: spot.radius * shortSide * 2,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 2),
-                        boxShadow: const [
-                          BoxShadow(color: Colors.black38, blurRadius: 4),
-                        ],
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.85),
+                          width: 1.5,
+                        ),
                       ),
-                      child: const Icon(Icons.adjust_rounded,
-                          color: Colors.white, size: 18),
                     ),
                   ),
                 ),
@@ -2905,6 +3331,101 @@ class _EditorPageState extends State<EditorPage> {
     );
   }
 
+  /// 도구의 값이 초기 상태와 다른지. 격자·자주 찾는 도구에 점으로 표시한다.
+  bool _isToolModified(String id) {
+    final p = _params;
+    switch (id) {
+      case 'tune':
+        return p.exposure != 0 ||
+            p.contrast != 0 ||
+            p.saturation != 0 ||
+            p.highlights != 0 ||
+            p.shadows != 0 ||
+            p.ambiance != 0 ||
+            p.tonalShadows != 0 ||
+            p.tonalMidtones != 0 ||
+            p.tonalHighlights != 0 ||
+            p.bnwEnabled;
+      case 'details':
+        return p.sharpen != 0 || p.structure != 0 || p.clarity != 0;
+      case 'curves':
+        return p.luminanceCurve != null ||
+            p.rgbCurve != null ||
+            p.redCurve != null ||
+            p.greenCurve != null ||
+            p.blueCurve != null;
+      case 'white_balance':
+        return p.temperature != 0 || p.tint != 0;
+      case 'hsl':
+        return p.hsl.values.any((band) => !band.isZero);
+      case 'split_toning':
+        return p.splitShadowSat != 0 ||
+            p.splitHighSat != 0 ||
+            p.splitBalance != 0;
+      case 'noise':
+        return p.luminanceNR != 0 || p.colourNR != 0 || p.nrDetail != 0;
+      case 'crop':
+        return _cropRatio != CropRatioPreset.free ||
+            _cropLeft != 0 ||
+            _cropTop != 0 ||
+            _cropRight != 1 ||
+            _cropBottom != 1;
+      case 'rotate':
+        return _rotation != 0 || _flipH || _flipV;
+      case 'perspective':
+        return _perspH != 0 || _perspV != 0;
+      case 'expand':
+        return _expandTop != 0 ||
+            _expandBottom != 0 ||
+            _expandLeft != 0 ||
+            _expandRight != 0;
+      case 'selective':
+        return _selActive || _selExtras.isNotEmpty;
+      case 'heal':
+        return _healSpots.isNotEmpty;
+      case 'sky':
+        return !_skyNeutral;
+      case 'brush':
+        return _dbActive || _brushStrokes.isNotEmpty;
+      case 'tilt_shift':
+        return _tiltActive;
+      case 'lens_blur':
+        return _lensActive;
+      case 'portrait':
+        return !_editState.captureLook().portrait.isZero;
+      case 'vignette':
+        return p.vignette != 0;
+      case 'grain':
+        return p.grainStrength != 0;
+      case 'glow':
+        return p.glowStrength != 0;
+      case 'light_leak':
+        return p.lightLeakStrength != 0;
+      case 'halation':
+        return p.halationStrength != 0;
+      case 'drama':
+        return _effect.name.startsWith('drama');
+      case 'hdr_scape':
+        return _effect.name.startsWith('hdr');
+      case 'double_exposure':
+        return _blendImagePath != null;
+      case 'frame':
+        return _frameIndex >= 0;
+      case 'text':
+        return _overlayText.isNotEmpty;
+    }
+    return false;
+  }
+
+  Widget _modifiedDot() => Container(
+        width: 8,
+        height: 8,
+        decoration: const BoxDecoration(
+          color: Color(0xFFE5484D),
+          shape: BoxShape.circle,
+        ),
+      );
+
   static const List<_ToolItem> _tools = [
     _ToolItem(id: 'tune', label: '기본 보정', icon: Icons.tune_rounded),
     _ToolItem(id: 'details', label: '세부 정보', icon: Icons.details_rounded),
@@ -2921,6 +3442,8 @@ class _EditorPageState extends State<EditorPage> {
         label: '부분 보정',
         icon: Icons.filter_center_focus_rounded),
     _ToolItem(id: 'brush', label: '브러시', icon: Icons.brush_rounded),
+    _ToolItem(id: 'heal', label: '지우개', icon: Icons.auto_fix_high_rounded),
+    _ToolItem(id: 'sky', label: '하늘', icon: Icons.wb_cloudy_rounded),
     _ToolItem(
         id: 'tilt_shift', label: '틸트 시프트', icon: Icons.blur_linear_rounded),
     _ToolItem(
@@ -3000,7 +3523,7 @@ class _EditorPageState extends State<EditorPage> {
               textAlign: TextAlign.right,
               style: const TextStyle(
                 fontFamily: 'NotoSerif',
-                fontSize: 11,
+                fontSize: 12,
                 color: AppColors.textSecondary,
                 fontWeight: FontWeight.w600,
               ),
@@ -3334,10 +3857,30 @@ class _EditorPageState extends State<EditorPage> {
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
               child: Text(
                 _selActive
-                    ? '표시된 지점을 드래그해 위치를 바꾸고, 아래 값으로 해당 영역만 보정합니다.'
+                    ? '빈 곳을 누르면 지점이 추가됩니다(최대 8개). 번호 핀을 누르면 그 지점을 편집하고, 노란 핀은 드래그로 옮깁니다.'
                     : '사진을 터치하거나 드래그해 먼저 보정할 위치를 지정하세요.',
                 style: const TextStyle(
                     fontSize: 12, color: AppColors.textSecondary),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+              child: Row(
+                children: [
+                  Text(
+                    '지점 $_selectivePointCount/$_maxSelectivePoints',
+                    style: const TextStyle(
+                        fontSize: 12, color: AppColors.textSecondary),
+                  ),
+                  const Spacer(),
+                  if (_selActive)
+                    TextButton.icon(
+                      onPressed: _removeCurrentSelectivePoint,
+                      icon: const Icon(Icons.delete_outline_rounded, size: 16),
+                      label:
+                          const Text('이 지점 삭제', style: TextStyle(fontSize: 12)),
+                    ),
+                ],
               ),
             ),
             if (_selActive) ...[
@@ -3364,6 +3907,68 @@ class _EditorPageState extends State<EditorPage> {
                     style: TextStyle(
                         fontSize: 12, color: AppColors.textSecondary)),
               ),
+          ],
+        );
+      case 'sky':
+        return Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+              child: Text(
+                _skyNeutral
+                    ? '붉게 표시된 부분이 하늘로 인식한 영역이에요. 아래 값을 움직이면 그 영역만 보정합니다. 푸른 하늘과 구름만 인식하고, 일몰이나 흐린 하늘은 놓칠 수 있어요.'
+                    : '하늘로 인식한 영역에만 적용됩니다. 값을 모두 0으로 돌리면 인식한 영역을 다시 볼 수 있어요.',
+                style: const TextStyle(
+                    fontSize: 12, color: AppColors.textSecondary),
+              ),
+            ),
+            _sliderRow('밝기', _editState.skyBrightness, -100, 100, (v) {
+              setState(() => _editState.skyBrightness = v);
+              _debouncedPreview();
+            }),
+            _sliderRow('채도', _editState.skySaturation, -100, 100, (v) {
+              setState(() => _editState.skySaturation = v);
+              _debouncedPreview();
+            }),
+            _sliderRow('색감(푸름↔따뜻함)', _editState.skyWarmth, -100, 100, (v) {
+              setState(() => _editState.skyWarmth = v);
+              _debouncedPreview();
+            }),
+          ],
+        );
+      case 'heal':
+        return Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+              child: Text(
+                _healSpots.isEmpty
+                    ? '지울 잡티나 작은 물체를 터치하세요. 주변에서 가장 잘 이어지는 부분으로 덮습니다.'
+                    : '지운 곳 ${_healSpots.length}개. 큰 물체나 복잡한 무늬 위는 티가 날 수 있어요.',
+                style: const TextStyle(
+                    fontSize: 12, color: AppColors.textSecondary),
+              ),
+            ),
+            _sliderRow('크기', _healRadius, 0.01, 0.1, (v) {
+              setState(() => _healRadius = v);
+            }),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: _healSpots.isEmpty
+                      ? null
+                      : () {
+                          setState(() => _healSpots.removeLast());
+                          _renderPreview();
+                        },
+                  icon: const Icon(Icons.undo_rounded, size: 16),
+                  label:
+                      const Text('마지막 지우기 취소', style: TextStyle(fontSize: 12)),
+                ),
+              ),
+            ),
           ],
         );
       case 'brush':
@@ -3478,7 +4083,7 @@ class _EditorPageState extends State<EditorPage> {
               child: const Text(
                 '사진 중심에서의 거리를 기준으로 초점 영역을 만듭니다.',
                 style: TextStyle(
-                  fontSize: 11,
+                  fontSize: 12,
                   height: 1.35,
                   color: AppColors.textSecondary,
                 ),
@@ -3778,18 +4383,39 @@ class _EditorPageState extends State<EditorPage> {
     );
   }
 
+  /// 짧게 누르면 원본 보기가 고정되고, 다시 누르면 풀린다. 길게 누르면
+  /// 누르는 동안만 원본을 보여 준다.
+  bool _compareLocked = false;
+  DateTime? _comparePressedAt;
+
   Widget _buildCompareHoldIcon() {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTapDown: (_) {
         hapticLight();
+        _comparePressedAt = DateTime.now();
         _setComparePreviewVisible(true);
       },
-      onTapUp: (_) => _setComparePreviewVisible(false),
-      onTapCancel: () => _setComparePreviewVisible(false),
+      onTapUp: (_) {
+        final pressedAt = _comparePressedAt;
+        final quick = pressedAt != null &&
+            DateTime.now().difference(pressedAt) <
+                const Duration(milliseconds: 250);
+        if (_compareLocked) {
+          _compareLocked = false;
+          _setComparePreviewVisible(false);
+        } else if (quick) {
+          _compareLocked = true;
+        } else {
+          _setComparePreviewVisible(false);
+        }
+      },
+      onTapCancel: () {
+        if (!_compareLocked) _setComparePreviewVisible(false);
+      },
       child: Semantics(
         button: true,
-        label: '적용 전 보기',
+        label: '적용 전 보기. 길게 누르면 누르는 동안, 짧게 누르면 고정해서 봅니다',
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 140),
           height: 44,
@@ -3873,7 +4499,7 @@ class _EditorPageState extends State<EditorPage> {
                         '맞춤 설정',
                         style: TextStyle(
                           fontFamily: 'NotoSerif',
-                          fontSize: 10,
+                          fontSize: 12,
                           fontWeight: FontWeight.w600,
                           color: Colors.black.withOpacity(0.7),
                         ),
@@ -3886,14 +4512,14 @@ class _EditorPageState extends State<EditorPage> {
           ),
         ),
         SizedBox(
-          height: 85,
+          height: 92,
           child: favTools.isEmpty
               ? const Center(
                   child: Text(
                     '자주 찾는 도구가 없습니다. 맞춤 설정을 눌러보세요.',
                     style: TextStyle(
                         fontFamily: 'NotoSerif',
-                        fontSize: 11,
+                        fontSize: 12,
                         color: Colors.black54),
                   ),
                 )
@@ -3930,10 +4556,21 @@ class _EditorPageState extends State<EditorPage> {
                                   color: Colors.black.withOpacity(0.04),
                                 ),
                               ),
-                              child: Icon(
-                                tool.icon,
-                                size: 24,
-                                color: Colors.black87,
+                              child: Stack(
+                                alignment: Alignment.center,
+                                children: [
+                                  Icon(
+                                    tool.icon,
+                                    size: 24,
+                                    color: Colors.black87,
+                                  ),
+                                  if (_isToolModified(tool.id))
+                                    Positioned(
+                                      top: 6,
+                                      right: 6,
+                                      child: _modifiedDot(),
+                                    ),
+                                ],
                               ),
                             ),
                             const SizedBox(height: 5),
@@ -3941,7 +4578,7 @@ class _EditorPageState extends State<EditorPage> {
                               tool.label,
                               style: const TextStyle(
                                 fontFamily: 'NotoSerif',
-                                fontSize: 10,
+                                fontSize: 12,
                                 color: Colors.black87,
                               ),
                             ),
@@ -4026,7 +4663,7 @@ class _EditorPageState extends State<EditorPage> {
                         '자주 사용하는 도구를 선택하여 퀵 액세스 바에 고정하세요. 갯수 제한은 없습니다.',
                         style: TextStyle(
                           fontFamily: 'NotoSerif',
-                          fontSize: 11,
+                          fontSize: 12,
                           color: Colors.black54,
                         ),
                       ),
@@ -4036,12 +4673,12 @@ class _EditorPageState extends State<EditorPage> {
                       child: GridView.builder(
                         controller: scrollController,
                         padding: const EdgeInsets.all(16),
-                        gridDelegate:
-                            const SliverGridDelegateWithFixedCrossAxisCount(
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                           crossAxisCount: 3,
                           mainAxisSpacing: 12,
                           crossAxisSpacing: 12,
-                          childAspectRatio: 1.15,
+                          mainAxisExtent:
+                              _toolTileExtent(context, iconSize: 24) + 8,
                         ),
                         itemCount: _tools.length,
                         itemBuilder: (context, index) {
@@ -4100,9 +4737,11 @@ class _EditorPageState extends State<EditorPage> {
                                         Text(
                                           tool.label,
                                           textAlign: TextAlign.center,
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
                                           style: TextStyle(
                                             fontFamily: 'NotoSerif',
-                                            fontSize: 11,
+                                            fontSize: 12,
                                             fontWeight: isFav
                                                 ? FontWeight.bold
                                                 : FontWeight.normal,
@@ -4142,40 +4781,79 @@ class _EditorPageState extends State<EditorPage> {
   }
 
   Widget _buildToolsGridView() {
+    final byId = {for (final tool in _tools) tool.id: tool};
     return Container(
       height: 255,
       padding: const EdgeInsets.only(left: 12, right: 12, top: 2, bottom: 8),
-      child: GridView.builder(
-        padding: EdgeInsets.zero,
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 4,
-          mainAxisSpacing: 10,
-          crossAxisSpacing: 10,
-          childAspectRatio: 1.1,
-        ),
-        itemCount: _tools.length,
-        itemBuilder: (context, index) {
-          final tool = _tools[index];
-          return GestureDetector(
-            onTap: () {
-              hapticLight();
-              _activateTool(tool.id, tool.label);
-            },
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.03),
-                    blurRadius: 4,
-                    offset: const Offset(0, 2),
+      child: CustomScrollView(
+        key: const ValueKey('editor-tools-grid'),
+        slivers: [
+          for (final group in _toolGroups) ...[
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(4, 8, 4, 6),
+                child: Text(
+                  group.label,
+                  style: const TextStyle(
+                    fontFamily: 'NotoSerif',
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black54,
                   ),
-                ],
-                border: Border.all(
-                  color: Colors.black.withOpacity(0.04),
                 ),
               ),
+            ),
+            SliverGrid(
+              // 폭 비율이 아니라 아이콘 + 라벨 두 줄 높이로 정한다. 좁은 화면
+              // (타일 폭 약 64dp)에서 비율로 정하면 두 줄 라벨이 넘쳤다.
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 4,
+                mainAxisSpacing: 10,
+                crossAxisSpacing: 10,
+                mainAxisExtent: _toolTileExtent(context, iconSize: 22),
+              ),
+              delegate: SliverChildListDelegate([
+                for (final id in group.toolIds)
+                  if (byId[id] != null) _buildToolTile(byId[id]!),
+              ]),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// 도구 타일 높이: 아이콘 + 간격 + 12pt 라벨 두 줄 + 위아래 여백.
+  /// 시스템 글자 크기 설정을 반영한다.
+  double _toolTileExtent(BuildContext context, {required double iconSize}) {
+    final line = MediaQuery.textScalerOf(context).scale(12) * 1.45;
+    return iconSize + 6 + line * 2 + 14;
+  }
+
+  Widget _buildToolTile(_ToolItem tool) {
+    return GestureDetector(
+      onTap: () {
+        hapticLight();
+        _activateTool(tool.id, tool.label);
+      },
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.03),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
+            ),
+          ],
+          border: Border.all(
+            color: Colors.black.withOpacity(0.04),
+          ),
+        ),
+        child: Stack(
+          children: [
+            Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -4185,21 +4863,28 @@ class _EditorPageState extends State<EditorPage> {
                     color: Colors.black87,
                   ),
                   const SizedBox(height: 6),
-                  Text(
-                    tool.label,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontFamily: 'NotoSerif',
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.black87,
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 2),
+                    child: Text(
+                      tool.label,
+                      textAlign: TextAlign.center,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontFamily: 'NotoSerif',
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87,
+                      ),
                     ),
                   ),
                 ],
               ),
             ),
-          );
-        },
+            if (_isToolModified(tool.id))
+              Positioned(top: 6, right: 6, child: _modifiedDot()),
+          ],
+        ),
       ),
     );
   }
@@ -4219,9 +4904,16 @@ class _EditorPageState extends State<EditorPage> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
-          _buildNavTabItem(_MainNavTab.style, '스타일', Icons.style_outlined),
-          _buildNavTabItem(_MainNavTab.tools, '도구', Icons.grid_view_rounded),
-          _buildNavTabItem(_MainNavTab.export, '내보내기', Icons.ios_share_rounded),
+          // 좁은 화면·큰 글자에서 넘치지 않도록 각 탭이 남는 폭 안에서 줄어든다.
+          Flexible(
+              child: _buildNavTabItem(
+                  _MainNavTab.style, '스타일', Icons.style_outlined)),
+          Flexible(
+              child: _buildNavTabItem(
+                  _MainNavTab.tools, '도구', Icons.grid_view_rounded)),
+          Flexible(
+              child: _buildNavTabItem(
+                  _MainNavTab.export, '내보내기', Icons.ios_share_rounded)),
         ],
       ),
     );
@@ -4247,24 +4939,28 @@ class _EditorPageState extends State<EditorPage> {
           color: active ? const Color(0xFFFFC400) : Colors.transparent,
           borderRadius: BorderRadius.circular(20),
         ),
-        child: Row(
-          children: [
-            Icon(
-              icon,
-              size: 18,
-              color: active ? Colors.black : AppColors.textSecondary,
-            ),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: TextStyle(
-                fontFamily: 'NotoSerif',
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                size: 18,
                 color: active ? Colors.black : AppColors.textSecondary,
               ),
-            ),
-          ],
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  fontFamily: 'NotoSerif',
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: active ? Colors.black : AppColors.textSecondary,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -4339,7 +5035,7 @@ class _EditorPageState extends State<EditorPage> {
                     '누르고 있는 동안 현재 필터/조정 적용 전 화면을 보여줍니다.',
                     style: TextStyle(
                       fontFamily: 'NotoSerif',
-                      fontSize: 11,
+                      fontSize: 12,
                       color: Colors.white70,
                     ),
                   ),
@@ -4410,7 +5106,7 @@ class _EditorPageState extends State<EditorPage> {
                     subtitle,
                     style: TextStyle(
                       fontFamily: 'NotoSerif',
-                      fontSize: 11,
+                      fontSize: 12,
                       color: AppColors.textSecondary,
                     ),
                   ),
@@ -4490,7 +5186,7 @@ class _EditorPageState extends State<EditorPage> {
                           '필터를 길게 누르면 즐겨찾기에 추가/해제할 수 있습니다.',
                           style: TextStyle(
                             fontFamily: 'NotoSerif',
-                            fontSize: 11,
+                            fontSize: 12,
                             color: Colors.black87,
                           ),
                         ),
@@ -4509,7 +5205,7 @@ class _EditorPageState extends State<EditorPage> {
                           S.get('editor.got_it'),
                           style: const TextStyle(
                             fontFamily: 'NotoSerif',
-                            fontSize: 11,
+                            fontSize: 12,
                             color: AppColors.oceanFoam,
                           ),
                         ),
@@ -5268,7 +5964,7 @@ class _EffectChipState extends State<_EffectChip> {
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 fontFamily: 'NotoSerif',
-                fontSize: 10,
+                fontSize: 12,
                 height: 1.1,
                 fontWeight: widget.selected ? FontWeight.bold : FontWeight.w600,
                 color: widget.selected ? Colors.white : Colors.white70,
@@ -5425,7 +6121,7 @@ class _PortraitPanel extends StatelessWidget {
                 child: Text(
                   message,
                   style: const TextStyle(
-                    fontSize: 11,
+                    fontSize: 12,
                     height: 1.35,
                     color: AppColors.textSecondary,
                   ),
@@ -5476,7 +6172,7 @@ class _PortraitPanel extends StatelessWidget {
                   textAlign: TextAlign.right,
                   style: const TextStyle(
                       fontFamily: 'NotoSerif',
-                      fontSize: 11,
+                      fontSize: 12,
                       color: AppColors.textOnDarkTert))),
         ],
       ),
@@ -5732,7 +6428,7 @@ class _CreativePanelState extends State<_CreativePanel> {
                   textAlign: TextAlign.right,
                   style: const TextStyle(
                       fontFamily: 'NotoSerif',
-                      fontSize: 11,
+                      fontSize: 12,
                       color: AppColors.textOnDarkTert))),
         ],
       ),
@@ -5771,7 +6467,7 @@ class _CreativePanelState extends State<_CreativePanel> {
                     child: Text('없음',
                         style: TextStyle(
                             fontFamily: 'NotoSerif',
-                            fontSize: 11,
+                            fontSize: 12,
                             color: AppColors.textOnDarkSub))),
               ),
             );
@@ -5840,7 +6536,7 @@ class _CreativePanelState extends State<_CreativePanel> {
               '사진 위 텍스트를 드래그해 옮기고, 두 손가락으로 크기와 회전을 조절하세요.',
               style: TextStyle(
                 fontFamily: 'NotoSerif',
-                fontSize: 11,
+                fontSize: 12,
                 color: AppColors.textOnDarkTert,
               ),
             ),
@@ -5877,7 +6573,7 @@ class _CreativePanelState extends State<_CreativePanel> {
                       textAlign: TextAlign.right,
                       style: const TextStyle(
                           fontFamily: 'NotoSerif',
-                          fontSize: 11,
+                          fontSize: 12,
                           color: AppColors.textOnDarkTert))),
             ],
           ),
@@ -5924,7 +6620,7 @@ class _CreativePanelState extends State<_CreativePanel> {
                             font,
                             style: TextStyle(
                               fontFamily: font,
-                              fontSize: 11,
+                              fontSize: 12,
                               color: sel
                                   ? AppColors.cloudWhite
                                   : AppColors.textOnDarkSub,
@@ -6025,6 +6721,44 @@ Future<Uint8List> _previewWorker(_PreviewParams p) async {
   );
 }
 
+class _SplitClipper extends CustomClipper<Rect> {
+  final double position;
+
+  const _SplitClipper(this.position);
+
+  @override
+  Rect getClip(Size size) =>
+      Rect.fromLTWH(0, 0, size.width * position, size.height);
+
+  @override
+  bool shouldReclip(_SplitClipper oldClipper) =>
+      oldClipper.position != position;
+}
+
+class _SplitLabel extends StatelessWidget {
+  final String text;
+
+  const _SplitLabel(this.text);
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.black54,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          text,
+          style: const TextStyle(
+              color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700),
+        ),
+      ),
+    );
+  }
+}
+
 class _ToolItem {
   final String id;
   final String label;
@@ -6035,4 +6769,44 @@ class _ToolItem {
     required this.label,
     required this.icon,
   });
+}
+
+/// 도구 격자의 묶음. 순서가 화면 표시 순서다.
+const List<_ToolGroup> _toolGroups = [
+  _ToolGroup('보정', [
+    'tune',
+    'details',
+    'curves',
+    'white_balance',
+    'hsl',
+    'split_toning',
+    'noise',
+  ]),
+  _ToolGroup('구성', ['crop', 'rotate', 'perspective', 'expand']),
+  _ToolGroup('부분·인물', [
+    'selective',
+    'brush',
+    'heal',
+    'sky',
+    'tilt_shift',
+    'lens_blur',
+    'portrait',
+  ]),
+  _ToolGroup('효과', [
+    'vignette',
+    'grain',
+    'glow',
+    'light_leak',
+    'halation',
+    'drama',
+    'hdr_scape',
+  ]),
+  _ToolGroup('합성', ['double_exposure', 'frame', 'text']),
+];
+
+class _ToolGroup {
+  final String label;
+  final List<String> toolIds;
+
+  const _ToolGroup(this.label, this.toolIds);
 }

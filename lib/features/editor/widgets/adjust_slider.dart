@@ -13,6 +13,9 @@ class AdjustSliderItem {
   final ValueChanged<double>? onChangeEnd;
   final Color? accent;
 
+  /// 두 번 탭했을 때 돌아갈 값. 기본은 0(범위 밖이면 가장 가까운 값).
+  final double? neutral;
+
   const AdjustSliderItem({
     required this.label,
     required this.icon,
@@ -23,6 +26,7 @@ class AdjustSliderItem {
     required this.onChanged,
     this.onChangeEnd,
     this.accent,
+    this.neutral,
   });
 }
 
@@ -52,53 +56,61 @@ class AdjustSlider extends StatelessWidget {
 
     return Column(
       children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onDoubleTap: _reset,
+          child: Semantics(
+            hint: '두 번 탭하면 초기값으로 되돌립니다',
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  iconWidget,
-                  const SizedBox(width: 8),
-                  Text(
-                    item.label,
-                    style: const TextStyle(
-                      fontFamily: 'NotoSerif',
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      color: AppColors.textOnDarkSub,
+                  Row(
+                    children: [
+                      iconWidget,
+                      const SizedBox(width: 8),
+                      Text(
+                        item.label,
+                        style: const TextStyle(
+                          fontFamily: 'NotoSerif',
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                          color: AppColors.textOnDarkSub,
+                        ),
+                      ),
+                    ],
+                  ),
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: isNeutral
+                          ? AppColors.oceanNavy
+                          : trackColor.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: isNeutral
+                            ? Colors.transparent
+                            : trackColor.withOpacity(0.4),
+                        width: 0.8,
+                      ),
+                    ),
+                    child: Text(
+                      _formatValue(item.value),
+                      style: TextStyle(
+                        fontFamily: 'NotoSerif',
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color:
+                            isNeutral ? AppColors.textOnDarkTert : trackColor,
+                      ),
                     ),
                   ),
                 ],
               ),
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 150),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: isNeutral
-                      ? AppColors.oceanNavy
-                      : trackColor.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color: isNeutral
-                        ? Colors.transparent
-                        : trackColor.withOpacity(0.4),
-                    width: 0.8,
-                  ),
-                ),
-                child: Text(
-                  _formatValue(item.value),
-                  style: TextStyle(
-                    fontFamily: 'NotoSerif',
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: isNeutral ? AppColors.textOnDarkTert : trackColor,
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
         ),
         const SizedBox(height: 6),
@@ -129,6 +141,15 @@ class AdjustSlider extends StatelessWidget {
         ),
       ],
     );
+  }
+
+  void _reset() {
+    final target = (item.neutral ?? 0).clamp(item.min, item.max).toDouble();
+    if (item.value == target) return;
+    hapticLight();
+    item.onChangeStart?.call(item.value);
+    item.onChanged(target);
+    item.onChangeEnd?.call(target);
   }
 
   String _formatValue(double v) {
@@ -188,7 +209,7 @@ class AdjustParamsPanel extends StatelessWidget {
                         items[i].label,
                         style: TextStyle(
                           fontFamily: 'NotoSerif',
-                          fontSize: 11,
+                          fontSize: 12,
                           fontWeight: FontWeight.w500,
                           color: selected
                               ? AppColors.cloudWhite

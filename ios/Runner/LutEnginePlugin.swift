@@ -38,6 +38,8 @@ import ImageIO
             handleEncodeWebP(call: call, result: result)
         case "supportsWebPEncoding":
             result(Self.supportsWebPEncoding)
+        case "decodeRaw":
+            handleDecodeRaw(call: call, result: result)
         default:
             result(FlutterMethodNotImplemented)
         }
@@ -90,6 +92,59 @@ import ImageIO
                 DispatchQueue.main.async { result(true) }
             } catch {
                 DispatchQueue.main.async { result(false) }
+            }
+        }
+    }
+
+    // MARK: — RAW decode
+
+    /// Develops a camera RAW file (DNG, ProRAW, CR2, NEF, ARW, ...) with Core
+    /// Image's RAW pipeline and writes a full-resolution sRGB JPEG that the Dart
+    /// editor can open. Requires iOS 15; older systems report `unsupported`
+    /// and the Dart side falls back to the embedded preview.
+    private func handleDecodeRaw(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let args = call.arguments as? [String: Any],
+              let inputPath = args["inputPath"] as? String,
+              let outputPath = args["outputPath"] as? String else {
+            result(FlutterError(code: "INVALID_ARG",
+                                message: "inputPath and outputPath required", details: nil))
+            return
+        }
+
+        guard #available(iOS 15.0, *) else {
+            result(FlutterError(code: "UNSUPPORTED",
+                                message: "RAW development needs iOS 15 or later", details: nil))
+            return
+        }
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            guard let rawFilter = CIRAWFilter(imageURL: URL(fileURLWithPath: inputPath)),
+                  let output = rawFilter.outputImage,
+                  let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) else {
+                DispatchQueue.main.async {
+                    result(FlutterError(code: "RAW_DECODE",
+                                        message: "Core Image could not develop this RAW file", details: nil))
+                }
+                return
+            }
+            do {
+                let context = CIContext()
+                try context.writeJPEGRepresentation(
+                    of: output,
+                    to: URL(fileURLWithPath: outputPath),
+                    colorSpace: colorSpace,
+                    options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: 0.95]
+                )
+                let width = Int(output.extent.width)
+                let height = Int(output.extent.height)
+                DispatchQueue.main.async {
+                    result(["path": outputPath, "width": width, "height": height])
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    result(FlutterError(code: "RAW_WRITE",
+                                        message: error.localizedDescription, details: nil))
+                }
             }
         }
     }

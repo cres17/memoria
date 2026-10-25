@@ -117,7 +117,7 @@ void main() {
 
     await tester.tap(find.text('도구'));
     await tester.pump();
-    final toolsGrid = find.byType(GridView);
+    final toolsGrid = find.byKey(const ValueKey('editor-tools-grid'));
     final toolsScrollable = find.descendant(
       of: toolsGrid,
       matching: find.byType(Scrollable),

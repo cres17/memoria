@@ -83,6 +83,24 @@ class EngineChannel {
     }
   }
 
+  /// Develops a camera RAW file into a JPEG (iOS 15+ Core Image).
+  /// Returns null when the platform has no native RAW support.
+  static Future<Map<String, dynamic>?> decodeRaw({
+    required String inputPath,
+    required String outputPath,
+  }) async {
+    try {
+      return await _channel.invokeMapMethod<String, dynamic>('decodeRaw', {
+        'inputPath': inputPath,
+        'outputPath': outputPath,
+      });
+    } on MissingPluginException {
+      return null;
+    } on PlatformException {
+      return null;
+    }
+  }
+
   static Future<bool> supportsWebPEncoding() async {
     try {
       return await _channel.invokeMethod<bool>('supportsWebPEncoding') ?? false;
