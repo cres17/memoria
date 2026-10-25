@@ -27,7 +27,6 @@
 
 ## 편집
 
-<p><img src="https://img.shields.io/badge/MAIN%20FEATURE-7757B2?style=flat-square" alt="MAIN 기능" height="20"></p>
 
 Fuji 18종과 Leica 5종의 LUT 필터를 제공하며, 노출·커브·HSL을 조절할 수 있습니다. 크롭과 원근 보정, 부분 보정, 인물 보정, 텍스트와 프레임도 같은 편집기에 들어 있습니다.
 
@@ -42,7 +41,7 @@ Fuji 18종과 Leica 5종의 LUT 필터를 제공하며, 노출·커브·HSL을 �
 화면은 현재 보정값을 불변 객체인 `EditorRenderRecipe`로 묶습니다. 렌더러는 이 recipe와 이미지 리소스를 받아 픽셀 연산을 수행합니다. 미리보기와 내보내기를 별도 isolate에서 실행해 무거운 작업이 화면 조작을 막지 않도록 했습니다.
 
 | 위치 | 내용 |
-|---|---|
+|:---:|:---:|
 | `lib/features/` | 홈, 편집기, 필터 생성, 필터 목록, 설정 |
 | `lib/engine/` | LUT, 색 보정, 크롭, 블러, 인물 보정, 인코딩 |
 | `lib/ai/` | 모델 설치와 LiteRT 입출력 |
@@ -73,7 +72,6 @@ JPEG·PNG·TIFF는 Dart에서 인코딩하고, iOS의 WebP는 MethodChannel을 �
 
 ## 필터 생성
 
-<p><img src="https://img.shields.io/badge/MAIN%20FEATURE-7757B2?style=flat-square" alt="MAIN 기능" height="20"></p>
 
 ![입력 방식별 필터 생성 과정](docs/assets/readme/workflow.svg)
 
@@ -95,12 +93,11 @@ JPEG·PNG·TIFF는 Dart에서 인코딩하고, iOS의 WebP는 MethodChannel을 �
 
 ## 모델 학습
 
-<p><img src="https://img.shields.io/badge/SUB%20FEATURE-B6A4D5?style=flat-square" alt="SUB 기능" height="20"></p>
 
 학습 파이프라인은 앱 실행과 분리되어 있습니다. 수집한 LUT로 학습 데이터를 만들고, `mobilenetv3_small_100`을 인코더로 사용하는 조건부 LUT 모델을 PyTorch에서 학습합니다.
 
 | 단계 | 스크립트 |
-|---|---|
+|:---:|:---:|
 | 학습 | `20_train_conditional_lut_mvp.py` |
 | 출력 검증용 ONNX 내보내기 | `34_` 스크립트 |
 | LiteRT 변환과 fp16 양자화 | `35_` 스크립트 |
@@ -119,7 +116,7 @@ ONNX는 출력 비교에 사용합니다. 앱에 들어가는 TFLite 모델은 `
 Flutter와 go_router가 화면 이동을 맡습니다. 홈과 필터 목록은 하단 내비게이션을 공유하고 편집·필터 생성·설정은 독립 화면으로 열립니다. iOS에서는 Cupertino 방식으로 전환합니다. 개발 패널은 디버그 빌드에서만 라우트에 등록됩니다.
 
 | 기술 | 맡은 기능 |
-|---|---|
+|:---:|:---:|
 | Flutter · go_router | 홈, 필터 목록, 편집, 필터 생성, 설정의 이동과 화면 구성 |
 | photo_manager · image_picker | 사진 보관함 접근과 입력 사진 선택 |
 | permission_handler | 사진 접근 권한 요청 |
@@ -133,7 +130,7 @@ Flutter와 go_router가 화면 이동을 맡습니다. 홈과 필터 목록은 �
 편집 화면은 보정값을 `EditorRenderRecipe`로 전달하고 엔진은 그 값에 따라 픽셀을 계산합니다. 미리보기와 저장을 별도 isolate로 실행해 화면 조작과 무거운 처리를 분리합니다. 이 과정에서 사진을 서버로 올려 편집하지 않습니다.
 
 | 기술 | 맡은 기능 |
-|---|---|
+|:---:|:---:|
 | Dart isolate | 미리보기와 원본 렌더링의 연산 분리 |
 | LUT · 보정 recipe | 필터 색 변환과 노출·커브·HSL 등 편집값 표현 |
 | flutter_litert · LiteRT/TFLite | 설치된 모델의 기기 내 추론 |
