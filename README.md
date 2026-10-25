@@ -99,6 +99,49 @@ ONNX는 출력 비교에 사용합니다. 앱에 들어가는 TFLite 모델은 `
 
 데이터 준비부터 평가까지의 명령은 [학습 파이프라인 문서](ml_pipeline/README.md)에 정리되어 있습니다.
 
+## 기술별 역할
+
+![기술 구성과 담당 기능](docs/assets/readme/components.svg)
+
+### 화면과 사진 입출력
+
+Flutter와 go_router가 화면 이동을 맡습니다. 홈과 필터 목록은 하단 내비게이션을 공유하고 편집·필터 생성·설정은 독립 화면으로 열립니다. iOS에서는 Cupertino 방식으로 전환합니다. 개발 패널은 디버그 빌드에서만 라우트에 등록됩니다.
+
+| 기술 | 맡은 기능 |
+|---|---|
+| Flutter · go_router | 홈, 필터 목록, 편집, 필터 생성, 설정의 이동과 화면 구성 |
+| photo_manager · image_picker | 사진 보관함 접근과 입력 사진 선택 |
+| permission_handler | 사진 접근 권한 요청 |
+| gal · share_plus | 완성한 사진을 보관함에 저장하거나 다른 앱으로 공유 |
+| image | Dart 이미지 디코딩·픽셀 처리·JPEG/PNG/TIFF 인코딩 |
+| SharedPreferences | 편집 초안과 로컬 설정 유지 |
+| path_provider · JSON 파일 | 사용자 필터의 LUT·썸네일·recipe·metadata를 앱 문서 폴더에 보관 |
+
+### 렌더링과 모델 실행
+
+편집 화면은 보정값을 `EditorRenderRecipe`로 전달하고 엔진은 그 값에 따라 픽셀을 계산합니다. 미리보기와 저장을 별도 isolate로 실행해 화면 조작과 무거운 처리를 분리합니다. 이 과정에서 사진을 서버로 올려 편집하지 않습니다.
+
+| 기술 | 맡은 기능 |
+|---|---|
+| Dart isolate | 미리보기와 원본 렌더링의 연산 분리 |
+| LUT · 보정 recipe | 필터 색 변환과 노출·커브·HSL 등 편집값 표현 |
+| flutter_litert · LiteRT/TFLite | 설치된 모델의 기기 내 추론 |
+| MediaPipe Selfie Segmenter | 부분 보정에 사용할 인물 전체 영역 마스크 생성 |
+| Swift · MethodChannel | Dart와 iOS 네이티브 이미지 처리 연결 |
+| Core Image · CIColorCube | 네이티브 LUT 적용 경로 |
+| ImageIO | iOS 네이티브 이미지 인코딩, WebP 출력 경로 |
+| HTTP · crypto | 모델 다운로드와 무결성 확인에 사용하는 구성 요소 |
+
+MediaPipe 모델은 필요할 때 내려받아 보관합니다. 필터 생성 방식마다 사용하는 입력과 모델이 다르므로, 참조 사진 한 장·여러 장·보정 전후 사진 쌍의 흐름은 위의 필터 생성 절에서 따로 설명했습니다.
+
+### 학습·배포와 광고
+
+PyTorch·torchvision·timm은 학습 모델과 이미지 특징 추출에, NumPy·SciPy는 수치 처리에 사용합니다. Pillow와 imageio는 학습 이미지를 읽고 변환합니다. ONNX와 ONNX Runtime으로 변환·실행을 확인하고 TFLite 변환은 별도 환경에서 수행합니다. 학습 코드는 [ml_pipeline](ml_pipeline), 앱의 추론 연결은 [lib/ai](lib/ai)에 있습니다.
+
+google_mobile_ads의 광고는 [feature_flags_service.dart](lib/monetization/feature_flags_service.dart)에서 제어합니다. 배너, 필터 생성 뒤 전면 광고, 적용·내보내기 뒤 전면 광고가 각각 별도 설정입니다. 기본값은 꺼짐이고 웹에서는 배너를 항상 끕니다. 사진 편집·필터 생성 기능과 광고 노출 조건을 분리해 두었습니다.
+
+화면 코드는 [lib/features](lib/features), 렌더러는 [lib/engine](lib/engine), 네이티브 연결은 [LutEnginePlugin.swift](ios/Runner/LutEnginePlugin.swift)에 있습니다. Flutter 테스트와 통합 테스트, iOS 빌드 워크플로우로 앱 변경을 확인합니다.
+
 ## 실행
 
 CI에서 사용하는 Flutter `3.44.6` stable을 기준으로 합니다. 앱에 필요한 LUT, 썸네일과 색 변환 모델은 저장소에 포함되어 있습니다.
