@@ -1,0 +1,289 @@
+{
+  "environment": "iOS Simulator host GPU",
+  "exports": [
+    {
+      "gpu": false,
+      "total_ms": 22190.085,
+      "timings": [
+        {
+          "phase": "read_decode_orientation",
+          "ms": 718.073
+        },
+        {
+          "phase": "spatial_visual_pipeline",
+          "ms": 20672.692
+        },
+        {
+          "phase": "encode_write",
+          "ms": 788.303
+        }
+      ]
+    },
+    {
+      "gpu": true,
+      "total_ms": 4724.602,
+      "timings": [
+        {
+          "phase": "read_decode_orientation",
+          "ms": 611.292
+        },
+        {
+          "op": "noise",
+          "pack_ms": 4.475,
+          "unpack_ms": 20.586,
+          "roundtrip_ms": 218.876,
+          "bytes_each_way": 36288576,
+          "native": {
+            "allocation_copy_submit_ms": 145.12068953445123,
+            "tiles": 16,
+            "gpu": "Apple iOS simulator GPU",
+            "native_wall_ms": 158.06198120117188,
+            "kernel_ms": 12.941291666720645,
+            "math": "fast"
+          }
+        },
+        {
+          "op": "blur",
+          "pack_ms": 5.711,
+          "unpack_ms": 20.772,
+          "roundtrip_ms": 104.502,
+          "bytes_each_way": 36288576,
+          "native": {
+            "gpu": "Apple iOS simulator GPU",
+            "math": "precise",
+            "kernel_ms": 3.697583333291732,
+            "allocation_copy_submit_ms": 33.6374548518279,
+            "native_wall_ms": 37.33503818511963,
+            "tiles": 1
+          }
+        },
+        {
+          "phase": "spatial_visual_pipeline",
+          "ms": 2780.454
+        },
+        {
+          "phase": "encode_write",
+          "ms": 823.114
+        }
+      ]
+    }
+  ],
+  "run_url": "https://github.com/cres17/memoria/actions/runs/40166810087",
+  "head_sha": "88e219c",
+  "parity_scope": "Two original photos resized to width 320; RGBA channel metrics include alpha; five legacy reference contracts plus app-assets CPU/GPU parity",
+  "export_scope": "Original photo 1 (3012x4016), NR 100/100 plus sharpen 20, JPEG quality 90, one complete export per mode",
+  "pixel_comparisons": [
+    {
+      "photo": 0,
+      "op": "noise",
+      "config": [
+        25.0,
+        25.0,
+        0.0
+      ],
+      "max_abs": 1,
+      "mean_abs": 1.829625292740047e-05,
+      "p99": 0,
+      "frac_nonzero": 1.829625292740047e-05,
+      "frac_gt1": 0.0
+    },
+    {
+      "photo": 0,
+      "op": "noise",
+      "config": [
+        100.0,
+        100.0,
+        0.0
+      ],
+      "max_abs": 1,
+      "mean_abs": 2.927400468384075e-05,
+      "p99": 0,
+      "frac_nonzero": 2.927400468384075e-05,
+      "frac_gt1": 0.0
+    },
+    {
+      "photo": 0,
+      "op": "noise",
+      "config": [
+        35.0,
+        0.0,
+        40.0
+      ],
+      "max_abs": 1,
+      "mean_abs": 1.646662763466042e-05,
+      "p99": 0,
+      "frac_nonzero": 1.646662763466042e-05,
+      "frac_gt1": 0.0
+    },
+    {
+      "photo": 0,
+      "op": "noise",
+      "config": [
+        0.0,
+        70.0,
+        50.0
+      ],
+      "max_abs": 1,
+      "mean_abs": 9.148126463700234e-06,
+      "p99": 0,
+      "frac_nonzero": 9.148126463700234e-06,
+      "frac_gt1": 0.0
+    },
+    {
+      "photo": 0,
+      "op": "noise",
+      "config": [
+        75.0,
+        65.0,
+        75.0
+      ],
+      "max_abs": 1,
+      "mean_abs": 1.646662763466042e-05,
+      "p99": 0,
+      "frac_nonzero": 1.646662763466042e-05,
+      "frac_gt1": 0.0
+    },
+    {
+      "photo": 0,
+      "op": "blur",
+      "radius": 1,
+      "max_abs": 1,
+      "mean_abs": 0.030168691451990633,
+      "p99": 1,
+      "frac_nonzero": 0.030168691451990633,
+      "frac_gt1": 0.0
+    },
+    {
+      "photo": 0,
+      "op": "blur",
+      "radius": 5,
+      "max_abs": 1,
+      "mean_abs": 0.026606411007025762,
+      "p99": 1,
+      "frac_nonzero": 0.026606411007025762,
+      "frac_gt1": 0.0
+    },
+    {
+      "photo": 0,
+      "op": "blur",
+      "radius": 20,
+      "max_abs": 1,
+      "mean_abs": 0.032208723653395784,
+      "p99": 1,
+      "frac_nonzero": 0.032208723653395784,
+      "frac_gt1": 0.0
+    },
+    {
+      "photo": 1,
+      "op": "noise",
+      "config": [
+        25.0,
+        25.0,
+        0.0
+      ],
+      "max_abs": 1,
+      "mean_abs": 2.0125878220140515e-05,
+      "p99": 0,
+      "frac_nonzero": 2.0125878220140515e-05,
+      "frac_gt1": 0.0
+    },
+    {
+      "photo": 1,
+      "op": "noise",
+      "config": [
+        100.0,
+        100.0,
+        0.0
+      ],
+      "max_abs": 1,
+      "mean_abs": 2.378512880562061e-05,
+      "p99": 0,
+      "frac_nonzero": 2.378512880562061e-05,
+      "frac_gt1": 0.0
+    },
+    {
+      "photo": 1,
+      "op": "noise",
+      "config": [
+        35.0,
+        0.0,
+        40.0
+      ],
+      "max_abs": 1,
+      "mean_abs": 1.829625292740047e-05,
+      "p99": 0,
+      "frac_nonzero": 1.829625292740047e-05,
+      "frac_gt1": 0.0
+    },
+    {
+      "photo": 1,
+      "op": "noise",
+      "config": [
+        0.0,
+        70.0,
+        50.0
+      ],
+      "max_abs": 1,
+      "mean_abs": 9.148126463700234e-06,
+      "p99": 0,
+      "frac_nonzero": 9.148126463700234e-06,
+      "frac_gt1": 0.0
+    },
+    {
+      "photo": 1,
+      "op": "noise",
+      "config": [
+        75.0,
+        65.0,
+        75.0
+      ],
+      "max_abs": 1,
+      "mean_abs": 3.6592505854800937e-06,
+      "p99": 0,
+      "frac_nonzero": 3.6592505854800937e-06,
+      "frac_gt1": 0.0
+    },
+    {
+      "photo": 1,
+      "op": "blur",
+      "radius": 1,
+      "max_abs": 1,
+      "mean_abs": 0.02620389344262295,
+      "p99": 1,
+      "frac_nonzero": 0.02620389344262295,
+      "frac_gt1": 0.0
+    },
+    {
+      "photo": 1,
+      "op": "blur",
+      "radius": 5,
+      "max_abs": 1,
+      "mean_abs": 0.025656835480093676,
+      "p99": 1,
+      "frac_nonzero": 0.025656835480093676,
+      "frac_gt1": 0.0
+    },
+    {
+      "photo": 1,
+      "op": "blur",
+      "radius": 20,
+      "max_abs": 1,
+      "mean_abs": 0.03221604215456674,
+      "p99": 1,
+      "frac_nonzero": 0.03221604215456674,
+      "frac_gt1": 0.0
+    }
+  ],
+  "reference_comparisons": [
+    "GPU_REFERENCE_APP tone_balance mean=0.000 p99=0 changed>8=0.00% drift>2=0.00% block=0.00",
+    "GPU_REFERENCE tone_balance mean=0.000 p99=0 changed>8=0.00% drift>2=0.00% block=0.00",
+    "GPU_REFERENCE_APP film_look mean=0.000 p99=0 changed>8=0.00% drift>2=0.00% block=0.00",
+    "GPU_REFERENCE film_look mean=0.000 p99=0 changed>8=0.00% drift>2=0.00% block=0.00",
+    "GPU_REFERENCE_APP sky_cooler mean=0.000 p99=0 changed>8=0.00% drift>2=0.00% block=0.00",
+    "GPU_REFERENCE sky_cooler mean=0.000 p99=0 changed>8=0.00% drift>2=0.00% block=0.00",
+    "GPU_REFERENCE_APP local_dodge_burn_selective mean=0.000 p99=0 changed>8=0.00% drift>2=0.00% block=0.00",
+    "GPU_REFERENCE local_dodge_burn_selective mean=0.000 p99=0 changed>8=0.00% drift>2=0.00% block=0.00",
+    "GPU_REFERENCE_APP tilt_shift_heal mean=0.000 p99=0 changed>8=0.00% drift>2=0.00% block=0.01",
+    "GPU_REFERENCE tilt_shift_heal mean=0.000 p99=0 changed>8=0.00% drift>2=0.00% block=0.01"
+  ]
+}

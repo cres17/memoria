@@ -95,7 +95,13 @@ class GpuOps {
       if (op.kind == 'blur') {
         // fastGaussianBlur mutates its argument. Preserve object identity and
         // existing compositing behavior after a validated successful reply.
+        final commit = Stopwatch()..start();
         op.input.toUint8List().setAll(0, output.toUint8List());
+        onTiming?.call({
+          'phase': 'dart_blur_copy_back',
+          'ms': commit.elapsedMicroseconds / 1000,
+          'bytes': output.toUint8List().length
+        });
         op.result = op.input;
       } else {
         op.result = output;

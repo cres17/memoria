@@ -75,14 +75,30 @@ read/decode/orientation, spatial/visual processing, encoding and file write.
 Native telemetry separates summed GPU command-buffer time from native wall time;
 the difference includes allocation, copying, submission and synchronization and
 must not be labeled pure copy time. Dart telemetry records packing, unpacking,
-round-trip wall time and byte count. `scripts/check_gpu_perf.py` rejects missing
+round-trip wall time, blur copy-back time and byte count. `scripts/check_gpu_perf.py` rejects missing
 measurements and CPU fallback, then saves `build/ios-gpu-export.json`.
 
-The first simulator performance run is observational. `ci/perf_budgets.json`
-records that a measured app-path baseline is pending; it intentionally contains
-no invented millisecond threshold. Simulator measurements are CI-host GPU
-measurements, not iPhone measurements. Do not enable production before physical
-iPhone correctness, memory and end-to-end latency checks.
+The first successful simulator run at `88e219c` measured a complete 12MP export
+(NR 100/100 + sharpen 20, JPEG quality 90) once per mode:
+
+| Phase (ms) | CPU | GPU enabled |
+|---|---:|---:|
+| Complete service call | 22190.085 | 4724.602 |
+| Read/decode/orientation | 718.073 | 611.292 |
+| Spatial/visual pipeline | 20672.692 | 2780.454 |
+| Encode/write | 788.303 | 823.114 |
+
+The complete-call ratio is 4.697. These are debug integration-test timings on a
+CI-host simulator, not iPhone results or AOT benchmark medians. The complete
+service call includes worker startup and other overhead outside the phase timers.
+`ci/perf_budgets.json` sets a **policy ceiling** of 14174ms (ceil of measured GPU
+4724.602ms × 3 for shared-CI noise). That ceiling is not a measured runtime.
+`scripts/check_gpu_perf.py` enforces it and preserves the raw timing payload.
+Do not enable production before physical iPhone correctness, memory and
+end-to-end latency checks.
+
+Primitive parity uses the two photos resized to width 320. Its RGBA channel
+metrics include alpha; full-resolution 12MP native Mac evidence is separate.
 
 ## Verified locally / pending
 
@@ -94,6 +110,9 @@ iPhone correctness, memory and end-to-end latency checks.
   NR A/B max=1; blur r5 max=2; blur r20 max=1. This was a single native invocation
   per case including tiled allocation/copy work, not the original benchmark's
   warm median and not an iOS MethodChannel measurement.
+- iOS GPU integration CI passed at `88e219c`: 16 primitive comparisons, real
+  background channels, five app-asset CPU/GPU comparisons, five legacy reference
+  comparisons and complete export service timing. [Run](https://github.com/cres17/memoria/actions/runs/40166810087).
 - Local Xcode Metal asset discovery failed despite downloading the component.
   The Apple toolchain image was mounted read-only to compile and validate the
   native Mac module. Local Runner simulator build failed before app compilation: CoreSimulator
