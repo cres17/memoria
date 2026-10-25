@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:memoria/domain/models/adjust_params.dart';
 import 'package:memoria/domain/models/edit_operation.dart';
-import 'package:memoria/features/editor/editor_edit_state.dart';
 
 /// 저장된 편집 기록·초안 JSON은 앱을 업데이트해도 읽혀야 한다.
 ///
