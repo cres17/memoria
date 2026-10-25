@@ -18,36 +18,36 @@ dependencies:
   go_router: ^18.1.1
 
   # Storage & Files
-  shared_preferences: ^2.2.3
+  shared_preferences: ^2.5.6
   path_provider: ^2.1.3
 
   # Image handling
-  image_picker: ^1.1.2
+  image_picker: ^1.2.4
   photo_manager: ^3.7.1
-  image: ^4.1.7
+  image: ^4.12.0
 
   # Ads
-  google_mobile_ads: ^9.1.0
+  google_mobile_ads: ^9.2.0
 
   # AI / LiteRT (SPM-capable successor to tflite_flutter)
-  flutter_litert: ^3.8.0
+  flutter_litert: ^3.9.4
 
   # Network (model download)
   http: ^1.2.1
   crypto: ^3.0.3
 
   # Permissions
-  permission_handler: ^11.3.1
+  permission_handler: ^13.0.2
 
   # Gallery save
-  gal: ^2.3.0
+  gal: ^2.3.3
 
   # Network status
   connectivity_plus: ^6.0.5
-  share_plus: ^10.1.0
+  share_plus: ^13.3.1
 
   # Utilities
-  uuid: ^4.4.0
+  uuid: ^4.6.0
 
 dev_dependencies:
   flutter_test:

@@ -110,7 +110,7 @@ class EditorMediaExportCoordinator {
         _saveToGallery = saveToGallery ?? Gal.putImage,
         _share = share ??
             ((path) async {
-              await Share.shareXFiles([XFile(path)]);
+              await SharePlus.instance.share(ShareParams(files: [XFile(path)]));
             }),
         _scheduleSharedCleanup =
             scheduleSharedCleanup ?? _scheduleDefaultSharedCleanup {
