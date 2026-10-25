@@ -31,7 +31,9 @@ jobs:
           xcodebuild -downloadComponent metalToolchain
           xcrun metal --version
       - name: Test actual native GPU and export worker
-        run: python3 scripts/run_ios_gpu_ci.py
+        run: |
+          python3 -B scripts/test_gpu_ci_startup.py
+          python3 scripts/run_ios_gpu_ci.py
       - name: Verify Web keeps CPU without accessing isolate tokens
         run: flutter test --no-pub --platform chrome test/engine/gpu_isolate_context_test.dart
       - name: Upload GPU measurements and diagnostics
@@ -40,7 +42,7 @@ jobs:
         with:
           name: ios-gpu-simulator-evidence
           path: |
-            build/ios-gpu-integration.log
+            build/ios-gpu-integration*.log
             build/ios-gpu-export.json
             build/ios-gpu-host.json
   build-ios:

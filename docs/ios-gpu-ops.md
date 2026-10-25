@@ -63,6 +63,12 @@ original integration tests. The added iOS GPU test is excluded only from that
 cross-platform list and is mandatory in the separate GPU CI job. This avoids
 compiling its generated photo fixtures into Android tests or duplicating the
 12MP performance run. `bash scripts/run_device_tests.sh --list` prints the list.
+The GPU harness selects the newest available iOS runtime and flushes verbose
+logs as they arrive. If a built simulator app does not start its test body within
+180 seconds, it reboots that simulator and retries once. Pixel assertions, test
+failures and performance-budget failures are not retried or relaxed. Both
+attempt logs are retained. Host GPU information comes from native timing replies;
+an extra `system_profiler` display query is not required on virtual CI hosts.
 
 The iOS integration test uses both committed source photos and the five existing
 visual references. `tool/prepare_gpu_test_photos.py` embeds them into a generated,
