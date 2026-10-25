@@ -15,7 +15,9 @@ class DiagnosticsExport {
     List<String> Function()? readLogs,
     DateTime Function()? now,
   })  : _temporaryDirectory = temporaryDirectory ?? getTemporaryDirectory,
-        _share = share ?? ((path) => Share.shareXFiles([XFile(path)])),
+        _share = share ??
+            ((path) =>
+                SharePlus.instance.share(ShareParams(files: [XFile(path)]))),
         _readLogs = readLogs ?? (() => ErrorLogger.logs),
         _now = now ?? DateTime.now;
 
