@@ -1,20 +1,21 @@
 <h1 align="center">Memoria</h1>
 
-<div align="center">
+<p align="center">
+  <a href="https://github.com/cres17/memoria/actions/workflows/ios-build.yml"><img src="https://github.com/cres17/memoria/actions/workflows/ios-build.yml/badge.svg?branch=main" alt="iOS Build" height="20"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-2EA44F" alt="MIT License" height="20"></a>
+</p>
 
-[![iOS Build](https://github.com/cres17/memoria/actions/workflows/ios-build.yml/badge.svg?branch=main)](https://github.com/cres17/memoria/actions/workflows/ios-build.yml)
-[![MIT License](https://img.shields.io/badge/License-MIT-2EA44F)](LICENSE)
-
-![Flutter](https://img.shields.io/badge/Flutter-02569B?style=flat&logoColor=white&logo=flutter)
-![LiteRT / TFLite](https://img.shields.io/badge/LiteRT%20%2F%20TFLite-FF6F00?style=flat&logoColor=white&logo=tensorflow)
-![MediaPipe](https://img.shields.io/badge/MediaPipe-0097A7?style=flat&logoColor=white&logo=mediapipe)
-![Swift](https://img.shields.io/badge/Swift-F05138?style=flat&logoColor=white&logo=swift)
-![Core Image](https://img.shields.io/badge/Core%20Image-000000?style=flat&logoColor=white)
-![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=flat&logoColor=white&logo=pytorch)
-![ONNX](https://img.shields.io/badge/ONNX-005CED?style=flat&logoColor=white&logo=onnx)
-![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-2088FF?style=flat&logoColor=white&logo=githubactions)
-
-</div>
+<p align="center">
+  <img src="https://img.shields.io/badge/Flutter-02569B?style=flat&amp;logoColor=white&amp;logo=flutter" alt="Flutter" height="20">
+  <img src="https://img.shields.io/badge/LiteRT%20%2F%20TFLite-FF6F00?style=flat&amp;logoColor=white&amp;logo=tensorflow" alt="LiteRT / TFLite" height="20">
+  <img src="https://img.shields.io/badge/MediaPipe-0097A7?style=flat&amp;logoColor=white&amp;logo=mediapipe" alt="MediaPipe" height="20">
+  <img src="https://img.shields.io/badge/Swift-F05138?style=flat&amp;logoColor=white&amp;logo=swift" alt="Swift" height="20">
+  <br>
+  <img src="https://img.shields.io/badge/Core%20Image-000000?style=flat&amp;logoColor=white" alt="Core Image" height="20">
+  <img src="https://img.shields.io/badge/PyTorch-EE4C2C?style=flat&amp;logoColor=white&amp;logo=pytorch" alt="PyTorch" height="20">
+  <img src="https://img.shields.io/badge/ONNX-005CED?style=flat&amp;logoColor=white&amp;logo=onnx" alt="ONNX" height="20">
+  <img src="https://img.shields.io/badge/GitHub%20Actions-2088FF?style=flat&amp;logoColor=white&amp;logo=githubactions" alt="GitHub Actions" height="20">
+</p>
 
 사진을 편집하고, 마음에 드는 사진의 색감을 필터로 만들어 보관하는 앱입니다. 편집과 필터 생성은 기기 안에서 처리합니다. iOS를 기준으로 개발하고 있으며 Android 프로젝트도 포함되어 있습니다.
 
