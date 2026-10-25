@@ -17,7 +17,7 @@ Pillow>=13.0.0
 imageio>=2.38.1
 
 # 학습 유틸
-tqdm>=4.66.3
+tqdm>=4.70.1
 
 # ONNX 변환
 onnx>=1.22.0
