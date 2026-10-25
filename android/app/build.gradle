@@ -27,7 +27,7 @@ def admobAppId = System.getenv("ADMOB_ANDROID_APP_ID") ?: (project.findProperty(
 
 android {
     namespace "com.memoria.photofilter"
-    compileSdk 36
+    compileSdk 37
     ndkVersion flutter.ndkVersion
 
     compileOptions {
