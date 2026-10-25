@@ -17,7 +17,7 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
         with:
           flutter-version: '3.44.6'
@@ -41,7 +41,7 @@ jobs:
         run: flutter test --no-pub --platform chrome test/engine/gpu_isolate_context_test.dart
       - name: Upload GPU measurements and diagnostics
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: ios-gpu-simulator-evidence
           path: |
@@ -53,7 +53,7 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           lfs: true
@@ -103,7 +103,7 @@ jobs:
       # 기준 이미지 비교가 실패하면 실제 결과와 차이 이미지를 내려받아 눈으로 확인할 수 있게 한다.
       - name: Upload visual diff on failure
         if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: visual-diff
           path: build/visual_diff
@@ -115,7 +115,7 @@ jobs:
         run: python3 scripts/check_coverage.py coverage/lcov.info --min 58
 
       - name: Upload coverage
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: memoria-flutter-coverage
           path: coverage/lcov.info
@@ -141,13 +141,13 @@ jobs:
           case "$id" in ca-app-pub-*~*) ;; *) echo "::error::AdMob app id was not substituted"; exit 1;; esac
 
       - name: Upload IPA artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: memoria-unsigned-ipa
           path: build/ios/iphoneos/Runner.app
 
       - name: Upload build logs
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ios-build-logs
           path: build_ipa_verbose.log
