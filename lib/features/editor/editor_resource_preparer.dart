@@ -19,6 +19,19 @@ class EditorPortraitMaskResource {
   });
 }
 
+/// 하늘 분할 모델의 마스크(정규화 좌표, 보통 320×320).
+class EditorSkyMaskResource {
+  final Float32List data;
+  final int width;
+  final int height;
+
+  const EditorSkyMaskResource({
+    required this.data,
+    required this.width,
+    required this.height,
+  });
+}
+
 class EditorResourcePreparationRequest {
   final EditorRenderRecipe recipe;
   final img.Image maskSource;
@@ -29,6 +42,9 @@ class EditorResourcePreparationRequest {
   final bool preparePortraitMask;
   final bool prepareTextOverlay;
 
+  /// 하늘 보정이 켜져 있고 하늘 분할 모델을 쓸 수 있을 때만 true.
+  final bool prepareSkyMask;
+
   const EditorResourcePreparationRequest({
     required this.recipe,
     required this.maskSource,
@@ -38,6 +54,7 @@ class EditorResourcePreparationRequest {
     required this.blendImagePath,
     required this.preparePortraitMask,
     required this.prepareTextOverlay,
+    this.prepareSkyMask = false,
   });
 }
 
@@ -67,6 +84,8 @@ typedef EditorFrameLoader = Future<Uint8List?> Function(int index);
 typedef EditorBlendLoader = Future<Uint8List?> Function(String path);
 typedef EditorPortraitMaskLoader = Future<EditorPortraitMaskResource?> Function(
     img.Image source, String sourceKey);
+typedef EditorSkyMaskLoader = Future<EditorSkyMaskResource?> Function(
+    img.Image source, String sourceKey);
 
 /// Prepares all non-recipe renderer inputs in an explicit coordinate space.
 ///
@@ -76,14 +95,17 @@ class EditorResourcePreparer {
   final EditorFrameLoader _loadFrame;
   final EditorBlendLoader _loadBlend;
   final EditorPortraitMaskLoader _loadPortraitMask;
+  final EditorSkyMaskLoader? _loadSkyMask;
 
   const EditorResourcePreparer({
     required EditorFrameLoader loadFrame,
     required EditorBlendLoader loadBlend,
     required EditorPortraitMaskLoader loadPortraitMask,
+    EditorSkyMaskLoader? loadSkyMask,
   })  : _loadFrame = loadFrame,
         _loadBlend = loadBlend,
-        _loadPortraitMask = loadPortraitMask;
+        _loadPortraitMask = loadPortraitMask,
+        _loadSkyMask = loadSkyMask;
 
   Future<EditorPreparedResources> prepare(
     EditorResourcePreparationRequest request,
@@ -112,6 +134,16 @@ class EditorResourcePreparer {
       EditorResourceFailureKind.portraitMask,
       maskFuture,
     );
+    // 하늘 모델은 선택 기능이다. 실패하면 오류로 멈추지 않고 색 기반 인식으로 되돌아간다.
+    EditorSkyMaskResource? skyMask;
+    final skyLoader = _loadSkyMask;
+    if (request.prepareSkyMask && skyLoader != null) {
+      try {
+        skyMask = await skyLoader(request.maskSource, request.maskSourceKey);
+      } catch (_) {
+        skyMask = null;
+      }
+    }
     final textBytes = await _load(
       EditorResourceFailureKind.textOverlay,
       _prepareTextOverlay(request),
@@ -123,6 +155,9 @@ class EditorResourcePreparer {
         segmentMask: mask?.data,
         segmentMaskWidth: mask?.width ?? 0,
         segmentMaskHeight: mask?.height ?? 0,
+        skyMask: skyMask?.data,
+        skyMaskWidth: skyMask?.width ?? 0,
+        skyMaskHeight: skyMask?.height ?? 0,
         blendImageBytes: blendBytes,
         frameBytes: frameBytes,
         textOverlayBytes: textBytes,

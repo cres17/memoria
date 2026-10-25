@@ -24,6 +24,7 @@ import 'package:memoria/domain/models/custom_adjustment.dart';
 import 'package:memoria/engine/blend_modes.dart' as bm;
 import 'package:memoria/ai/ai_manager.dart';
 import 'package:memoria/ai/models/segmenter.dart';
+import 'package:memoria/ai/models/sky_segmenter.dart';
 import 'package:memoria/engine/portrait_engine.dart';
 import 'package:memoria/domain/models/adjust_params.dart';
 import 'package:memoria/domain/models/editor_look.dart';
@@ -554,6 +555,7 @@ class _EditorPageState extends State<EditorPage> {
       _editState.skyWarmth == 0;
 
   EditorRenderRecipe _currentRenderRecipe({
+    bool forExport = false,
     AdjustParams? adjustParams,
     Uint8List? lutBytes,
     bool overrideLutBytes = false,
@@ -561,7 +563,10 @@ class _EditorPageState extends State<EditorPage> {
   }) =>
       _currentEditorState().toRenderRecipe(
         // 하늘 도구를 열고 값이 0일 때는 인식한 영역을 붉게 보여 준다.
-        skyShowMask: _isToolActive && _activeToolId == 'sky' && _skyNeutral,
+        skyShowMask: !forExport &&
+            _isToolActive &&
+            _activeToolId == 'sky' &&
+            _skyNeutral,
         lutBytes: _lutBytes,
         cropAspectRatio: _currentCropRect(),
         adjustParamsOverride: adjustParams,
@@ -740,6 +745,13 @@ class _EditorPageState extends State<EditorPage> {
   Float32List? _segmentMask; // cached mask for current preview base image
   String? _segmentMaskBaseKey; // preview base key the mask was computed for
 
+  // 하늘 분할 모델(선택 설치). 없거나 실패하면 색 기반 인식으로 동작한다.
+  SkySegmenter? _skySegmenter;
+  final Map<String, EditorSkyMaskResource> _skyMaskCache = {};
+  bool _skyModelFailed = false;
+  bool _skyModelReady = false;
+  String _skyModelSignature = '';
+
   /// Isolate 전달용: 크롭 비율을 double?으로 변환.
   double? _currentCropRect() => _resolvedCropAspectRatio();
 
@@ -773,7 +785,12 @@ class _EditorPageState extends State<EditorPage> {
       loadFrame: _loadFrameBytes,
       loadBlend: _loadBlendImageBytesForPath,
       loadPortraitMask: _preparePortraitMask,
+      loadSkyMask: _prepareSkyMask,
     );
+    AiManager.instance.addListener(_onAiModelChanged);
+    unawaited(AiManager.instance
+        .restoreIfInstalled(kModelSkySeg)
+        .then((_) => _onAiModelChanged()));
     _allPresets = BuiltinPresets.all;
     _loadEditorState();
     setStatusBarForDark();
@@ -784,6 +801,7 @@ class _EditorPageState extends State<EditorPage> {
     _previewDebounce?.cancel();
     _draftSaveDebounce?.cancel();
     _saveDraft();
+    AiManager.instance.removeListener(_onAiModelChanged);
     _segmenter?.dispose();
     _transformationController.dispose();
     _liveParamsNotifier.dispose();
@@ -1416,6 +1434,7 @@ class _EditorPageState extends State<EditorPage> {
         _editState.skySaturation.toStringAsFixed(1),
         _editState.skyWarmth.toStringAsFixed(1),
         _isToolActive && _activeToolId == 'sky' && _skyNeutral,
+        _skyModelWanted,
         // Dodge / burn
         _dbActive,
         _dodgeStrength.toStringAsFixed(2), _dodgeY.toStringAsFixed(3),
@@ -1497,6 +1516,134 @@ class _EditorPageState extends State<EditorPage> {
       _portraitSmooth > 0 ||
       _portraitSpotlight > 0 ||
       _skinTone != SkinTone.none;
+
+  void _onAiModelChanged() {
+    final state = AiManager.instance.stateOf(kModelSkySeg.key);
+    final ready = state.status == ModelStatus.ready;
+    if (!mounted) return;
+    // 다른 모델의 진행 알림이나 같은 퍼센트의 반복 알림으로 화면 전체를 다시 그리지 않는다.
+    final signature = '${state.status.name}:${(state.progress * 100).floor()}';
+    if (signature == _skyModelSignature && ready == _skyModelReady) return;
+    _skyModelSignature = signature;
+    if (ready != _skyModelReady) {
+      _skyModelReady = ready;
+      _skyModelFailed = false;
+      _skySegmenter = null;
+      _skyMaskCache.clear();
+      // 마스크 방식이 바뀌었으니 하늘을 쓰는 화면은 다시 그린다.
+      _previewRenderCache.clear();
+      if ((_isToolActive && _activeToolId == 'sky') || !_skyNeutral) {
+        _renderPreview();
+      }
+    }
+    setState(() {});
+  }
+
+  Future<void> _downloadSkyModel() async {
+    try {
+      await AiManager.instance.require(kModelSkySeg);
+    } catch (error, stackTrace) {
+      ErrorLogger.log('Sky model download failed', error.runtimeType, stackTrace);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('하늘 인식 모델을 내려받지 못했어요. 네트워크를 확인하고 다시 시도해 주세요.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Widget _buildSkyModelCard() {
+    final state = AiManager.instance.stateOf(kModelSkySeg.key);
+    const textStyle = TextStyle(fontSize: 12, color: AppColors.textSecondary);
+    final Widget content;
+    if (_skyModelReady && !_skyModelFailed) {
+      content = const Row(
+        children: [
+          Icon(Icons.check_circle_outline_rounded,
+              size: 16, color: AppColors.oceanFoam),
+          SizedBox(width: 6),
+          Expanded(child: Text('정밀 하늘 인식을 사용 중이에요.', style: textStyle)),
+        ],
+      );
+    } else if (_skyModelFailed) {
+      content = const Text(
+          '정밀 하늘 인식을 실행하지 못해 색 기반 방식으로 찾고 있어요.',
+          style: textStyle);
+    } else if (state.status == ModelStatus.downloading) {
+      content = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('정밀 하늘 인식 모델을 내려받는 중 ${(state.progress * 100).floor()}%',
+              style: textStyle),
+          const SizedBox(height: 6),
+          LinearProgressIndicator(value: state.progress),
+        ],
+      );
+    } else {
+      content = Row(
+        children: [
+          const Expanded(
+            child: Text(
+              '지금은 색으로 하늘을 찾아서 건물 벽이나 흐린 하늘을 잘못 잡을 수 있어요. '
+              '정밀 인식 모델(약 88MB, 한 번만)을 받으면 더 정확해집니다.',
+              style: textStyle,
+            ),
+          ),
+          TextButton(
+            key: const ValueKey('sky-model-download'),
+            onPressed: _downloadSkyModel,
+            child: Text(state.status == ModelStatus.error ? '다시 시도' : '내려받기'),
+          ),
+        ],
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      child: content,
+    );
+  }
+
+  /// 하늘 마스크를 모델로 만들지 여부. 하늘 보정이 쓰일 때만 모델을 돌린다.
+  bool get _skyModelWanted =>
+      _skyModelReady &&
+      !_skyModelFailed &&
+      !RemoteConfigService.instance.current.skyDisabled &&
+      (!_skyNeutral || (_isToolActive && _activeToolId == 'sky'));
+
+  Future<EditorSkyMaskResource?> _prepareSkyMask(
+    img.Image source,
+    String sourceKey,
+  ) async {
+    final cached = _skyMaskCache[sourceKey];
+    if (cached != null) return cached;
+    final path = AiManager.instance.pathOf(kModelSkySeg.key);
+    if (path == null) return null;
+    try {
+      final segmenter = _skySegmenter ??= SkySegmenter.fromModelFile(path);
+      final mask = await segmenter.segment(source);
+      final resource = EditorSkyMaskResource(
+        data: mask.data,
+        width: mask.width,
+        height: mask.height,
+      );
+      while (_skyMaskCache.length >= 4) {
+        _skyMaskCache.remove(_skyMaskCache.keys.first);
+      }
+      _skyMaskCache[sourceKey] = resource;
+      return resource;
+    } catch (error, stackTrace) {
+      // 한 번 실패하면 이번 편집에서는 다시 시도하지 않고 색 기반 인식을 쓴다.
+      _skyModelFailed = true;
+      ErrorLogger.log(
+          'Sky model failed; falling back to color-based detection',
+          error.runtimeType,
+          stackTrace);
+      if (mounted) setState(() {});
+      return null;
+    }
+  }
 
   /// Lazily loads SelfieSegmenter when Portrait effects are in use.
   Future<void> _ensureSegmenter() async {
@@ -1586,6 +1733,7 @@ class _EditorPageState extends State<EditorPage> {
           blendImagePath: _blendImagePath,
           preparePortraitMask: _portraitActive,
           prepareTextOverlay: !useLiveTextOverlay,
+          prepareSkyMask: _skyModelWanted,
         ),
       );
 
@@ -1746,7 +1894,8 @@ class _EditorPageState extends State<EditorPage> {
   Future<EditorExportRequest> _buildExportRequest(
       EditorMediaExportAttempt attempt) async {
     final fullDecoded = await _decodedSourceImage();
-    final recipe = _currentRenderRecipe();
+    // 하늘 도구를 연 채로 내보내도 영역 확인용 붉은 표시는 결과에 들어가지 않는다.
+    final recipe = _currentRenderRecipe(forExport: true);
     final resources = fullDecoded == null
         ? const EditorPreparedResources(
             renderResources: EditorRenderResources(),
@@ -1768,6 +1917,7 @@ class _EditorPageState extends State<EditorPage> {
               blendImagePath: _blendImagePath,
               preparePortraitMask: _portraitActive,
               prepareTextOverlay: true,
+              prepareSkyMask: _skyModelWanted,
             ),
           );
 
@@ -1781,6 +1931,9 @@ class _EditorPageState extends State<EditorPage> {
       segmentMask: resources.renderResources.segmentMask,
       segmentMaskWidth: resources.renderResources.segmentMaskWidth,
       segmentMaskHeight: resources.renderResources.segmentMaskHeight,
+      skyMask: resources.renderResources.skyMask,
+      skyMaskWidth: resources.renderResources.skyMaskWidth,
+      skyMaskHeight: resources.renderResources.skyMaskHeight,
       blendImageBytes: resources.renderResources.blendImageBytes,
       frameBytes: resources.renderResources.frameBytes,
       textOverlayBytes: resources.renderResources.textOverlayBytes,
@@ -3929,11 +4082,14 @@ class _EditorPageState extends State<EditorPage> {
       case 'sky':
         return Column(
           children: [
+            _buildSkyModelCard(),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
               child: Text(
                 _skyNeutral
-                    ? '붉게 표시된 부분이 하늘로 인식한 영역이에요. 아래 값을 움직이면 그 영역만 보정합니다. 푸른 하늘과 구름만 인식하고, 일몰이나 흐린 하늘은 놓칠 수 있어요.'
+                    ? (_skyModelReady && !_skyModelFailed
+                        ? '붉게 표시된 부분이 하늘로 인식한 영역이에요. 아래 값을 움직이면 그 영역만 보정합니다.'
+                        : '붉게 표시된 부분이 하늘로 인식한 영역이에요. 아래 값을 움직이면 그 영역만 보정합니다. 푸른 하늘과 구름만 인식하고, 일몰이나 흐린 하늘은 놓칠 수 있어요.')
                     : '하늘로 인식한 영역에만 적용됩니다. 값을 모두 0으로 돌리면 인식한 영역을 다시 볼 수 있어요.',
                 style: const TextStyle(
                     fontSize: 12, color: AppColors.textSecondary),

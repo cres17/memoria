@@ -1,0 +1,94 @@
+name: Sky model (convert, verify, publish)
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+# 하늘 분할 모델(U²-Net)을 ONNX에서 TFLite로 변환하고 원본과 수치를 비교한 뒤, 앱이 고정해 둔 SHA-256과
+# 같은지 확인한다. publish=true 로 수동 실행하면 릴리스(model-sky-u2net-v1)에 올린다.
+#
+# 공개 배포는 라이선스 확인 뒤에만 한다(docs/sky-model.md). 그래서 자동 실행 없이 수동 실행만 둔다.
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'GitHub 릴리스에 모델 파일을 올린다(공개 배포)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  convert:
+    name: Convert and verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write # publish=true 일 때 릴리스를 만든다
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Install converter
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet --upgrade pip
+          .venv/bin/pip install --quiet --extra-index-url https://download.pytorch.org/whl/cpu \
+            -r ml_pipeline/requirements-tflite.txt
+
+      - name: Convert and compare with the original ONNX
+        run: |
+          mkdir -p build/sky
+          .venv/bin/python ml_pipeline/convert_skyseg.py \
+            --out build/sky/skyseg_fp16.tflite \
+            --photos test/원본_1.jpg test/원본_2.jpg 2>&1 | grep -v -i warn
+          cat build/sky/skyseg_fp16.json
+
+      - name: Check numeric agreement
+        run: |
+          python3 - <<'PY'
+          import json
+          r = json.load(open('build/sky/skyseg_fp16.json'))
+          for name, m in r['photos'].items():
+              assert m['mask_iou'] >= 0.999, (name, m)
+              assert m['max_abs_diff'] <= 0.02, (name, m)
+          print('numeric agreement OK')
+          PY
+
+      - name: Check against the hash pinned in the app
+        run: |
+          expected_sha=$(grep -A8 "const kModelSkySeg" lib/ai/ai_manager.dart | grep -o "sha256: '[0-9a-f]*'" | grep -o "[0-9a-f]\{64\}")
+          expected_size=$(grep -A8 "const kModelSkySeg" lib/ai/ai_manager.dart | grep -o "sizeBytes: [0-9]*" | grep -o "[0-9]*")
+          actual_sha=$(sha256sum build/sky/skyseg_fp16.tflite | cut -d' ' -f1)
+          actual_size=$(stat -c %s build/sky/skyseg_fp16.tflite)
+          echo "app pins   sha256=$expected_sha size=$expected_size"
+          echo "converted  sha256=$actual_sha size=$actual_size"
+          {
+            echo '### Sky model'
+            echo "- sha256: \`$actual_sha\`"
+            echo "- size: $actual_size bytes"
+            echo "- app pin: \`$expected_sha\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$expected_sha" != "$actual_sha" ] || [ "$expected_size" != "$actual_size" ]; then
+            echo "::error::변환 결과가 앱에 고정된 값과 다릅니다. lib/ai/ai_manager.dart 의 kModelSkySeg 를 위 값으로 갱신하세요."
+            exit 1
+          fi
+
+      - name: Upload converted model
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: skyseg-fp16-tflite
+          path: |
+            build/sky/skyseg_fp16.tflite
+            build/sky/skyseg_fp16.json
+
+      - name: Publish release asset
+        if: inputs.publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create model-sky-u2net-v1 build/sky/skyseg_fp16.tflite \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Sky segmentation model (U²-Net, fp16 TFLite)" \
+            --notes "Converted from skyseg.onnx (sha256 ab9c34c64c3d821220a2886a4a06da4642ffa14d5b30e8d5339056a089aa1d39), MIT as declared by the original author. See docs/sky-model.md."

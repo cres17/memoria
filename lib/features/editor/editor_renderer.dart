@@ -17,6 +17,11 @@ class EditorRenderResources {
   final Float32List? segmentMask;
   final int segmentMaskWidth;
   final int segmentMaskHeight;
+
+  /// 하늘 분할 모델이 만든 마스크(정규화 좌표). 없으면 색 기반 [detectSky]를 쓴다.
+  final Float32List? skyMask;
+  final int skyMaskWidth;
+  final int skyMaskHeight;
   final Uint8List? blendImageBytes;
   final Uint8List? frameBytes;
   final String? overlayTextOverride;
@@ -26,6 +31,9 @@ class EditorRenderResources {
     this.segmentMask,
     this.segmentMaskWidth = 0,
     this.segmentMaskHeight = 0,
+    this.skyMask,
+    this.skyMaskWidth = 0,
+    this.skyMaskHeight = 0,
     this.blendImageBytes,
     this.frameBytes,
     this.overlayTextOverride,
@@ -36,11 +44,17 @@ class EditorRenderResources {
     Float32List? segmentMask,
     int? segmentMaskWidth,
     int? segmentMaskHeight,
+    Float32List? skyMask,
+    int? skyMaskWidth,
+    int? skyMaskHeight,
   }) {
     return EditorRenderResources(
       segmentMask: segmentMask ?? this.segmentMask,
       segmentMaskWidth: segmentMaskWidth ?? this.segmentMaskWidth,
       segmentMaskHeight: segmentMaskHeight ?? this.segmentMaskHeight,
+      skyMask: skyMask ?? this.skyMask,
+      skyMaskWidth: skyMaskWidth ?? this.skyMaskWidth,
+      skyMaskHeight: skyMaskHeight ?? this.skyMaskHeight,
       blendImageBytes: blendImageBytes,
       frameBytes: frameBytes,
       overlayTextOverride: overlayTextOverride,
@@ -207,23 +221,48 @@ class EditorRenderer {
     required int targetWidth,
     required int targetHeight,
   }) {
+    var out = resources;
+
     final data = resources.segmentMask;
     final sourceMask = EditorSpatialMask(
       data ?? Float32List(0),
       resources.segmentMaskWidth,
       resources.segmentMaskHeight,
     );
-    if (data == null || !sourceMask.isValid) return resources;
+    if (data != null && sourceMask.isValid) {
+      final aligned = EditorSpatialRenderer.applyMask(
+        sourceMask.resize(sourceWidth, sourceHeight),
+        recipe,
+      ).resize(targetWidth, targetHeight);
+      out = out.copyWith(
+        segmentMask: aligned.data,
+        segmentMaskWidth: aligned.width,
+        segmentMaskHeight: aligned.height,
+      );
+    }
 
-    final aligned = EditorSpatialRenderer.applyMask(
-      sourceMask.resize(sourceWidth, sourceHeight),
-      recipe,
-    ).resize(targetWidth, targetHeight);
-    return resources.copyWith(
-      segmentMask: aligned.data,
-      segmentMaskWidth: aligned.width,
-      segmentMaskHeight: aligned.height,
+    final sky = resources.skyMask;
+    final skySource = EditorSpatialMask(
+      sky ?? Float32List(0),
+      resources.skyMaskWidth,
+      resources.skyMaskHeight,
     );
+    if (sky != null && skySource.isValid) {
+      // 하늘 마스크는 부드러운 큰 영역이라 긴 변 640 안에서 맞추면 충분하다(12MP 크기로 키우지 않는다).
+      final scale = math.min(1.0, 640 / math.max(sourceWidth, sourceHeight));
+      final w = math.max(1, (sourceWidth * scale).round());
+      final h = math.max(1, (sourceHeight * scale).round());
+      final aligned = EditorSpatialRenderer.applyMask(
+        skySource.resize(w, h),
+        recipe,
+      );
+      out = out.copyWith(
+        skyMask: aligned.data,
+        skyMaskWidth: aligned.width,
+        skyMaskHeight: aligned.height,
+      );
+    }
+    return out;
   }
 
   static Future<img.Image> applyVisual(
@@ -265,7 +304,19 @@ class EditorRenderer {
       ]);
     }
     if (!recipe.sky.isNeutral || recipe.skyShowMask) {
-      out = applySkyAdjust(out, recipe.sky, showMask: recipe.skyShowMask);
+      final modelSky = resources.skyMask;
+      final skyMask = modelSky != null &&
+              resources.skyMaskWidth > 0 &&
+              resources.skyMaskHeight > 0 &&
+              modelSky.length == resources.skyMaskWidth * resources.skyMaskHeight
+          ? SkyMask(modelSky, resources.skyMaskWidth, resources.skyMaskHeight)
+          : null;
+      out = applySkyAdjust(
+        out,
+        recipe.sky,
+        showMask: recipe.skyShowMask,
+        mask: skyMask,
+      );
     }
     if (recipe.dodgeBurnActive) {
       final strokes = recipe.brushStrokes.isNotEmpty
