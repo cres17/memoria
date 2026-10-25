@@ -1,4 +1,19 @@
 {
+  "_gpu_ops_ios": {
+    "status": "enforced_simulator_regression",
+    "evidence": "build/ios-gpu-export.json",
+    "timed_path": "EditorExportService including decode, channels, encode, file IO",
+    "enforced_ms": 14174,
+    "baseline": {
+      "run_url": "https://github.com/cres17/memoria/actions/runs/40166810087",
+      "head_sha": "88e219c",
+      "mode": "Flutter iOS Simulator integration test (debug)",
+      "cpu_total_ms": 22190.085,
+      "gpu_total_ms": 4724.602,
+      "samples_each": 1
+    },
+    "budget_multiplier": 3
+  },
   "_comment": "CI 호스트(시뮬레이터/에뮬레이터)에서 측정한 DEVICE_PERF(ms)의 상한. 실제 측정값(2026-10)의 약 3~4배로 잡아 CI 소음은 견디고 알고리즘 회귀(몇 배 느려짐)는 잡는다.",
   "sky_detect_12mp": 1500,
   "sky_apply_12mp": 5000,

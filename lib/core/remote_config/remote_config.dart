@@ -15,12 +15,15 @@ class RemoteConfig {
   final bool rawDisabled;
   final bool batchDisabled;
   final bool adsDisabled;
+  // GPU is an opt-in experiment; absent/invalid/expired config keeps CPU.
+  final bool gpuOpsIosEnabled;
 
   const RemoteConfig({
     this.skyDisabled = false,
     this.rawDisabled = false,
     this.batchDisabled = false,
     this.adsDisabled = false,
+    this.gpuOpsIosEnabled = false,
   });
 
   static const RemoteConfig defaults = RemoteConfig();
@@ -47,6 +50,10 @@ class RemoteConfig {
     if (decoded['schema'] != supportedSchema) return null;
     final disabled = decoded['disabled'];
     if (disabled is! Map<String, dynamic>) return null;
+    final enabled = decoded['enabled'];
+    if (enabled != null && enabled is! Map<String, dynamic>) return null;
+    final gpu = enabled is Map ? enabled['gpu_ops_ios'] : null;
+    if (gpu != null && gpu is! bool) return null;
     final flags = <String, bool>{};
     for (final key in knownKeys) {
       final value = disabled[key];
@@ -59,6 +66,7 @@ class RemoteConfig {
       rawDisabled: flags['raw'] ?? false,
       batchDisabled: flags['batch'] ?? false,
       adsDisabled: flags['ads'] ?? false,
+      gpuOpsIosEnabled: gpu == true,
     );
   }
 
@@ -68,11 +76,12 @@ class RemoteConfig {
       other.skyDisabled == skyDisabled &&
       other.rawDisabled == rawDisabled &&
       other.batchDisabled == batchDisabled &&
-      other.adsDisabled == adsDisabled;
+      other.adsDisabled == adsDisabled &&
+      other.gpuOpsIosEnabled == gpuOpsIosEnabled;
 
   @override
-  int get hashCode =>
-      Object.hash(skyDisabled, rawDisabled, batchDisabled, adsDisabled);
+  int get hashCode => Object.hash(
+      skyDisabled, rawDisabled, batchDisabled, adsDisabled, gpuOpsIosEnabled);
 
   @override
   String toString() =>
@@ -104,10 +113,17 @@ class RemoteConfigService {
   static const requestTimeout = Duration(seconds: 5);
 
   RemoteConfig _current = RemoteConfig.defaults;
+  DateTime? _gpuExpiresAt;
   final StreamController<RemoteConfig> _changes =
       StreamController<RemoteConfig>.broadcast();
 
   RemoteConfig get current => _current;
+
+  /// Evaluate at each render boundary, including in a long-running app.
+  bool get gpuOpsIosEnabled =>
+      _current.gpuOpsIosEnabled &&
+      _gpuExpiresAt != null &&
+      DateTime.now().isBefore(_gpuExpiresAt!);
   Stream<RemoteConfig> get changes => _changes.stream;
 
   void _set(RemoteConfig value) {
@@ -119,6 +135,7 @@ class RemoteConfigService {
   /// 테스트용 초기화.
   void resetForTest([RemoteConfig value = RemoteConfig.defaults]) {
     _current = value;
+    _gpuExpiresAt = DateTime.now().add(maxCacheAge);
   }
 
   /// 캐시된 값만 읽는다(네트워크 없음). 앱 시작 직후 호출한다.
@@ -129,9 +146,14 @@ class RemoteConfigService {
     try {
       final p = prefs ?? await SharedPreferences.getInstance();
       final cached = _readCache(p, (now ?? DateTime.now)());
+      final fetched = p.getInt(fetchedAtKey);
+      _gpuExpiresAt = fetched == null
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(fetched).add(maxCacheAge);
       _set(cached ?? RemoteConfig.defaults);
     } catch (error, stack) {
       ErrorLogger.log('Remote config cache unreadable', error, stack);
+      _gpuExpiresAt = null;
       _set(RemoteConfig.defaults);
     }
   }
@@ -157,7 +179,8 @@ class RemoteConfigService {
       final p = prefs ?? await SharedPreferences.getInstance();
       final lastMs = p.getInt(fetchedAtKey);
       if (!force && lastMs != null) {
-        final age = clock().difference(DateTime.fromMillisecondsSinceEpoch(lastMs));
+        final age =
+            clock().difference(DateTime.fromMillisecondsSinceEpoch(lastMs));
         if (!age.isNegative && age < minFetchInterval) return false;
       }
       final response = await httpClient.get(uri, headers: const {
@@ -180,6 +203,7 @@ class RemoteConfigService {
       }
       await p.setString(cacheKey, body);
       await p.setInt(fetchedAtKey, clock().millisecondsSinceEpoch);
+      _gpuExpiresAt = clock().add(maxCacheAge);
       _set(parsed);
       return true;
     } on Object catch (error, stack) {

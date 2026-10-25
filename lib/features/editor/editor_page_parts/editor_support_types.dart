@@ -1,6 +1,8 @@
 part of '../editor_page.dart';
 
 class _PreviewParams {
+  final RootIsolateToken? rootIsolateToken;
+  final bool gpuOpsEnabled;
   final int width;
   final int height;
   final Uint8List imageBytes;
@@ -9,6 +11,8 @@ class _PreviewParams {
   final String? overlayTextOverride;
 
   const _PreviewParams({
+    this.rootIsolateToken,
+    this.gpuOpsEnabled = false,
     required this.width,
     required this.height,
     required this.imageBytes,
@@ -19,8 +23,10 @@ class _PreviewParams {
 }
 
 Future<Uint8List> _previewWorker(_PreviewParams p) async {
+  if (p.gpuOpsEnabled) GpuOps.initializeBackground(p.rootIsolateToken);
   return EditorRenderer.renderPreviewBytes(
     EditorPreviewRenderRequest(
+      gpuOpsEnabled: p.gpuOpsEnabled,
       width: p.width,
       height: p.height,
       imageBytes: p.imageBytes,

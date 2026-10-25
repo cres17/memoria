@@ -88,6 +88,39 @@ void main() {
     expect(nativeEncoderCalled, isFalse);
   });
 
+  test('system interruption reaches UI without saving or resolution retry',
+      () async {
+    final directory =
+        await Directory.systemTemp.createTemp('memoria_interrupt_');
+    addTearDown(() => directory.delete(recursive: true));
+    var attempts = 0;
+    final coordinator = EditorMediaExportCoordinator(
+      isIos: () => false,
+      temporaryDirectory: () async => directory,
+      loadSettings: (_) async =>
+          const ExportSettings(format: ExportFormat.jpeg, quality: 90),
+      render: (request, {onProgress}) async {
+        attempts++;
+        await File(request.outputPath).writeAsString('partial');
+        throw const EditorExportFailure(
+            EditorExportFailureKind.systemInterrupted, 'interrupted');
+      },
+      saveToGallery: (_) async => fail('Interrupted output must not be saved'),
+      share: (_) async => fail('Interrupted output must not be shared'),
+    );
+    await expectLater(
+        coordinator.export(
+          share: false,
+          buildRequest: _requestFor,
+          onProgress: (_) {},
+          onRetryAtLowerResolution: (_) => fail('Interruption must not retry'),
+        ),
+        throwsA(isA<EditorExportFailure>().having((value) => value.kind, 'kind',
+            EditorExportFailureKind.systemInterrupted)));
+    expect(attempts, 1);
+    expect(await directory.list().toList(), isEmpty);
+  });
+
   test('retries memory pressure once at the next configured resolution',
       () async {
     final directory = await Directory.systemTemp.createTemp('memoria_retry_');

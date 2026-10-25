@@ -27,6 +27,59 @@ const _maxDrift = 0.01; // 오차 2 초과 픽셀 비율(좁은 영역의 미세
 
 final _update = Platform.environment['UPDATE_REFERENCES'] == '1';
 
+final gpuVisualReferenceCases =
+    <String, ({String photo, EditorRenderRecipe recipe})>{
+  'tone_balance': (
+    photo: 'p1',
+    recipe: _recipe(
+      const AdjustParams(
+        exposure: 0.3,
+        contrast: 16,
+        saturation: 14,
+        temperature: 10,
+        highlights: -20,
+        shadows: 18,
+      ),
+    ),
+  ),
+  'film_look': (
+    photo: 'p2',
+    recipe: _recipe(
+      const AdjustParams(
+          contrast: 8,
+          saturation: -6,
+          grainStrength: 14,
+          grainSize: 1.2,
+          grainSeed: 11),
+      effect: ArtisticEffect.vintage,
+      effectStrength: 0.7,
+    ),
+  ),
+  'sky_cooler': (
+    photo: 'p1',
+    recipe: _recipe(
+      AdjustParams.zero,
+      sky: const SkyAdjust(brightness: -40, saturation: 40, warmth: -60),
+    ),
+  ),
+  'local_dodge_burn_selective': (
+    photo: 'p2',
+    recipe: _recipe(
+      AdjustParams.zero,
+      selective: true,
+      dodgeBurn: true,
+    ),
+  ),
+  'tilt_shift_heal': (
+    photo: 'p1',
+    recipe: _recipe(
+      AdjustParams.zero,
+      tilt: true,
+      heal: const [HealSpot(x: 0.5, y: 0.5, radius: 0.08)],
+    ),
+  ),
+};
+
 void main() {
   late img.Image photo1;
   late img.Image photo2;
@@ -36,54 +89,7 @@ void main() {
     photo2 = _load('test/원본_2.jpg');
   });
 
-  final cases = <String, ({String photo, EditorRenderRecipe recipe})>{
-    'tone_balance': (
-      photo: 'p1',
-      recipe: _recipe(
-        const AdjustParams(
-          exposure: 0.3,
-          contrast: 16,
-          saturation: 14,
-          temperature: 10,
-          highlights: -20,
-          shadows: 18,
-        ),
-      ),
-    ),
-    'film_look': (
-      photo: 'p2',
-      recipe: _recipe(
-        const AdjustParams(contrast: 8, saturation: -6, grainStrength: 14, grainSize: 1.2, grainSeed: 11),
-        effect: ArtisticEffect.vintage,
-        effectStrength: 0.7,
-      ),
-    ),
-    'sky_cooler': (
-      photo: 'p1',
-      recipe: _recipe(
-        AdjustParams.zero,
-        sky: const SkyAdjust(brightness: -40, saturation: 40, warmth: -60),
-      ),
-    ),
-    'local_dodge_burn_selective': (
-      photo: 'p2',
-      recipe: _recipe(
-        AdjustParams.zero,
-        selective: true,
-        dodgeBurn: true,
-      ),
-    ),
-    'tilt_shift_heal': (
-      photo: 'p1',
-      recipe: _recipe(
-        AdjustParams.zero,
-        tilt: true,
-        heal: const [HealSpot(x: 0.5, y: 0.5, radius: 0.08)],
-      ),
-    ),
-  };
-
-  for (final entry in cases.entries) {
+  for (final entry in gpuVisualReferenceCases.entries) {
     test('기준 이미지와 일치: ${entry.key}', () async {
       final source = entry.value.photo == 'p1' ? photo1 : photo2;
       final rendered = await EditorRenderer.renderExport(
@@ -97,12 +103,18 @@ void main() {
         return;
       }
       expect(file.existsSync(), isTrue,
-          reason: '기준 이미지가 없습니다. UPDATE_REFERENCES=1 로 만든 뒤 확인하고 커밋하세요: ${file.path}');
+          reason:
+              '기준 이미지가 없습니다. UPDATE_REFERENCES=1 로 만든 뒤 확인하고 커밋하세요: ${file.path}');
       final reference = img.decodePng(file.readAsBytesSync())!;
-      expect([rendered.width, rendered.height], [reference.width, reference.height],
-          reason: '크기가 달라졌습니다');
+      expect([
+        rendered.width,
+        rendered.height
+      ], [
+        reference.width,
+        reference.height
+      ], reason: '크기가 달라졌습니다');
 
-      final diff = _compare(rendered, reference);
+      final diff = compareVisualReference(rendered, reference);
       if (!diff.ok) {
         final dir = Directory('build/visual_diff')..createSync(recursive: true);
         File('${dir.path}/${entry.key}.actual.png')
@@ -110,11 +122,15 @@ void main() {
         File('${dir.path}/${entry.key}.diff.png')
             .writeAsBytesSync(img.encodePng(_diffImage(rendered, reference)));
       }
-      expect(diff.mean, lessThanOrEqualTo(_maxMeanDiff), reason: diff.toString());
+      expect(diff.mean, lessThanOrEqualTo(_maxMeanDiff),
+          reason: diff.toString());
       expect(diff.p99, lessThanOrEqualTo(_maxP99Diff), reason: diff.toString());
-      expect(diff.changedRatio, lessThanOrEqualTo(_maxChanged), reason: diff.toString());
-      expect(diff.driftRatio, lessThanOrEqualTo(_maxDrift), reason: diff.toString());
-      expect(diff.worstBlock, lessThanOrEqualTo(_maxBlockMean), reason: diff.toString());
+      expect(diff.changedRatio, lessThanOrEqualTo(_maxChanged),
+          reason: diff.toString());
+      expect(diff.driftRatio, lessThanOrEqualTo(_maxDrift),
+          reason: diff.toString());
+      expect(diff.worstBlock, lessThanOrEqualTo(_maxBlockMean),
+          reason: diff.toString());
     }, timeout: const Timeout(Duration(minutes: 2)));
   }
 
@@ -125,14 +141,14 @@ void main() {
         a.setPixelRgb(x, y, x * 8, y * 8, 128);
       }
     }
-    expect(_compare(a, a.clone()).ok, isTrue);
+    expect(compareVisualReference(a, a.clone()).ok, isTrue);
     final b = a.clone();
     for (var y = 0; y < 16; y++) {
       for (var x = 0; x < 32; x++) {
         b.setPixelRgb(x, y, 255 - x * 8, 0, 128);
       }
     }
-    expect(_compare(a, b).ok, isFalse);
+    expect(compareVisualReference(a, b).ok, isFalse);
     // 한 채널이 1단계씩 흔들리는 정도(부동소수 오차 수준)는 통과
     final c = a.clone();
     for (var y = 0; y < 32; y++) {
@@ -141,14 +157,19 @@ void main() {
         c.setPixelRgb(x, y, (p.r + 1).clamp(0, 255), p.g, p.b);
       }
     }
-    expect(_compare(a, c).ok, isTrue);
+    expect(compareVisualReference(a, c).ok, isTrue);
   });
 }
 
 img.Image _load(String path) {
-  final decoded = img.decodeJpg(File(path).readAsBytesSync())!;
+  return prepareVisualReferenceImage(
+      img.decodeJpg(File(path).readAsBytesSync())!);
+}
+
+img.Image prepareVisualReferenceImage(img.Image decoded) {
   final baked = img.bakeOrientation(decoded);
-  final scale = _longEdge / (baked.width > baked.height ? baked.width : baked.height);
+  final scale =
+      _longEdge / (baked.width > baked.height ? baked.width : baked.height);
   return img.copyResize(
     baked,
     width: (baked.width * scale).round(),
@@ -157,14 +178,14 @@ img.Image _load(String path) {
   );
 }
 
-class _Diff {
+class VisualReferenceDiff {
   final double mean;
   final int p99;
   final double changedRatio;
   final double driftRatio;
   final double worstBlock;
-  const _Diff(this.mean, this.p99, this.changedRatio, this.driftRatio,
-      this.worstBlock);
+  const VisualReferenceDiff(
+      this.mean, this.p99, this.changedRatio, this.driftRatio, this.worstBlock);
 
   bool get ok =>
       mean <= _maxMeanDiff &&
@@ -178,7 +199,7 @@ class _Diff {
       'mean=${mean.toStringAsFixed(3)} p99=$p99 changed>8=${(changedRatio * 100).toStringAsFixed(2)}% drift>2=${(driftRatio * 100).toStringAsFixed(2)}% block=${worstBlock.toStringAsFixed(2)}';
 }
 
-_Diff _compare(img.Image a, img.Image b) {
+VisualReferenceDiff compareVisualReference(img.Image a, img.Image b) {
   final histogram = List<int>.filled(256, 0);
   var sum = 0;
   var changed = 0;
@@ -186,7 +207,8 @@ _Diff _compare(img.Image a, img.Image b) {
   var pixels = 0;
   const block = 16;
   final blocksX = (a.width + block - 1) ~/ block;
-  final blockSums = List<int>.filled(blocksX * ((a.height + block - 1) ~/ block), 0);
+  final blockSums =
+      List<int>.filled(blocksX * ((a.height + block - 1) ~/ block), 0);
   final blockCounts = List<int>.filled(blockSums.length, 0);
   for (var y = 0; y < a.height; y++) {
     for (var x = 0; x < a.width; x++) {
@@ -224,7 +246,8 @@ _Diff _compare(img.Image a, img.Image b) {
     final m = blockSums[i] / blockCounts[i];
     if (m > worstBlock) worstBlock = m;
   }
-  return _Diff(sum / total, p99, changed / pixels, drift / pixels, worstBlock);
+  return VisualReferenceDiff(
+      sum / total, p99, changed / pixels, drift / pixels, worstBlock);
 }
 
 img.Image _diffImage(img.Image a, img.Image b) {
@@ -291,4 +314,3 @@ EditorRenderRecipe _recipe(
       sky: sky,
       healStrokes: heal,
     );
-

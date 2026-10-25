@@ -1,3 +1,4 @@
+import '../../engine/gpu_ops.dart';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -70,6 +71,7 @@ class EditorRenderResources {
 /// recipe, matching the image shown by [EditorPage] without duplicating crop
 /// or rotation.
 class EditorPreviewRenderRequest {
+  final bool gpuOpsEnabled;
   final int width;
   final int height;
   final Uint8List imageBytes;
@@ -77,6 +79,7 @@ class EditorPreviewRenderRequest {
   final EditorRenderResources resources;
 
   const EditorPreviewRenderRequest({
+    this.gpuOpsEnabled = false,
     required this.width,
     required this.height,
     required this.imageBytes,
@@ -85,12 +88,15 @@ class EditorPreviewRenderRequest {
   });
 }
 
+class _GpuRecipeFallback implements Exception {}
+
 /// Canonical production renderer shared by preview and export.
 class EditorRenderer {
   /// Preview isolate entrypoint used by the production editor page.
   static Future<Uint8List> renderPreviewBytes(
-    EditorPreviewRenderRequest request,
-  ) async {
+    EditorPreviewRenderRequest request, {
+    GpuOps? gpu,
+  }) async {
     var image = img.Image.fromBytes(
       width: request.width,
       height: request.height,
@@ -99,7 +105,8 @@ class EditorRenderer {
       numChannels: 4,
       order: img.ChannelOrder.rgba,
     );
-    image = await applyVisual(image, request.recipe, request.resources);
+    image = await applyVisual(image, request.recipe, request.resources,
+        gpu: gpu ?? GpuOps(enabled: request.gpuOpsEnabled));
     return Uint8List.fromList(img.encodePng(image));
   }
 
@@ -161,6 +168,7 @@ class EditorRenderer {
     required EditorRenderRecipe recipe,
     EditorRenderResources resources = const EditorRenderResources(),
     int maxLongEdge = 720,
+    GpuOps gpu = const GpuOps(),
   }) async {
     final prepared = preparePreviewSource(
       source,
@@ -178,6 +186,7 @@ class EditorRenderer {
         targetWidth: prepared.width,
         targetHeight: prepared.height,
       ),
+      gpu: gpu,
     );
   }
 
@@ -187,6 +196,7 @@ class EditorRenderer {
     EditorRenderResources resources = const EditorRenderResources(),
     int? maxDimension,
     void Function(double progress)? onProgress,
+    GpuOps gpu = const GpuOps(),
   }) async {
     final sourceForSpatial = _resizeExportInput(
       source,
@@ -210,6 +220,7 @@ class EditorRenderer {
         targetHeight: prepared.height,
       ),
       onProgress: onProgress,
+      gpu: gpu,
     );
   }
 
@@ -270,8 +281,35 @@ class EditorRenderer {
     EditorRenderRecipe recipe,
     EditorRenderResources resources, {
     void Function(double progress)? onProgress,
+    GpuOps gpu = const GpuOps(),
   }) async {
-    var out = applyImagePipeline(
+    final scoped = GpuOps(
+        enabled: gpu.enabled,
+        operationTimeout: gpu.operationTimeout,
+        onTiming: gpu.onTiming,
+        onFallback: () {
+          gpu.onFallback?.call();
+          throw _GpuRecipeFallback();
+        });
+    try {
+      return await _applyVisual(image, recipe, resources,
+          onProgress: onProgress, gpu: scoped);
+    } on _GpuRecipeFallback {
+      // Stop the partial attempt immediately; do not calculate its remaining
+      // CPU stages and then calculate the complete CPU recipe a second time.
+      return _applyVisual(image, recipe, resources, onProgress: onProgress);
+    }
+  }
+
+  static Future<img.Image> _applyVisual(
+    img.Image image,
+    EditorRenderRecipe recipe,
+    EditorRenderResources resources, {
+    void Function(double progress)? onProgress,
+    GpuOps gpu = const GpuOps(),
+  }) async {
+    var out = await applyImagePipelineAsync(
+      gpu: gpu,
       image: image,
       params: recipe.adjustParams,
       lutBytes: recipe.lutBytes,
@@ -283,6 +321,7 @@ class EditorRenderer {
       out = await applyArtisticEffect(
         out,
         recipe.effect,
+        gpu: gpu,
         strength: recipe.effectStrength,
         grainVariant: recipe.grainVariant,
       );
@@ -308,7 +347,8 @@ class EditorRenderer {
       final skyMask = modelSky != null &&
               resources.skyMaskWidth > 0 &&
               resources.skyMaskHeight > 0 &&
-              modelSky.length == resources.skyMaskWidth * resources.skyMaskHeight
+              modelSky.length ==
+                  resources.skyMaskWidth * resources.skyMaskHeight
           ? SkyMask(modelSky, resources.skyMaskWidth, resources.skyMaskHeight)
           : null;
       out = applySkyAdjust(
@@ -342,7 +382,8 @@ class EditorRenderer {
       out = applyDodgeBurn(out, strokes);
     }
     if (recipe.tiltActive) {
-      out = applyLinearTiltShift(
+      out = await applyLinearTiltShiftAsync(
+        gpu: gpu,
         image: out,
         focusCenter: recipe.tiltFocusCenter,
         focusBandWidth: recipe.tiltBandWidth,
@@ -350,7 +391,8 @@ class EditorRenderer {
       );
     }
     if (recipe.lensActive) {
-      out = applyLensBlur(
+      out = await applyLensBlurAsync(
+        gpu: gpu,
         image: out,
         depthMap: _radialDepthMap(out.width, out.height),
         focusDepth: recipe.lensFocusDepth,

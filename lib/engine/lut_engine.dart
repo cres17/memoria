@@ -1,3 +1,5 @@
+import 'gpu_ops.dart';
+import 'image_operation.dart';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -11,7 +13,6 @@ import '../domain/models/adjust_params.dart';
 import '../domain/models/filter_recipe.dart';
 import 'color_utils.dart';
 import 'custom_lut_core.dart';
-import 'fast_blur.dart';
 
 // ── HSL helpers ───────────────────────────────────────────
 
@@ -243,6 +244,56 @@ img.Image applyImagePipeline({
   int decodedLutDim = 65,
   BakedCurveLuts? bakedLuts,
 }) {
+  final state = ImagePipelineResult();
+  for (final op in _imagePipelineSteps(
+      image: image,
+      params: params,
+      lutBytes: lutBytes,
+      intensity: intensity,
+      decodedLutValues: decodedLutValues,
+      decodedLutDim: decodedLutDim,
+      bakedLuts: bakedLuts,
+      state: state)) {
+    op.resolveCpu();
+  }
+  return state.image;
+}
+
+Future<img.Image> applyImagePipelineAsync({
+  required img.Image image,
+  required AdjustParams params,
+  Uint8List? lutBytes,
+  double intensity = 1.0,
+  Float32List? decodedLutValues,
+  int decodedLutDim = 65,
+  BakedCurveLuts? bakedLuts,
+  GpuOps gpu = const GpuOps(),
+}) async {
+  final state = ImagePipelineResult();
+  for (final op in _imagePipelineSteps(
+      image: image,
+      params: params,
+      lutBytes: lutBytes,
+      intensity: intensity,
+      decodedLutValues: decodedLutValues,
+      decodedLutDim: decodedLutDim,
+      bakedLuts: bakedLuts,
+      state: state)) {
+    await gpu.resolve(op);
+  }
+  return state.image;
+}
+
+Iterable<ImageOperation> _imagePipelineSteps({
+  required img.Image image,
+  required AdjustParams params,
+  Uint8List? lutBytes,
+  double intensity = 1.0,
+  Float32List? decodedLutValues,
+  int decodedLutDim = 65,
+  BakedCurveLuts? bakedLuts,
+  required ImagePipelineResult state,
+}) sync* {
   var output = img.Image(
     width: image.width,
     height: image.height,
@@ -290,17 +341,32 @@ img.Image applyImagePipeline({
   final effLuminanceNR = params.luminanceNR * intensity;
   final effColourNR = params.colourNR * intensity;
   if (effLuminanceNR > 0 || effColourNR > 0) {
-    output = _applyNoiseReduction(
-        output, effLuminanceNR, effColourNR, params.nrDetail);
+    final input = output;
+    final op = ImageOperation.noise(
+        input,
+        effLuminanceNR,
+        effColourNR,
+        params.nrDetail,
+        () => _applyNoiseReduction(
+            input, effLuminanceNR, effColourNR, params.nrDetail));
+    yield op;
+    output = op.result!;
   }
   final effHdrStrength = params.hdrStrength * intensity;
   if (effHdrStrength > 0) {
-    output = _applyHdrImage(output, effHdrStrength, params.hdrSaturation);
+    {
+      yield* _applyHdrImageSteps(
+          output, effHdrStrength, params.hdrSaturation, state);
+      output = state.image;
+    }
   }
   final effGlowStrength = params.glowStrength * intensity;
   if (effGlowStrength > 0) {
-    output = _applyGlowImage(
-        output, effGlowStrength, params.glowSaturation, params.glowWarmth);
+    {
+      yield* _applyGlowImageSteps(output, effGlowStrength,
+          params.glowSaturation, params.glowWarmth, state);
+      output = state.image;
+    }
   }
   final effLightLeakStrength = params.lightLeakStrength * intensity;
   if (effLightLeakStrength > 0) {
@@ -309,8 +375,11 @@ img.Image applyImagePipeline({
   }
   final effHalationStrength = params.halationStrength * intensity;
   if (effHalationStrength > 0) {
-    output = _applyHalationImage(output, effHalationStrength,
-        params.halationThreshold, params.halationWarmth);
+    {
+      yield* _applyHalationImageSteps(output, effHalationStrength,
+          params.halationThreshold, params.halationWarmth, state);
+      output = state.image;
+    }
   }
   final effGrainStrength = params.grainStrength * intensity;
   if (effGrainStrength > 0) {
@@ -319,11 +388,20 @@ img.Image applyImagePipeline({
   }
 
   final effSharpen = params.sharpen * intensity;
-  if (effSharpen > 0) output = _applySharpenImage(output, effSharpen);
+  if (effSharpen > 0) {
+    yield* _applySharpenImageSteps(output, effSharpen, state);
+    output = state.image;
+  }
   final effStructure = params.structure * intensity;
-  if (effStructure != 0) output = _applyStructureImage(output, effStructure);
+  if (effStructure != 0) {
+    yield* _applyStructureImageSteps(output, effStructure, state);
+    output = state.image;
+  }
   final effClarity = params.clarity * intensity;
-  if (effClarity != 0) output = _applyClarityImage(output, effClarity);
+  if (effClarity != 0) {
+    yield* _applyClarityImageSteps(output, effClarity, state);
+    output = state.image;
+  }
   final effVignette = params.vignette * intensity;
   if (effVignette > 0) output = _applyVignetteImage(output, effVignette);
 
@@ -349,9 +427,11 @@ img.Image applyImagePipeline({
         );
       }
     }
-    return rgba;
+    state.image = rgba;
+    return;
   }
-  return output;
+  state.image = output;
+  return;
 }
 
 // ── 블러 기반 디테일 보정의 빠른 경로 ─────────────────────
@@ -412,12 +492,17 @@ img.Image? _detailBlendFast(
 }
 
 // ── Sharpen: Unsharp Mask ─────────────────────────────────
-img.Image _applySharpenImage(img.Image image, double sharpenValue) {
+Iterable<ImageOperation> _applySharpenImageSteps(
+    img.Image image, double sharpenValue, ImagePipelineResult state) sync* {
   final strength = sharpenValue / 100.0 * 1.5;
-  final blurred = fastGaussianBlur(img.Image.from(image), radius: 2);
-  final fast =
-      _detailBlendFast(image, blurred, strength, midtoneMask: false);
-  if (fast != null) return fast;
+  final blurOp = ImageOperation.blur(img.Image.from(image), 2);
+  yield blurOp;
+  final blurred = blurOp.result!;
+  final fast = _detailBlendFast(image, blurred, strength, midtoneMask: false);
+  if (fast != null) {
+    state.image = fast;
+    return;
+  }
   final result = img.Image(width: image.width, height: image.height);
 
   for (int y = 0; y < image.height; y++) {
@@ -434,16 +519,24 @@ img.Image _applySharpenImage(img.Image image, double sharpenValue) {
           x, y, (r * 255).round(), (g * 255).round(), (b * 255).round());
     }
   }
-  return result;
+  {
+    state.image = result;
+    return;
+  }
 }
 
 // ── Structure: High-Pass Local Contrast ──────────────────
-img.Image _applyStructureImage(img.Image image, double structureValue) {
+Iterable<ImageOperation> _applyStructureImageSteps(
+    img.Image image, double structureValue, ImagePipelineResult state) sync* {
   final strength = structureValue / 100.0 * 0.5;
-  final blurred = fastGaussianBlur(img.Image.from(image), radius: 1);
-  final fast =
-      _detailBlendFast(image, blurred, strength, midtoneMask: false);
-  if (fast != null) return fast;
+  final blurOp = ImageOperation.blur(img.Image.from(image), 1);
+  yield blurOp;
+  final blurred = blurOp.result!;
+  final fast = _detailBlendFast(image, blurred, strength, midtoneMask: false);
+  if (fast != null) {
+    state.image = fast;
+    return;
+  }
   final result = img.Image(width: image.width, height: image.height);
 
   for (int y = 0; y < image.height; y++) {
@@ -460,15 +553,24 @@ img.Image _applyStructureImage(img.Image image, double structureValue) {
           x, y, (r * 255).round(), (g * 255).round(), (b * 255).round());
     }
   }
-  return result;
+  {
+    state.image = result;
+    return;
+  }
 }
 
 // ── Clarity: Mid-Frequency Contrast (Retinex-lite) ───────
-img.Image _applyClarityImage(img.Image image, double clarityValue) {
+Iterable<ImageOperation> _applyClarityImageSteps(
+    img.Image image, double clarityValue, ImagePipelineResult state) sync* {
   final strength = clarityValue / 100.0 * 0.7;
-  final blurred = fastGaussianBlur(img.Image.from(image), radius: 7);
+  final blurOp = ImageOperation.blur(img.Image.from(image), 7);
+  yield blurOp;
+  final blurred = blurOp.result!;
   final fast = _detailBlendFast(image, blurred, strength, midtoneMask: true);
-  if (fast != null) return fast;
+  if (fast != null) {
+    state.image = fast;
+    return;
+  }
   final result = img.Image(width: image.width, height: image.height);
 
   for (int y = 0; y < image.height; y++) {
@@ -492,7 +594,10 @@ img.Image _applyClarityImage(img.Image image, double clarityValue) {
           x, y, (r * 255).round(), (g * 255).round(), (b * 255).round());
     }
   }
-  return result;
+  {
+    state.image = result;
+    return;
+  }
 }
 
 // ── Vignette: Radial Gradient Multiply ───────────────────
@@ -602,8 +707,8 @@ img.Image _applyNoiseReduction(
             final nL = labL[nIdx];
             final dL = nL - cL;
             final rangW = math.exp(-(dL * dL) / sigRangeL2);
-            final spatW =
-                lumSpatial[(dy + lumRadius) * (2 * lumRadius + 1) + (dx + lumRadius)];
+            final spatW = lumSpatial[
+                (dy + lumRadius) * (2 * lumRadius + 1) + (dx + lumRadius)];
             final w = rangW * spatW;
             sumL += w * nL;
             wSum += w;
@@ -628,8 +733,8 @@ img.Image _applyNoiseReduction(
             final dA = nA - cA;
             final dB = nB - cB;
             final rangW = math.exp(-(dA * dA + dB * dB) / sigRangeC2);
-            final spatW =
-                colSpatial[(dy + colRadius) * (2 * colRadius + 1) + (dx + colRadius)];
+            final spatW = colSpatial[
+                (dy + colRadius) * (2 * colRadius + 1) + (dx + colRadius)];
             final w = rangW * spatW;
             sumA += w * nA;
             sumBVal += w * nB;
@@ -666,9 +771,12 @@ img.Image _applyNoiseReduction(
 }
 
 // ── Glamour Glow ─────────────────────────────────────────
-img.Image _applyGlowImage(
-    img.Image image, double strength, double saturation, double warmth) {
-  if (strength <= 0) return image;
+Iterable<ImageOperation> _applyGlowImageSteps(img.Image image, double strength,
+    double saturation, double warmth, ImagePipelineResult state) sync* {
+  if (strength <= 0) {
+    state.image = image;
+    return;
+  }
 
   final W = image.width;
   final H = image.height;
@@ -710,7 +818,9 @@ img.Image _applyGlowImage(
     }
   }
 
-  final blurredGlow = fastGaussianBlur(glowLayer, radius: 8);
+  final blurOp = ImageOperation.blur(glowLayer, 8);
+  yield blurOp;
+  final blurredGlow = blurOp.result!;
   final result = img.Image(width: W, height: H);
   final str = strength / 100.0;
 
@@ -740,17 +850,26 @@ img.Image _applyGlowImage(
       );
     }
   }
-  return result;
+  {
+    state.image = result;
+    return;
+  }
 }
 
 // ── HDR Scape ────────────────────────────────────────────
-img.Image _applyHdrImage(img.Image image, double strength, double saturation) {
-  if (strength <= 0) return image;
+Iterable<ImageOperation> _applyHdrImageSteps(img.Image image, double strength,
+    double saturation, ImagePipelineResult state) sync* {
+  if (strength <= 0) {
+    state.image = image;
+    return;
+  }
 
   final W = image.width;
   final H = image.height;
 
-  final blurred = fastGaussianBlur(img.Image.from(image), radius: 10);
+  final blurOp = ImageOperation.blur(img.Image.from(image), 10);
+  yield blurOp;
+  final blurred = blurOp.result!;
   final result = img.Image(width: W, height: H);
   final str = strength / 100.0 * 0.8;
   const epsilon = 0.01;
@@ -758,7 +877,8 @@ img.Image _applyHdrImage(img.Image image, double strength, double saturation) {
 
   // 원본·블러 값은 8비트라 (원본, 블러) 쌍이 256×256가지뿐이다. 픽셀마다 pow를 3번 부르는 대신
   // 쌍마다 한 번만 계산해 둔다. 같은 식을 같은 입력으로 계산하므로 결과는 바뀌지 않는다.
-  final lut = image.format == img.Format.uint8 ? _hdrToneTable(str, epsilon) : null;
+  final lut =
+      image.format == img.Format.uint8 ? _hdrToneTable(str, epsilon) : null;
 
   for (int y = 0; y < H; y++) {
     for (int x = 0; x < W; x++) {
@@ -796,7 +916,10 @@ img.Image _applyHdrImage(img.Image image, double strength, double saturation) {
       );
     }
   }
-  return result;
+  {
+    state.image = result;
+    return;
+  }
 }
 
 Float64List _hdrToneTable(double str, double epsilon) {
@@ -856,9 +979,16 @@ img.Image _applyLightLeakImage(
 }
 
 // ── Halation ─────────────────────────────────────────────
-img.Image _applyHalationImage(
-    img.Image image, double strength, double threshold, double warmth) {
-  if (strength <= 0) return image;
+Iterable<ImageOperation> _applyHalationImageSteps(
+    img.Image image,
+    double strength,
+    double threshold,
+    double warmth,
+    ImagePipelineResult state) sync* {
+  if (strength <= 0) {
+    state.image = image;
+    return;
+  }
 
   final W = image.width;
   final H = image.height;
@@ -882,7 +1012,9 @@ img.Image _applyHalationImage(
     }
   }
 
-  final blurredHl = fastGaussianBlur(hlLayer, radius: 5);
+  final blurOp = ImageOperation.blur(hlLayer, 5);
+  yield blurOp;
+  final blurredHl = blurOp.result!;
   final result = img.Image(width: W, height: H);
   final str = strength / 100.0 * 0.6;
 
@@ -907,7 +1039,10 @@ img.Image _applyHalationImage(
           (b * 255).round(), px.a.toInt());
     }
   }
-  return result;
+  {
+    state.image = result;
+    return;
+  }
 }
 
 // ── Film Grain ───────────────────────────────────────────

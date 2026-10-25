@@ -6,6 +6,7 @@ import 'package:memoria/features/editor/editor_resource_preparer.dart';
 /// can be logged safely and gives the UI a stable recovery decision without
 /// exposing raw platform exceptions to the user.
 enum EditorExportFailureKind {
+  systemInterrupted,
   inputDecode,
   memoryPressure,
   nativeEncoding,
@@ -28,6 +29,8 @@ class EditorExportFailure implements Exception {
 
   String get userMessage {
     switch (kind) {
+      case EditorExportFailureKind.systemInterrupted:
+        return '앱 상태 변경으로 내보내기가 중단되었습니다. 사진이 저장되지 않았습니다. 다시 시도해 주세요.';
       case EditorExportFailureKind.inputDecode:
         return '원본 사진을 열 수 없습니다. 사진을 다시 선택해 주세요.';
       case EditorExportFailureKind.memoryPressure:

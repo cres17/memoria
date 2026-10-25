@@ -1,3 +1,4 @@
+import '../../engine/gpu_ops.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
@@ -773,10 +774,24 @@ class _EditorPageState extends State<EditorPage> {
 
   late List<FilterPreset> _allPresets;
   FullScreenAdService? _adService;
+  late final AppLifecycleListener _exportLifecycle;
+  EditorExportFailure? _pendingExportInterruption;
+
+  void _showExportInterruption() {
+    final failure = _pendingExportInterruption;
+    if (!mounted || failure == null) return;
+    _pendingExportInterruption = null;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(failure.userMessage),
+      behavior: SnackBarBehavior.floating,
+      duration: const Duration(seconds: 8),
+    ));
+  }
 
   @override
   void initState() {
     super.initState();
+    _exportLifecycle = AppLifecycleListener(onResume: _showExportInterruption);
     _liveParamsNotifier = ValueNotifier(AdjustParams.zero);
     _liveIntensityNotifier = ValueNotifier(1.0);
     _history = EditorHistoryController(widget.imagePath ?? '');
@@ -798,6 +813,7 @@ class _EditorPageState extends State<EditorPage> {
 
   @override
   void dispose() {
+    _exportLifecycle.dispose();
     _previewDebounce?.cancel();
     _draftSaveDebounce?.cancel();
     _saveDraft();
@@ -1066,7 +1082,11 @@ class _EditorPageState extends State<EditorPage> {
         halationWarmth: _params.halationWarmth,
       );
 
+      final gpuContext = GpuIsolateContext.capture(
+          RemoteConfigService.instance.gpuOpsIosEnabled);
       final workerParams = _PreviewParams(
+        rootIsolateToken: gpuContext.rootToken,
+        gpuOpsEnabled: gpuContext.enabled,
         width: preview.width,
         height: preview.height,
         imageBytes: preview.getBytes(order: img.ChannelOrder.rgba),
@@ -1104,6 +1124,8 @@ class _EditorPageState extends State<EditorPage> {
           _isSliding = true;
         });
       }
+    } on GpuWorkInterrupted {
+      // Keep the existing preview when foreground GPU permission is withdrawn.
     } catch (error, stackTrace) {
       // CPU preview updates continue while the live GPU path is unavailable.
       ErrorLogger.log(
@@ -1543,7 +1565,8 @@ class _EditorPageState extends State<EditorPage> {
     try {
       await AiManager.instance.require(kModelSkySeg);
     } catch (error, stackTrace) {
-      ErrorLogger.log('Sky model download failed', error.runtimeType, stackTrace);
+      ErrorLogger.log(
+          'Sky model download failed', error.runtimeType, stackTrace);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -1568,9 +1591,8 @@ class _EditorPageState extends State<EditorPage> {
         ],
       );
     } else if (_skyModelFailed) {
-      content = const Text(
-          '정밀 하늘 인식을 실행하지 못해 색 기반 방식으로 찾고 있어요.',
-          style: textStyle);
+      content =
+          const Text('정밀 하늘 인식을 실행하지 못해 색 기반 방식으로 찾고 있어요.', style: textStyle);
     } else if (state.status == ModelStatus.downloading) {
       content = Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1636,10 +1658,8 @@ class _EditorPageState extends State<EditorPage> {
     } catch (error, stackTrace) {
       // 한 번 실패하면 이번 편집에서는 다시 시도하지 않고 색 기반 인식을 쓴다.
       _skyModelFailed = true;
-      ErrorLogger.log(
-          'Sky model failed; falling back to color-based detection',
-          error.runtimeType,
-          stackTrace);
+      ErrorLogger.log('Sky model failed; falling back to color-based detection',
+          error.runtimeType, stackTrace);
       if (mounted) setState(() {});
       return null;
     }
@@ -1738,7 +1758,11 @@ class _EditorPageState extends State<EditorPage> {
       );
 
       final previewRaw = preview.getBytes(order: img.ChannelOrder.rgba);
+      final gpuContext = GpuIsolateContext.capture(
+          RemoteConfigService.instance.gpuOpsIosEnabled);
       final params = _PreviewParams(
+        rootIsolateToken: gpuContext.rootToken,
+        gpuOpsEnabled: gpuContext.enabled,
         width: preview.width,
         height: preview.height,
         imageBytes: previewRaw,
@@ -1756,6 +1780,8 @@ class _EditorPageState extends State<EditorPage> {
       }
       _previewRenderCache[previewKey] = bytes;
       setState(() => _previewBytes = bytes);
+    } on GpuWorkInterrupted {
+      // A background transition cancels this render without a CPU retry.
     } catch (e, stackTrace) {
       ErrorLogger.log('Preview rendering failed', e, stackTrace);
       if (mounted) {
@@ -1872,7 +1898,13 @@ class _EditorPageState extends State<EditorPage> {
         failure.diagnostic,
         stackTrace,
       );
-      if (mounted) {
+      if (failure.kind == EditorExportFailureKind.systemInterrupted) {
+        _pendingExportInterruption = failure;
+        if (WidgetsBinding.instance.lifecycleState ==
+            AppLifecycleState.resumed) {
+          _showExportInterruption();
+        }
+      } else if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content:

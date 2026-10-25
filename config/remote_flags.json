@@ -1,5 +1,6 @@
 {
   "schema": 1,
+  "enabled": {"gpu_ops_ios": false},
   "disabled": {
     "sky": false,
     "raw": false,

@@ -15,8 +15,55 @@ import ImageIO
 ///   export(imagePath: String, editOps: Dictionary, outPath: String, format: String, quality: Int) → Dictionary
 
 @objc public class LutEnginePlugin: NSObject, FlutterPlugin {
+    private let gpuWorker = DispatchQueue(label: "com.memoria.gpu-ops", qos: .userInitiated)
+    private var gpuOps: GpuOps?
+    private var gpuGate: GpuRequestGate?
+    private var gpuForeground = false
     static let channelName = "com.memoria/lut_engine"
     static let lutDim = 33
+
+    override init() {
+        super.init()
+        gpuForeground = UIApplication.shared.applicationState == .active
+        NotificationCenter.default.addObserver(self, selector: #selector(gpuResignActive),
+            name: UIApplication.willResignActiveNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(gpuBecomeActive),
+            name: UIApplication.didBecomeActiveNotification, object: nil)
+    }
+
+    deinit { NotificationCenter.default.removeObserver(self) }
+
+    @objc private func gpuResignActive() {
+        gpuForeground = false; gpuGate?.setForeground(false)
+    }
+
+    @objc private func gpuBecomeActive() {
+        gpuForeground = true; gpuGate?.setForeground(true)
+    }
+
+    private func requestGate() throws -> GpuRequestGate {
+        if let gate = gpuGate { return gate }
+        let directory = try FileManager.default.url(for: .applicationSupportDirectory,
+            in: .userDomainMask, appropriateFor: nil, create: true)
+        let info = Bundle.main.infoDictionary ?? [:]
+        let build = "\(info["CFBundleShortVersionString"] ?? "unknown")/\(info["CFBundleVersion"] ?? "unknown")"
+        let gate = try GpuRequestGate(url: directory.appendingPathComponent("gpu-request-v1.json"),
+            build: build, foreground: gpuForeground)
+        gpuGate = gate
+        return gate
+    }
+
+    private static func gpuError(_ error: Error, reason: String? = nil) -> FlutterError {
+        let code: String
+        switch error {
+        case GpuRequestGate.Failure.interrupted: code = "GPU_INTERRUPTED"
+        case GpuRequestGate.Failure.busy: code = "GPU_BUSY"
+        case GpuRequestGate.Failure.blocked: code = "GPU_BLOCKED"
+        case GpuOps.Failure.timedOut: code = "GPU_TIMEOUT"
+        default: code = "GPU_FAILED"
+        }
+        return FlutterError(code: code, message: String(describing: error), details: reason.map { ["blocked_reason": $0] })
+    }
 
     public static func register(with registrar: FlutterPluginRegistrar) {
         let channel = FlutterMethodChannel(
@@ -29,6 +76,47 @@ import ImageIO
 
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         switch call.method {
+        case "gpuBegin":
+            do { result(try requestGate().begin()) }
+            catch { result(Self.gpuError(error, reason: gpuGate?.blockedReason)) }
+        case "gpuEnd":
+            guard let args = call.arguments as? [String: Any], let lease = args["lease"] as? String else {
+                result(FlutterError(code: "GPU_INPUT", message: "Missing GPU lease", details: nil)); return
+            }
+            do { try requestGate().finish(lease); result(nil) }
+            catch { result(Self.gpuError(error, reason: gpuGate?.blockedReason)) }
+        case "gpuDisable":
+            do {
+                let supplied = (call.arguments as? [String: Any])?["reason"] as? String
+                let reason = ["timeout", "cleanup_failed"].contains(supplied ?? "") ? supplied! : "unknown"
+                try requestGate().disable(reason: reason); result(nil)
+            }
+            catch { result(Self.gpuError(error, reason: gpuGate?.blockedReason)) }
+        case "gpuOp":
+            guard let args = call.arguments as? [String: Any],
+                  let bytes = args["bytes"] as? FlutterStandardTypedData,
+                  let width = args["width"] as? Int, let height = args["height"] as? Int,
+                  let channels = args["channels"] as? Int, let op = args["op"] as? String,
+                  let lease = args["lease"] as? String, let gate = gpuGate else {
+                result(FlutterError(code: "GPU_INPUT", message: "Invalid GPU operation", details: nil))
+                return
+            }
+            gpuWorker.async {
+                do {
+                    try gate.check(lease)
+                    if self.gpuOps == nil { self.gpuOps = try GpuOps() }
+                    guard let engine = self.gpuOps else { throw GpuOps.Failure.unavailable }
+                    let (output, timing) = try engine.run(input: bytes.data, width: width, height: height,
+                        channels: channels, operation: op, radius: args["radius"] as? Int ?? 0,
+                        luma: args["luma"] as? Double ?? 0, chroma: args["chroma"] as? Double ?? 0,
+                        detail: args["detail"] as? Double ?? 0, check: { try gate.check(lease) })
+                    DispatchQueue.main.async { result(["bytes": FlutterStandardTypedData(bytes: output), "timing": timing]) }
+                } catch {
+                    if case GpuOps.Failure.timedOut = error { try? gate.disable(reason: "timeout") }
+                    if case GpuOps.Failure.command = error { try? gate.disable(reason: "command_error") }
+                    DispatchQueue.main.async { result(Self.gpuError(error, reason: gate.blockedReason)) }
+                }
+            }
         case "generateLut":
             handleGenerateLut(call: call, result: result)
         case "renderPreview":

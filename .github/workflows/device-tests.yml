@@ -61,8 +61,7 @@ jobs:
       - name: Run integration tests
         run: |
           set -o pipefail
-          flutter test integration_test -d "${{ steps.sim.outputs.udid }}" \
-            --reporter expanded 2>&1 | tee ios-integration.log
+          bash scripts/run_device_tests.sh "${{ steps.sim.outputs.udid }}" ios-integration.log
 
       - name: Performance summary
         if: always()
@@ -136,7 +135,7 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           # 실행기는 sh(dash)로 각 줄을 돌리므로 pipefail이 되도록 bash로 감싼다.
-          script: bash -o pipefail -c "flutter test integration_test -d emulator-5554 --reporter expanded 2>&1 | tee android-integration.log"
+          script: bash scripts/run_device_tests.sh emulator-5554 android-integration.log
 
       - name: Performance summary
         if: always()

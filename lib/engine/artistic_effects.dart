@@ -1,7 +1,8 @@
+import 'gpu_ops.dart';
+import 'image_operation.dart';
 import 'dart:math' as math;
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
-import 'fast_blur.dart';
 
 // ─────────────────────────────────────────────────────────
 //  아티스틱 이펙트 정의
@@ -76,6 +77,7 @@ extension ArtisticEffectX on ArtisticEffect {
 Future<img.Image> applyArtisticEffect(
   img.Image image,
   ArtisticEffect effect, {
+  GpuOps gpu = const GpuOps(),
   double strength = 1.0,
   int grainVariant = 3, // grain_nils{n} 1~9
   int grungeVariant = 1, // grunge variant 1~4
@@ -93,33 +95,36 @@ Future<img.Image> applyArtisticEffect(
       return _applyRetrolux(image, strength);
     case ArtisticEffect.drama1:
       return _applyDrama(image, strength,
-          contrast: 60, clarity: 40, saturation: -10);
+          contrast: 60, clarity: 40, saturation: -10, gpu: gpu);
     case ArtisticEffect.drama2:
       return _applyDrama(image, strength,
-          contrast: 80, clarity: 60, saturation: -25);
+          contrast: 80, clarity: 60, saturation: -25, gpu: gpu);
     case ArtisticEffect.dramaBright1:
       return _applyDrama(image, strength,
-          contrast: 25, exposure: 0.3, clarity: 30);
+          contrast: 25, exposure: 0.3, clarity: 30, gpu: gpu);
     case ArtisticEffect.dramaBright2:
       return _applyDrama(image, strength,
-          contrast: 30, exposure: 0.5, clarity: 50);
+          contrast: 30, exposure: 0.5, clarity: 50, gpu: gpu);
     case ArtisticEffect.dramaDark1:
       return _applyDrama(image, strength,
-          contrast: 50, exposure: -0.3, shadows: -30);
+          contrast: 50, exposure: -0.3, shadows: -30, gpu: gpu);
     case ArtisticEffect.dramaDark2:
       return _applyDrama(image, strength,
-          contrast: 70, exposure: -0.5, shadows: -50, vignette: 0.4);
+          contrast: 70, exposure: -0.5, shadows: -50, vignette: 0.4, gpu: gpu);
     case ArtisticEffect.hdrFine:
-      return _applyHdr(image, strength, compression: 0.7, detailBoost: 1.2);
+      return _applyHdr(image, strength,
+          compression: 0.7, detailBoost: 1.2, gpu: gpu);
     case ArtisticEffect.hdrNature:
       return _applyHdr(image, strength,
-          compression: 0.8, detailBoost: 1.5, satBoost: 15);
+          compression: 0.8, detailBoost: 1.5, satBoost: 15, gpu: gpu);
     case ArtisticEffect.hdrPeople:
-      return _applyHdr(image, strength, compression: 0.75, detailBoost: 1.0);
+      return _applyHdr(image, strength,
+          compression: 0.75, detailBoost: 1.0, gpu: gpu);
     case ArtisticEffect.hdrStrong:
-      return _applyHdr(image, strength, compression: 0.5, detailBoost: 2.0);
+      return _applyHdr(image, strength,
+          compression: 0.5, detailBoost: 2.0, gpu: gpu);
     case ArtisticEffect.glamourGlow:
-      return _applyGlamourGlow(image, strength);
+      return _applyGlamourGlow(image, strength, gpu: gpu);
     case ArtisticEffect.grunge:
       return _applyGrunge(image, strength, grungeVariant);
     default:
@@ -288,7 +293,7 @@ Future<img.Image> _applyRetrolux(img.Image image, double strength) async {
 }
 
 // ── Drama ────────────────────────────────────────────────
-img.Image _applyDrama(
+Future<img.Image> _applyDrama(
   img.Image image,
   double strength, {
   double contrast = 0,
@@ -297,10 +302,12 @@ img.Image _applyDrama(
   double exposure = 0,
   double shadows = 0,
   double vignette = 0,
-}) {
+  GpuOps gpu = const GpuOps(),
+}) async {
   final s = strength.clamp(0.0, 1.0);
   if (s <= 0) return image;
-  final blurred = clarity == 0 ? null : _rgbGaussianBlur(image, 7);
+  final blurred =
+      clarity == 0 ? null : await _rgbGaussianBlur(image, 7, gpu: gpu);
   final result =
       img.Image(width: image.width, height: image.height, numChannels: 4);
   final contrastAmount = (contrast * s / 100.0).clamp(-0.95, 0.95);
@@ -417,14 +424,15 @@ int _quantizeWithoutNewClipping(double value, int source) {
 }
 
 // ── HDR Scape: Local Tone Mapping ────────────────────────
-img.Image _applyHdr(
+Future<img.Image> _applyHdr(
   img.Image image,
   double strength, {
   double compression = 0.7,
   double detailBoost = 1.2,
   double satBoost = 0,
-}) {
-  final blurred = _rgbGaussianBlur(image, 8);
+  GpuOps gpu = const GpuOps(),
+}) async {
+  final blurred = await _rgbGaussianBlur(image, 8, gpu: gpu);
   final result =
       img.Image(width: image.width, height: image.height, numChannels: 4);
   final compressionAmount = (1.0 - compression).clamp(0.0, 1.0);
@@ -486,7 +494,8 @@ double _smoothStep(double edge0, double edge1, double value) {
   return t * t * (3.0 - 2.0 * t);
 }
 
-img.Image _rgbGaussianBlur(img.Image image, int preferredRadius) {
+Future<img.Image> _rgbGaussianBlur(img.Image image, int preferredRadius,
+    {GpuOps gpu = const GpuOps()}) async {
   // image 4.8's separable Gaussian path assumes RGB storage for some layouts.
   // Use an explicit RGB buffer and keep the radius below the shortest edge.
   final blurInput =
@@ -502,12 +511,17 @@ img.Image _rgbGaussianBlur(img.Image image, int preferredRadius) {
     preferredRadius,
     math.max(1, math.min(image.width, image.height) ~/ 8),
   );
-  return fastGaussianBlur(blurInput, radius: radius);
+  final op = ImageOperation.blur(blurInput, radius);
+  await gpu.resolve(op);
+  return op.result!;
 }
 
 // ── Glamour Glow: Gaussian + Screen ──────────────────────
-img.Image _applyGlamourGlow(img.Image image, double strength) {
-  final blurred = fastGaussianBlur(image, radius: 10);
+Future<img.Image> _applyGlamourGlow(img.Image image, double strength,
+    {GpuOps gpu = const GpuOps()}) async {
+  final op = ImageOperation.blur(image, 10);
+  await gpu.resolve(op);
+  final blurred = op.result!;
   final result = img.Image(width: image.width, height: image.height);
   final glowStr = strength * 0.5;
 

@@ -1,3 +1,6 @@
+import 'package:flutter/services.dart';
+import '../../engine/gpu_ops.dart';
+import '../../core/remote_config/remote_config.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
@@ -56,8 +59,14 @@ class EditorExportRequest {
 class EditorExportWorkerContext {
   final EditorExportRequest request;
   final SendPort sendPort;
+  final RootIsolateToken? rootIsolateToken;
+  final bool gpuOpsEnabled;
+  final bool collectTiming;
 
-  const EditorExportWorkerContext(this.request, this.sendPort);
+  const EditorExportWorkerContext(this.request, this.sendPort,
+      [this.rootIsolateToken,
+      this.gpuOpsEnabled = false,
+      this.collectTiming = false]);
 }
 
 /// Owns one export worker and guarantees a single terminal result.
@@ -77,11 +86,12 @@ class EditorExportService {
   Future<EditorExportJobResult> render(
     EditorExportRequest request, {
     void Function(double progress)? onProgress,
+    void Function(Map<String, dynamic> timing)? onTiming,
   }) async {
     if (_activeJob != null) {
       throw StateError('An editor export is already running');
     }
-    final job = _EditorExportJob(request, onProgress);
+    final job = _EditorExportJob(request, onProgress, onTiming);
     _activeJob = job;
     try {
       _listen(job);
@@ -94,9 +104,12 @@ class EditorExportService {
         );
         job.kill();
       });
+      final gpuContext = GpuIsolateContext.capture(
+          RemoteConfigService.instance.gpuOpsIosEnabled);
       job.isolate = await Isolate.spawn(
         _worker,
-        EditorExportWorkerContext(request, job.messagePort.sendPort),
+        EditorExportWorkerContext(request, job.messagePort.sendPort,
+            gpuContext.rootToken, gpuContext.enabled, onTiming != null),
         onExit: job.exitPort.sendPort,
         onError: job.errorPort.sendPort,
         errorsAreFatal: true,
@@ -121,6 +134,18 @@ class EditorExportService {
 
   void _listen(_EditorExportJob job) {
     job.messageSubscription = job.messagePort.listen((message) {
+      if (message == 'gpu_interrupted') {
+        job.cancelled = true;
+        job.completeFailure(const EditorExportFailure(
+          EditorExportFailureKind.systemInterrupted,
+          'GPU foreground permission was withdrawn',
+        ));
+        return;
+      }
+      if (message is Map && message['type'] == 'render_timing') {
+        job.onTiming?.call(Map<String, dynamic>.from(message['data'] as Map));
+        return;
+      }
       if (message is num) {
         final progress = message.toDouble().clamp(0.0, 0.99).toDouble();
         if (progress > job.lastProgress) {
@@ -212,6 +237,7 @@ class _EditorExportTerminal {
 class _EditorExportJob {
   final EditorExportRequest request;
   final void Function(double progress)? onProgress;
+  final void Function(Map<String, dynamic> timing)? onTiming;
   final ReceivePort messagePort = ReceivePort();
   final ReceivePort exitPort = ReceivePort();
   final ReceivePort errorPort = ReceivePort();
@@ -227,7 +253,7 @@ class _EditorExportJob {
   double lastProgress = 0;
   EditorExportFailure? failure;
 
-  _EditorExportJob(this.request, this.onProgress);
+  _EditorExportJob(this.request, this.onProgress, this.onTiming);
 
   void complete(EditorExportJobResult result) {
     if (!terminal.isCompleted) {
@@ -246,6 +272,13 @@ class _EditorExportJob {
 
 Future<void> _editorExportWorker(EditorExportWorkerContext context) async {
   final request = context.request;
+  final phase = Stopwatch()..start();
+  void timing(Map<String, Object?> data) {
+    if (context.collectTiming) {
+      context.sendPort.send({'type': 'render_timing', 'data': data});
+    }
+  }
+
   try {
     // 원본 디코딩은 큰 사진에서 수 초 걸릴 수 있다. 그동안 0%에 멈춰 보이지 않도록
     // 작업 시작과 디코딩 완료 시점에도 진행률을 보낸다.
@@ -255,6 +288,10 @@ Future<void> _editorExportWorker(EditorExportWorkerContext context) async {
       final decoded =
           img.decodeImage(File(request.imagePath).readAsBytesSync());
       source = decoded == null ? null : img.bakeOrientation(decoded);
+      timing({
+        'phase': 'read_decode_orientation',
+        'ms': phase.elapsedMicroseconds / 1000
+      });
       context.sendPort.send(0.10);
     } catch (error) {
       context.sendPort.send(
@@ -274,7 +311,15 @@ Future<void> _editorExportWorker(EditorExportWorkerContext context) async {
       );
       return;
     }
+    if (context.gpuOpsEnabled) {
+      GpuOps.initializeBackground(context.rootIsolateToken);
+    }
+    phase.reset();
     final rendered = await EditorRenderer.renderExport(
+      gpu: GpuOps(
+          enabled: context.gpuOpsEnabled,
+          onTiming: timing,
+          onFallback: () => timing({'phase': 'gpu_fallback'})),
       source: source,
       recipe: request.recipe,
       maxDimension: request.maxDimension,
@@ -291,6 +336,11 @@ Future<void> _editorExportWorker(EditorExportWorkerContext context) async {
       ),
       onProgress: context.sendPort.send,
     );
+    timing({
+      'phase': 'spatial_visual_pipeline',
+      'ms': phase.elapsedMicroseconds / 1000
+    });
+    phase.reset();
     context.sendPort.send(0.85);
     final encoded = ExportEncoder.encode(
       rendered,
@@ -309,7 +359,10 @@ Future<void> _editorExportWorker(EditorExportWorkerContext context) async {
       return;
     }
     context.sendPort.send(0.95);
+    timing({'phase': 'encode_write', 'ms': phase.elapsedMicroseconds / 1000});
     context.sendPort.send('done');
+  } on GpuWorkInterrupted {
+    context.sendPort.send('gpu_interrupted');
   } catch (error) {
     context.sendPort.send(
       EditorExportFailure.fromError(error).toWorkerMessage(),
