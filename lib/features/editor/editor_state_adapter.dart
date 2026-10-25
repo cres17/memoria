@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:memoria/core/remote_config/remote_config.dart';
 import 'package:memoria/domain/models/adjust_params.dart';
 import 'package:memoria/domain/models/curve_data.dart';
 import 'package:memoria/domain/models/edit_operation.dart';
@@ -147,12 +148,16 @@ class EditorStateSnapshot {
               ),
             )
             .toList(growable: false),
-        sky: SkyAdjust(
-          brightness: effects.skyBrightness,
-          saturation: effects.skySaturation,
-          warmth: effects.skyWarmth,
-        ),
-        skyShowMask: skyShowMask,
+        // 원격 킬 스위치: 하늘 보정을 끄면 저장된 값이 있어도 렌더에 반영하지 않는다.
+        sky: RemoteConfigService.instance.current.skyDisabled
+            ? const SkyAdjust()
+            : SkyAdjust(
+                brightness: effects.skyBrightness,
+                saturation: effects.skySaturation,
+                warmth: effects.skyWarmth,
+              ),
+        skyShowMask:
+            skyShowMask && !RemoteConfigService.instance.current.skyDisabled,
         healStrokes: effects.healStrokes
             .map((s) => HealSpot(x: s.x, y: s.y, radius: s.radius))
             .toList(growable: false),

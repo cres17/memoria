@@ -28,6 +28,7 @@ import 'package:memoria/engine/portrait_engine.dart';
 import 'package:memoria/domain/models/adjust_params.dart';
 import 'package:memoria/domain/models/editor_look.dart';
 import 'package:memoria/features/editor/editor_look_clipboard.dart';
+import 'package:memoria/core/remote_config/remote_config.dart';
 import 'package:memoria/features/editor/utils/raw_pick.dart';
 import 'package:memoria/domain/models/curve_data.dart';
 import 'package:memoria/domain/models/filter_preset.dart';
@@ -3432,7 +3433,13 @@ class _EditorPageState extends State<EditorPage> {
         ),
       );
 
-  static const List<_ToolItem> _tools = [
+  /// 원격 킬 스위치가 켜지면 하늘 도구를 목록에서 뺀다.
+  static List<_ToolItem> get _tools =>
+      RemoteConfigService.instance.current.skyDisabled
+          ? _allTools.where((t) => t.id != 'sky').toList(growable: false)
+          : _allTools;
+
+  static const List<_ToolItem> _allTools = [
     _ToolItem(id: 'tune', label: '기본 보정', icon: Icons.tune_rounded),
     _ToolItem(id: 'details', label: '세부 정보', icon: Icons.details_rounded),
     _ToolItem(id: 'curves', label: '커브', icon: Icons.waves_rounded),

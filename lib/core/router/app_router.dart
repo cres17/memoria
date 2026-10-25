@@ -7,6 +7,7 @@ import '../../features/editor/editor_page.dart';
 import '../../features/filters/filters_page.dart';
 import '../../features/create_filter/create_filter_page.dart';
 import '../../features/batch/batch_apply_page.dart';
+import '../remote_config/remote_config.dart';
 import '../../features/settings/settings_page.dart';
 import '../../features/settings/dev_panel_page.dart';
 import '../../features/splash/splash_page.dart';
@@ -69,6 +70,8 @@ final appRouter = GoRouter(
     GoRoute(
       path: '/batch',
       name: 'batchApply',
+      redirect: (context, state) =>
+          RemoteConfigService.instance.current.batchDisabled ? '/' : null,
       pageBuilder: (context, state) =>
           _adaptivePage(state, const BatchApplyPage()),
     ),
