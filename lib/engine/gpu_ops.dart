@@ -76,6 +76,11 @@ class GpuOps {
       return null;
     } on MissingPluginException {
       return null;
+    } on TypeError {
+      // A broken native protocol must not bypass the CPU recovery path.
+      return null;
+    } on FormatException {
+      return null;
     }
   }
 

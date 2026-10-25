@@ -5,7 +5,8 @@ import subprocess
 from pathlib import Path
 
 subprocess.run(["python3", "tool/prepare_gpu_test_photos.py"], check=True)
-inventory = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "--json"]))
+inventory = json.loads(subprocess.check_output(
+    ["xcrun", "simctl", "list", "devices", "available", "--json"], timeout=90))
 phones = [d for devices in inventory["devices"].values() for d in devices
           if d.get("isAvailable") and "iPhone" in d["name"]]
 if not phones:

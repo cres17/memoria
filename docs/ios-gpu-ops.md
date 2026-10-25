@@ -49,6 +49,7 @@ use CPU. Half precision is not used.
 
 ```sh
 flutter pub get --enforce-lockfile
+python3 tool/prepare_gpu_test_photos.py
 flutter test --no-pub
 flutter analyze --no-fatal-infos
 python3 scripts/run_ios_gpu_ci.py

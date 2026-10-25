@@ -49,6 +49,7 @@ jobs:
 
       - name: Analyze and test release source
         run: |
+          python3 tool/prepare_gpu_test_photos.py
           flutter analyze --no-fatal-infos
           flutter test --reporter compact
 

@@ -85,7 +85,9 @@ jobs:
           test "$(find assets/images -name '*_thumb.jpg' -type f | wc -l | tr -d ' ')" -ge 24
 
       - name: Analyze production and tests
-        run: flutter analyze --no-fatal-infos
+        run: |
+          python3 tool/prepare_gpu_test_photos.py
+          flutter analyze --no-fatal-infos
 
       - name: Run unit and widget tests
         run: flutter test --coverage --reporter compact
