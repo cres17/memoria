@@ -15,7 +15,7 @@ dependencies:
   # State management
 
   # Navigation
-  go_router: ^13.2.0
+  go_router: ^18.1.1
 
   # Storage & Files
   shared_preferences: ^2.2.3
