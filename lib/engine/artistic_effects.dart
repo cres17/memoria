@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
+import 'fast_blur.dart';
 
 // ─────────────────────────────────────────────────────────
 //  아티스틱 이펙트 정의
@@ -501,12 +502,12 @@ img.Image _rgbGaussianBlur(img.Image image, int preferredRadius) {
     preferredRadius,
     math.max(1, math.min(image.width, image.height) ~/ 8),
   );
-  return img.gaussianBlur(blurInput, radius: radius);
+  return fastGaussianBlur(blurInput, radius: radius);
 }
 
 // ── Glamour Glow: Gaussian + Screen ──────────────────────
 img.Image _applyGlamourGlow(img.Image image, double strength) {
-  final blurred = img.gaussianBlur(image, radius: 10);
+  final blurred = fastGaussianBlur(image, radius: 10);
   final result = img.Image(width: image.width, height: image.height);
   final glowStr = strength * 0.5;
 
