@@ -42,7 +42,7 @@ class _DevPanelPageState extends State<DevPanelPage> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
-                color: AppColors.accentWarning.withOpacity(0.15),
+                color: AppColors.accentWarning.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(6),
               ),
               child: const Text(
@@ -123,9 +123,10 @@ class _DevPanelPageState extends State<DevPanelPage> {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppColors.accentWarning.withOpacity(0.1),
+        color: AppColors.accentWarning.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.accentWarning.withOpacity(0.3)),
+        border:
+            Border.all(color: AppColors.accentWarning.withValues(alpha: 0.3)),
       ),
       child: const Row(
         children: [
@@ -205,8 +206,8 @@ class _DevPanelPageState extends State<DevPanelPage> {
                             horizontal: 8, vertical: 2),
                         decoration: BoxDecoration(
                           color: e.value
-                              ? AppColors.accentSuccess.withOpacity(0.15)
-                              : AppColors.accentError.withOpacity(0.15),
+                              ? AppColors.accentSuccess.withValues(alpha: 0.15)
+                              : AppColors.accentError.withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: Text(
@@ -277,8 +278,8 @@ class _FlagRow extends StatelessWidget {
           Switch(
             value: value,
             onChanged: onChanged,
-            activeColor: AppColors.oceanFoam,
-            activeTrackColor: AppColors.oceanTeal.withOpacity(0.4),
+            activeThumbColor: AppColors.oceanFoam,
+            activeTrackColor: AppColors.oceanTeal.withValues(alpha: 0.4),
             inactiveThumbColor: AppColors.textOnDarkTert,
             inactiveTrackColor: AppColors.oceanNavy,
           ),

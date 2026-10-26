@@ -21,7 +21,8 @@ void main() {
       expect(c.isLinear, isFalse);
     });
 
-    test('near-linear two-point (within 0.01 tolerance) is treated as linear', () {
+    test('near-linear two-point (within 0.01 tolerance) is treated as linear',
+        () {
       const c = CurveData(
         channel: CurveChannel.rgb,
         points: [CurvePoint(0.005, 0.005), CurvePoint(0.995, 0.995)],
@@ -74,7 +75,8 @@ void main() {
       }
     });
 
-    test('2 points: faded (0→0.07, 1→0.93) lifts blacks and compresses whites', () {
+    test('2 points: faded (0→0.07, 1→0.93) lifts blacks and compresses whites',
+        () {
       const c = CurveData(
         channel: CurveChannel.luminance,
         points: [CurvePoint(0, 0.07), CurvePoint(1, 0.93)],

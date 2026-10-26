@@ -66,9 +66,7 @@ class _HslPanelState extends State<HslPanel> {
     final color = _kBandColors[_selectedBand]!;
     final displayColor = _selectedBand == HslBand.yellow
         ? const Color(0xFFD4B106)
-        : (_selectedBand == HslBand.cyan
-            ? const Color(0xFF0097A7)
-            : color);
+        : (_selectedBand == HslBand.cyan ? const Color(0xFF0097A7) : color);
     final bp = _currentBand;
 
     return Padding(
@@ -85,7 +83,8 @@ class _HslPanelState extends State<HslPanel> {
               children: HslBand.values.map((band) {
                 final selected = band == _selectedBand;
                 final c = _kBandColors[band]!;
-                final bandParams = widget.params.hsl[band] ?? HslBandParams.zero;
+                final bandParams =
+                    widget.params.hsl[band] ?? HslBandParams.zero;
                 final isModified = bandParams.hue != 0.0 ||
                     bandParams.saturation != 0.0 ||
                     bandParams.luminance != 0.0;
@@ -98,7 +97,7 @@ class _HslPanelState extends State<HslPanel> {
                         const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
                       color: selected
-                          ? c.withOpacity(0.12)
+                          ? c.withValues(alpha: 0.12)
                           : Colors.transparent,
                       borderRadius: BorderRadius.circular(20),
                       border: Border.all(
@@ -108,7 +107,7 @@ class _HslPanelState extends State<HslPanel> {
                                 : (band == HslBand.cyan
                                     ? const Color(0xFF0097A7)
                                     : c))
-                            : AppColors.textSecondary.withOpacity(0.18),
+                            : AppColors.textSecondary.withValues(alpha: 0.18),
                         width: selected ? 1.5 : 1,
                       ),
                     ),
@@ -129,9 +128,7 @@ class _HslPanelState extends State<HslPanel> {
                           style: TextStyle(
                             fontSize: 13,
                             fontFamily: 'NotoSerif',
-                            color: selected
-                                ? Colors.black
-                                : Colors.black54,
+                            color: selected ? Colors.black : Colors.black54,
                             fontWeight:
                                 selected ? FontWeight.bold : FontWeight.w600,
                           ),
@@ -240,7 +237,7 @@ class _HslSlider extends StatelessWidget {
                     width: 28,
                     height: 28,
                     decoration: BoxDecoration(
-                      color: color.withOpacity(0.12),
+                      color: color.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(7),
                     ),
                     child: Icon(icon, size: 15, color: color),
@@ -271,9 +268,10 @@ class _HslSlider extends StatelessWidget {
           SliderTheme(
             data: SliderTheme.of(context).copyWith(
               activeTrackColor: color,
-              inactiveTrackColor: AppColors.textSecondary.withOpacity(0.12),
+              inactiveTrackColor:
+                  AppColors.textSecondary.withValues(alpha: 0.12),
               thumbColor: color,
-              overlayColor: color.withOpacity(0.15),
+              overlayColor: color.withValues(alpha: 0.15),
               trackHeight: 2.5,
               thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
             ),

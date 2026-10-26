@@ -5,7 +5,6 @@ import 'package:memoria/features/editor/widgets/hsl_panel.dart';
 import 'package:memoria/features/editor/widgets/noise_panel.dart';
 import 'package:memoria/features/editor/widgets/details_panel.dart';
 
-
 void main() {
   testWidgets('HslPanel separates preview changes from final commit',
       (tester) async {

@@ -29,11 +29,12 @@ class AiModelInfo {
 const kModelSelfie = AiModelInfo(
   key: 'selfie_segmenter',
   // latest가 아닌 버전 경로로 고정하고, 받은 파일은 크기와 SHA-256이 일치할 때만 쓴다.
-  url: 'https://storage.googleapis.com/mediapipe-models/'
-      'image_segmenter/selfie_segmenter/float16/1/'
-      'selfie_segmenter.tflite',
-  sha256: '191ac9529ae506ee0beefa6b2c945a172dab9d07d1e802a290a4e4038226658b',
-  sizeBytes: 249537,
+  url:
+      'https://storage.googleapis.com/mediapipe-models/'
+      'image_segmenter/selfie_segmenter_landscape/float16/1/'
+      'selfie_segmenter_landscape.tflite',
+  sha256: '490e9ea734313e0de10fa0cd9e3c6133e36ea4db2b7a49bde9ef019f72796b8e',
+  sizeBytes: 250177,
 );
 
 // 하늘 분할(U²-Net). 88MB라서 사용자가 하늘 도구에서 직접 내려받는다. 받기 전에는 색 기반 방식으로 동작한다.
@@ -41,16 +42,18 @@ const kModelSelfie = AiModelInfo(
 // Input : [1, 3, 320, 320] float32 NCHW, RGB 0-1 / Output: [1, 1, 320, 320] 하늘 확률
 const kModelSkySeg = AiModelInfo(
   key: 'sky_segmenter',
-  url: 'https://github.com/cres17/memoria/releases/download/'
+  url:
+      'https://github.com/cres17/memoria/releases/download/'
       'model-sky-u2net-v1/skyseg_fp16.tflite',
   sha256: 'fa03dba927b81bc0bbe892a7bd3b2c084cd664e32a8d12c5b8cba8ccbe167c22',
   sizeBytes: 88107632,
 );
 
-const kColorTransferModelId = 'direct_mvp_family_holdout_smooth_010_001_fp16';
-const kColorTransferModelVersion = '2026-08-04-rc1';
+const kColorTransferModelId =
+    'direct_mvp_color_v3_smooth010_seed_20260830_fp16';
+const kColorTransferModelVersion = '2026-08-28-g5-candidate';
 const kColorTransferModelSha256 =
-    '4a9439bd65be4d46e9ac4c3cae3d10e49487be42404a2af2beabcb2b415858f3';
+    'a1b8ecf00632ba359b2d4dec603de6e35fc031aed9af978b14658422e02241a6';
 
 // Direct MVP — style encoder + 17³ LUT decoder.
 // Input : [1, 3, 256, 256] float32 NCHW, ImageNet normalized
@@ -73,18 +76,31 @@ class ModelState {
   final double progress; // 0.0–1.0
   final String? error;
 
-  const ModelState({
-    required this.status,
-    this.progress = 0.0,
-    this.error,
-  });
+  const ModelState({required this.status, this.progress = 0.0, this.error});
 }
 
 // ─── Manager ─────────────────────────────────────────────────────────────────
 
 class AiManager extends ChangeNotifier {
-  AiManager._();
+  AiManager._({
+    http.Client Function()? clientFactory,
+    Duration downloadTimeout = const Duration(seconds: 30),
+  }) : _clientFactory = clientFactory ?? http.Client.new,
+       _downloadTimeout = downloadTimeout;
+
+  @visibleForTesting
+  factory AiManager.forTesting({
+    required http.Client Function() clientFactory,
+    Duration downloadTimeout = const Duration(seconds: 30),
+  }) => AiManager._(
+    clientFactory: clientFactory,
+    downloadTimeout: downloadTimeout,
+  );
+
   static final AiManager instance = AiManager._();
+
+  final http.Client Function() _clientFactory;
+  final Duration _downloadTimeout;
 
   final _states = <String, ModelState>{};
   final _paths = <String, String>{};
@@ -116,7 +132,9 @@ class AiManager extends ChangeNotifier {
     if (cached != null) {
       _paths[info.key] = cached;
       _setState(
-          info.key, const ModelState(status: ModelStatus.ready, progress: 1.0));
+        info.key,
+        const ModelState(status: ModelStatus.ready, progress: 1.0),
+      );
       return cached;
     }
 
@@ -126,11 +144,15 @@ class AiManager extends ChangeNotifier {
 
     if (info.url.isEmpty) {
       _setState(
-          info.key,
-          const ModelState(
-              status: ModelStatus.error, error: 'Model not yet deployed'));
+        info.key,
+        const ModelState(
+          status: ModelStatus.error,
+          error: 'Model not yet deployed',
+        ),
+      );
       throw UnsupportedError(
-          '${info.key}: model URL is empty — deploy model first');
+        '${info.key}: model URL is empty — deploy model first',
+      );
     }
 
     return _download(info);
@@ -143,7 +165,9 @@ class AiManager extends ChangeNotifier {
     if (cached == null) return false;
     _paths[info.key] = cached;
     _setState(
-        info.key, const ModelState(status: ModelStatus.ready, progress: 1.0));
+      info.key,
+      const ModelState(status: ModelStatus.ready, progress: 1.0),
+    );
     return true;
   }
 
@@ -193,13 +217,16 @@ class AiManager extends ChangeNotifier {
   }
 
   Future<void> _verifyFile(AiModelInfo info, File file) async {
+    if (await file.length() == 0) {
+      throw StateError('${info.key}: model file is empty');
+    }
     if (info.sizeBytes > 0 && await file.length() != info.sizeBytes) {
-      throw StateError('${info.key}: bundled model size mismatch');
+      throw StateError('${info.key}: model size mismatch');
     }
     if (info.sha256.isNotEmpty) {
       final hash = (await sha256.bind(file.openRead()).first).toString();
       if (hash != info.sha256) {
-        throw StateError('${info.key}: bundled model SHA-256 mismatch');
+        throw StateError('${info.key}: model SHA-256 mismatch');
       }
     }
   }
@@ -226,81 +253,91 @@ class AiManager extends ChangeNotifier {
     final p = await _modelPath(info);
     final f = File(p);
     if (!await f.exists()) return null;
-    if (info.sizeBytes > 0 && await f.length() != info.sizeBytes) {
+    try {
+      await _verifyFile(info, f);
+    } on StateError {
       await f.delete();
       return null;
-    }
-    if (info.sha256.isNotEmpty) {
-      final hash = (await sha256.bind(f.openRead()).first).toString();
-      if (hash != info.sha256) {
-        await f.delete();
-        return null;
-      }
     }
     return p;
   }
 
   Future<String> _download(AiModelInfo info) async {
-    _setState(info.key,
-        const ModelState(status: ModelStatus.downloading, progress: 0));
+    _setState(
+      info.key,
+      const ModelState(status: ModelStatus.downloading, progress: 0),
+    );
 
+    http.Client? client;
+    File? temporary;
     try {
       final dest = await _modelPath(info);
       await File(dest).parent.create(recursive: true);
 
-      // 임시 파일로 받은 뒤 크기 · SHA-256을 확인하고 나서만 모델 경로로 옮긴다.
-      final partial = File('$dest.part');
-      final client = http.Client();
-      try {
-        final req = http.Request('GET', Uri.parse(info.url));
-        final resp = await client.send(req);
-        if (resp.statusCode != 200) {
-          throw HttpException('${info.key}: download failed (${resp.statusCode})');
-        }
+      client = _clientFactory();
+      final req = http.Request('GET', Uri.parse(info.url));
+      final resp = await client.send(req).timeout(_downloadTimeout);
+      if (resp.statusCode != HttpStatus.ok) {
+        throw StateError('${info.key}: model download HTTP ${resp.statusCode}');
+      }
 
-        final total = resp.contentLength ?? info.sizeBytes;
-        int received = 0;
-        final sink = partial.openWrite();
-        try {
-          await for (final chunk in resp.stream) {
-            sink.add(chunk);
+      final total = resp.contentLength ?? info.sizeBytes;
+      int received = 0;
+      temporary = File('$dest.downloading');
+      final sink = temporary.openWrite();
+      try {
+        await sink.addStream(
+          resp.stream.timeout(_downloadTimeout).map((chunk) {
             received += chunk.length;
             if (info.sizeBytes > 0 && received > info.sizeBytes) {
-              throw StateError('${info.key}: downloaded model is larger than expected');
+              throw StateError(
+                '${info.key}: downloaded model is larger than expected',
+              );
             }
-            final progress = total > 0 ? received / total : 0.0;
-            _setState(info.key,
-                ModelState(status: ModelStatus.downloading, progress: progress));
-          }
-        } finally {
-          await sink.close();
-        }
-
-        if (info.sizeBytes > 0 && await partial.length() != info.sizeBytes) {
-          throw StateError('${info.key}: downloaded model size mismatch');
-        }
-        if (info.sha256.isNotEmpty) {
-          final hash = (await sha256.bind(partial.openRead()).first).toString();
-          if (hash != info.sha256) {
-            throw StateError('${info.key}: downloaded model SHA-256 mismatch');
-          }
-        }
-        await partial.rename(dest);
+            final progress = total > 0
+                ? (received / total).clamp(0.0, 1.0).toDouble()
+                : 0.0;
+            _setState(
+              info.key,
+              ModelState(status: ModelStatus.downloading, progress: progress),
+            );
+            return chunk;
+          }),
+        );
+        await sink.flush();
       } catch (_) {
-        if (await partial.exists()) await partial.delete();
+        // addStream may already have closed the sink on a transport failure.
+        // Preserve that failure instead of replacing it with "File closed".
+        try {
+          await sink.close();
+        } catch (_) {}
         rethrow;
-      } finally {
-        client.close();
       }
+      await sink.close();
+
+      if (resp.contentLength != null && received != resp.contentLength) {
+        throw StateError('${info.key}: model download length mismatch');
+      }
+      await _verifyFile(info, temporary);
+      await temporary.rename(dest);
 
       _paths[info.key] = dest;
       _setState(
-          info.key, const ModelState(status: ModelStatus.ready, progress: 1.0));
+        info.key,
+        const ModelState(status: ModelStatus.ready, progress: 1.0),
+      );
       return dest;
     } catch (e) {
       _setState(
-          info.key, ModelState(status: ModelStatus.error, error: e.toString()));
+        info.key,
+        ModelState(status: ModelStatus.error, error: e.toString()),
+      );
       rethrow;
+    } finally {
+      client?.close();
+      if (temporary != null && await temporary.exists()) {
+        await temporary.delete();
+      }
     }
   }
 

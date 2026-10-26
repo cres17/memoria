@@ -83,17 +83,19 @@ class AdjustSlider extends StatelessWidget {
                   ),
                   AnimatedContainer(
                     duration: const Duration(milliseconds: 150),
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
                       color: isNeutral
                           ? AppColors.oceanNavy
-                          : trackColor.withOpacity(0.2),
+                          : trackColor.withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(
                         color: isNeutral
                             ? Colors.transparent
-                            : trackColor.withOpacity(0.4),
+                            : trackColor.withValues(alpha: 0.4),
                         width: 0.8,
                       ),
                     ),
@@ -103,8 +105,9 @@ class AdjustSlider extends StatelessWidget {
                         fontFamily: 'NotoSerif',
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
-                        color:
-                            isNeutral ? AppColors.textOnDarkTert : trackColor,
+                        color: isNeutral
+                            ? AppColors.textOnDarkTert
+                            : trackColor,
                       ),
                     ),
                   ),
@@ -119,7 +122,7 @@ class AdjustSlider extends StatelessWidget {
             activeTrackColor: trackColor,
             inactiveTrackColor: AppColors.oceanNavy,
             thumbColor: trackColor,
-            overlayColor: trackColor.withOpacity(0.15),
+            overlayColor: trackColor.withValues(alpha: 0.15),
             trackHeight: 3,
             thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 10),
           ),
@@ -201,8 +204,10 @@ class AdjustParamsPanel extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       if (items[i].icon.isNotEmpty) ...[
-                        Text(items[i].icon,
-                            style: const TextStyle(fontSize: 16)),
+                        Text(
+                          items[i].icon,
+                          style: const TextStyle(fontSize: 16),
+                        ),
                         const SizedBox(height: 2),
                       ],
                       Text(

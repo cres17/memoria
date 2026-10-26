@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "scope": "physical-device/4k-temp-export",
+  "buildMode": "profile",
+  "device": {
+    "name": "iPhone 17 physical",
+    "os": "ios",
+    "osVersion": "Version 26.6.1 (Build 23G83)"
+  },
+  "fixture": {
+    "id": "synthetic-gradient-3840x2160",
+    "width": 3840,
+    "height": 2160
+  },
+  "output": {
+    "format": "jpeg",
+    "width": 3840,
+    "height": 2160,
+    "bytes": 4009603,
+    "signatureValid": true,
+    "photoLibraryWrite": false
+  },
+  "durationMs": 2477.709,
+  "progress": {
+    "samples": [
+      0.01,
+      0.02,
+      0.03,
+      0.15,
+      0.16,
+      0.17,
+      0.18000000000000002,
+      0.19000000000000003,
+      0.20000000000000004,
+      0.21000000000000005,
+      0.4,
+      0.55,
+      0.7,
+      0.85,
+      0.86,
+      0.87,
+      0.88,
+      0.89,
+      0.95
+    ],
+    "elapsedMs": [
+      0.029,
+      201.238,
+      402.4,
+      469.783,
+      600.721,
+      801.65,
+      1001.678,
+      1202.194,
+      1402.19,
+      1601.93,
+      1684.618,
+      1684.623,
+      1684.625,
+      1684.643,
+      1801.861,
+      2002.35,
+      2201.441,
+      2402.048,
+      2477.614
+    ],
+    "maxIntervalMs": 201.209
+  },
+  "rssBytes": {
+    "baseline": 117342208,
+    "peak": 300318720,
+    "after": 130023424,
+    "peakDelta": 182976512,
+    "afterDelta": 12681216
+  },
+  "limitations": [
+    "The output is validated in app temporary storage, not PhotoKit.",
+    "RSS is process-wide and includes the integration-test runner."
+  ]
+}

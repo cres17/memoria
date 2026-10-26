@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../../core/l10n/strings.dart';
 import '../../core/theme/app_colors.dart';
 
 class SplashPage extends StatefulWidget {
@@ -20,7 +21,7 @@ class _SplashPageState extends State<SplashPage>
     super.initState();
     _ctrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 2200),
+      duration: const Duration(milliseconds: 750),
     );
 
     _fadeIn = CurvedAnimation(
@@ -85,9 +86,9 @@ class _SplashPageState extends State<SplashPage>
                 ),
               ),
               const SizedBox(height: 10),
-              const Text(
-                'Your Digital Sanctuary',
-                style: TextStyle(
+              Text(
+                S.get('splash.tagline'),
+                style: const TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w500,
                   color: AppColors.textTertiary,

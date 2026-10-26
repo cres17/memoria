@@ -1331,7 +1331,9 @@ OklabStats _fuseOklabStats(List<OklabStats> statsList) {
       return values.reduce((a, b) => a + b) / values.length;
     }
     double sum = 0.0;
-    for (final v in values) sum += v;
+    for (final v in values) {
+      sum += v;
+    }
     final mean = sum / values.length;
     double variance = 0.0;
     for (final v in values) {
@@ -1679,7 +1681,9 @@ _StyleProfile _fuseStyleProfiles(List<_StyleProfile> profiles) {
       return values.reduce((a, b) => a + b) / values.length;
     }
     double sum = 0.0;
-    for (final v in values) sum += v;
+    for (final v in values) {
+      sum += v;
+    }
     final mean = sum / values.length;
     double variance = 0.0;
     for (final v in values) {
@@ -1756,7 +1760,9 @@ _LabStyleProfile _fuseLabStyleProfiles(List<_LabStyleProfile> profiles) {
       return values.reduce((a, b) => a + b) / values.length;
     }
     double sum = 0.0;
-    for (final v in values) sum += v;
+    for (final v in values) {
+      sum += v;
+    }
     final mean = sum / values.length;
     double variance = 0.0;
     for (final v in values) {

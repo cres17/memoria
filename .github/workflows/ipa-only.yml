@@ -4,7 +4,7 @@ env:
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, test/color-v3-fallback-routing ]
   workflow_dispatch:
  
 permissions:
@@ -38,7 +38,7 @@ jobs:
           flutter-version: '3.44.6'
           channel: stable
           cache: true
-          architecture: 'x64'
+          architecture: 'arm64'
 
       - name: Check installed Flutter/Dart
         run: |
@@ -47,6 +47,9 @@ jobs:
 
       - name: Install locked dependencies
         run: flutter pub get --enforce-lockfile
+
+      - name: Verify required runtime assets
+        run: flutter test --no-pub test/runtime_assets_test.dart --reporter expanded
 
       - name: Check Flutter environment
         run: flutter doctor -v

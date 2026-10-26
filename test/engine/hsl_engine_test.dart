@@ -29,13 +29,17 @@ void main() {
       // Test RgbColor representing red with hue close to 0 (e.g. 5 degrees)
       const redColor1 = RgbColor(1.0, 0.1, 0.0); // Hue ~ 6 degrees
       final out1 = applyHslAdjust(redColor1, redShift);
-      final diff1 = (out1.r - redColor1.r).abs() + (out1.g - redColor1.g).abs() + (out1.b - redColor1.b).abs();
+      final diff1 = (out1.r - redColor1.r).abs() +
+          (out1.g - redColor1.g).abs() +
+          (out1.b - redColor1.b).abs();
       expect(diff1, greaterThan(1e-4));
 
       // Test RgbColor representing red with hue close to 360 (e.g. 355 degrees)
       const redColor2 = RgbColor(1.0, 0.0, 0.1); // Hue ~ 354 degrees
       final out2 = applyHslAdjust(redColor2, redShift);
-      final diff2 = (out2.r - redColor2.r).abs() + (out2.g - redColor2.g).abs() + (out2.b - redColor2.b).abs();
+      final diff2 = (out2.r - redColor2.r).abs() +
+          (out2.g - redColor2.g).abs() +
+          (out2.b - redColor2.b).abs();
       expect(diff2, greaterThan(1e-4));
     });
 
@@ -58,7 +62,8 @@ void main() {
     test('band isolation: blue adjustment does not affect red', () {
       const red = RgbColor(0.9, 0.1, 0.1);
       final blueAdjustment = {
-        HslBand.blue: const HslBandParams(hue: 45.0, saturation: -80.0, luminance: 30.0),
+        HslBand.blue:
+            const HslBandParams(hue: 45.0, saturation: -80.0, luminance: 30.0),
       };
 
       final out = applyHslAdjust(red, blueAdjustment);
@@ -70,7 +75,7 @@ void main() {
 
     test('smooth Gaussian feathering between adjacent bands', () {
       const green = RgbColor(0.1, 0.9, 0.1); // Hue ~ 120 (Green)
-      
+
       // Green band center is 120.
       // Cyan band center is 180.
       // Red band center is 0.
@@ -79,7 +84,7 @@ void main() {
       };
 
       final out = applyHslAdjust(green, cyanAdjust);
-      
+
       // green hue (120) has some weight relative to Cyan center (180) because sigma is 35.
       // (120 - 180)^2 = 3600. -3600 / (2 * 35^2) = -1.46. weight = exp(-1.46) = ~0.23.
       // So Green's saturation should decrease partially (be lower than original green).
@@ -90,7 +95,7 @@ void main() {
     test('skin tone adjustments affect orange and yellow bands', () {
       // Skin tone approximate (Orange-Yellow, e.g. R=0.9, G=0.7, B=0.55 => Hue ~ 25 degrees)
       const skin = RgbColor(0.9, 0.7, 0.55);
-      
+
       // Adjust Orange saturation
       final orangeAdjust = {
         HslBand.orange: const HslBandParams(saturation: -30.0),

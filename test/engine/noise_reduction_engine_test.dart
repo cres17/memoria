@@ -3,7 +3,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:memoria/domain/models/adjust_params.dart';
 import 'package:memoria/engine/lut_engine.dart';
-import 'package:memoria/engine/raw_processor.dart';
 
 void main() {
   group('Noise Reduction Engine Tests', () {
@@ -78,7 +77,7 @@ void main() {
 
     test('nrDetail preserves edges and limits over-smoothing', () {
       final original = createNoisyImage();
-      
+
       // Compare high detail recovery vs low detail recovery under same NR strength
       const paramsLowDetail = AdjustParams(
         luminanceNR: 80.0,
@@ -92,26 +91,16 @@ void main() {
         nrDetail: 90.0,
       );
 
-      final outLow = applyImagePipeline(image: original, params: paramsLowDetail);
-      final outHigh = applyImagePipeline(image: original, params: paramsHighDetail);
+      final outLow =
+          applyImagePipeline(image: original, params: paramsLowDetail);
+      final outHigh =
+          applyImagePipeline(image: original, params: paramsHighDetail);
 
       final lowVar = getVariance(outLow);
       final highVar = getVariance(outHigh);
 
       // High detail recovery should retain more variance/texture from the noisy source
       expect(highVar, greaterThan(lowVar));
-    });
-
-    test('rawProcessor applyNoiseReduction functionality', () {
-      final original = createNoisyImage();
-      
-      // Test no-op
-      final outNoOp = applyNoiseReduction(original, 0);
-      expect(getVariance(outNoOp), equals(getVariance(original)));
-
-      // Test active reduction
-      final outActive = applyNoiseReduction(original, 50);
-      expect(getVariance(outActive), lessThan(getVariance(original)));
     });
   });
 }

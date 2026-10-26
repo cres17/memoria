@@ -34,7 +34,7 @@ class TextRasterizer {
 
     // Calculate scale factor relative to target image resolution.
     // Standard reference height is 1080.0.
-    final baseResolutionHeight = 1080.0;
+    const baseResolutionHeight = 1080.0;
     final scaleFactor = imageHeight / baseResolutionHeight;
     final finalFontSize =
         (textSize * scaleFactor).clamp(4.0, imageHeight.toDouble());

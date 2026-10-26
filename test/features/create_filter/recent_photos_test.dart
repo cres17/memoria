@@ -203,8 +203,8 @@ void main() {
     await tester.tap(find.text('보정 레시피'));
     await tester.pump();
     expect(find.text('선택'), findsOneWidget);
-    expect(find.text('BEFORE · 원본'), findsOneWidget);
-    expect(find.text('AFTER · 보정본'), findsOneWidget);
+    expect(find.text('보정 전 · 원본'), findsOneWidget);
+    expect(find.text('보정 후 · 편집본'), findsOneWidget);
     final firstPhoto = find.byKey(const ValueKey('recent-photo-0'));
     await tester.ensureVisible(firstPhoto);
     await tester.tap(firstPhoto);

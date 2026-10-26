@@ -248,7 +248,7 @@ Iterable<ImageOperation> _applyEllipticalTiltShiftSteps({
   final mask = Float32List(image.width * image.height);
   final W = image.width.toDouble();
   final H = image.height.toDouble();
-  final transition = 0.15;
+  const transition = 0.15;
 
   for (int y = 0; y < image.height; y++) {
     for (int x = 0; x < image.width; x++) {

@@ -40,6 +40,8 @@ Fuji 18종과 Leica 5종의 LUT 필터를 제공하며, 노출·커브·HSL을 �
   <img src="docs/assets/readme/architecture.svg" alt="Memoria 편집기와 이미지 엔진" width="1120">
 </p>
 
+편집기는 화면 셸, 도구 컨트롤, 메뉴, 실행 처리, 히스토리를 `editor_page_*.dart`로 나눕니다. 도구 목록·적용·초기화와 미리보기 요청 순서는 별도 컨트롤러가 관리합니다.
+
 화면은 현재 보정값을 불변 객체인 `EditorRenderRecipe`로 묶습니다. 렌더러는 이 recipe와 이미지 리소스를 받아 픽셀 연산을 수행합니다. 미리보기와 내보내기를 별도 isolate에서 실행해 무거운 작업이 화면 조작을 막지 않도록 했습니다.
 
 <div align="center">
@@ -85,7 +87,7 @@ JPEG·PNG·TIFF는 Dart에서 인코딩하고, iOS의 WebP는 MethodChannel을 �
 
 ### 참조 사진 한 장
 
-번들 모델 `direct_mvp_color_transfer_fp16.tflite`에 256×256 이미지를 입력합니다. 모델이 예측한 17³ LUT를 `LutPredictor`가 65³으로 보간합니다. 모델 설치 시 크기와 SHA-256을 확인하고, 설치나 추론이 실패하면 알고리즘 방식으로 대체합니다. 대체 이유는 recipe에 남깁니다.
+번들 모델 `direct_mvp_color_transfer_fp16.tflite`에 256×256 이미지를 입력합니다. 모델이 예측한 17³ LUT를 `LutPredictor`가 65³으로 보간합니다. 번들 모델은 color-v3 G5 후보이며, 설치 시 크기와 SHA-256을 확인합니다. 참조 사진의 색 분포와 1차 예측 결과를 `ReferenceCoverageRouter`가 평가해 지원 범위를 벗어나거나 설치·추론이 실패하면 알고리즘 방식으로 대체합니다. 선택 경로와 대체 이유는 recipe에 남깁니다.
 
 ### 참조 사진 여러 장
 

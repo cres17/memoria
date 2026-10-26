@@ -111,7 +111,7 @@ img.Image applyFaceSpotlight(
       final dx = x / W - faceCenterX;
       final dy = y / H - faceCenterY;
       final dist = math.sqrt(dx * dx + dy * dy);
-      final sigma = 0.25;
+      const sigma = 0.25;
       final radial = math.exp(-0.5 * dist * dist / (sigma * sigma));
       final w = maskVal * radial * boost / 100.0;
 
@@ -135,7 +135,9 @@ img.Image applySkinToning(
 ) {
   if (tone == SkinTone.none ||
       strength <= 0 ||
-      faceMask.length != image.width * image.height) return image;
+      faceMask.length != image.width * image.height) {
+    return image;
+  }
   final targetHue = tone.targetHue;
   if (targetHue == null) return image;
 

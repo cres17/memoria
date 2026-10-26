@@ -5,7 +5,6 @@ import '../../core/l10n/app_locale.dart';
 import '../../core/l10n/strings.dart';
 import '../../core/error/error_handler.dart';
 import '../../core/remote_config/remote_config.dart';
-import '../../core/services/media_permission_service.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/platform_utils.dart';
 import '../../monetization/banner_ad_widget.dart';
@@ -46,16 +45,6 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _pickImage({String? presetId}) async {
     hapticMedium();
-    if (!await MediaPermissionService.ensurePhotoAccess()) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text(S.get('permission.photos_denied')),
-              behavior: SnackBarBehavior.floating),
-        );
-      }
-      return;
-    }
     final xFile = await ImagePicker().pickImage(source: ImageSource.gallery);
     if (xFile == null || !mounted) return;
     final photoPath = await resolvePickedPhotoPath(context, xFile.path);
@@ -64,10 +53,7 @@ class _HomePageState extends State<HomePage> {
         'editor',
         extra: presetId == null
             ? photoPath
-            : <String, String?>{
-                'imagePath': photoPath,
-                'presetId': presetId,
-              },
+            : <String, String?>{'imagePath': photoPath, 'presetId': presetId},
       );
     }
   }
@@ -95,7 +81,8 @@ class _HomePageState extends State<HomePage> {
                 SliverToBoxAdapter(child: _buildFeatureImage()),
                 SliverToBoxAdapter(child: _buildQuickCards()),
                 SliverToBoxAdapter(
-                    child: SizedBox(height: safeBottom(context) + 100)),
+                  child: SizedBox(height: safeBottom(context) + 100),
+                ),
               ],
             ),
           ),
@@ -108,12 +95,15 @@ class _HomePageState extends State<HomePage> {
   Widget _buildAppBar() {
     return SliverAppBar(
       pinned: true,
-      backgroundColor: AppColors.cloudPure.withOpacity(0.94),
+      backgroundColor: AppColors.cloudPure.withValues(alpha: 0.94),
       surfaceTintColor: Colors.transparent,
       title: const Row(
         children: [
-          Icon(Icons.auto_awesome_rounded,
-              color: AppColors.oceanFoam, size: 26),
+          Icon(
+            Icons.auto_awesome_rounded,
+            color: AppColors.oceanFoam,
+            size: 26,
+          ),
           SizedBox(width: 10),
           Text(
             'Memoria',
@@ -151,18 +141,21 @@ class _HomePageState extends State<HomePage> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             decoration: BoxDecoration(
-              color: AppColors.oceanBlue.withOpacity(0.72),
+              color: AppColors.oceanBlue.withValues(alpha: 0.72),
               borderRadius: BorderRadius.circular(999),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.auto_awesome_rounded,
-                    color: AppColors.oceanMist, size: 15),
+                const Icon(
+                  Icons.auto_awesome_rounded,
+                  color: AppColors.oceanMist,
+                  size: 15,
+                ),
                 const SizedBox(width: 8),
                 Text(
                   S.get('app.tagline'),
-                  style: TextStyle(
+                  style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
                     color: AppColors.oceanMist,
@@ -185,7 +178,7 @@ class _HomePageState extends State<HomePage> {
           const SizedBox(height: 26),
           Text(
             S.get('home.subtitle'),
-            style: TextStyle(
+            style: const TextStyle(
               fontSize: 17,
               height: 1.55,
               color: AppColors.textSecondary,
@@ -270,10 +263,10 @@ class _HomePageState extends State<HomePage> {
                       label: S.get('home.location'),
                       light: true,
                     ),
-                    SizedBox(height: 12),
+                    const SizedBox(height: 12),
                     Text(
                       S.get('home.photo_title'),
-                      style: TextStyle(
+                      style: const TextStyle(
                         fontFamily: 'Domine',
                         fontSize: 25,
                         height: 1.15,
@@ -287,9 +280,7 @@ class _HomePageState extends State<HomePage> {
               Positioned(
                 right: 20,
                 top: 20,
-                child: _FeaturedEditButton(
-                  onTap: _openFeaturedLook,
-                ),
+                child: _FeaturedEditButton(onTap: _openFeaturedLook),
               ),
             ],
           ),
@@ -369,7 +360,7 @@ class _InfoCard extends StatelessWidget {
               width: 58,
               height: 58,
               decoration: BoxDecoration(
-                color: AppColors.oceanFoam.withOpacity(0.08),
+                color: AppColors.oceanFoam.withValues(alpha: 0.08),
                 shape: BoxShape.circle,
               ),
               child: Icon(icon, color: AppColors.oceanFoam, size: 26),
@@ -390,8 +381,10 @@ class _InfoCard extends StatelessWidget {
                 ),
                 if (badge != null)
                   Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 9,
+                      vertical: 5,
+                    ),
                     decoration: BoxDecoration(
                       color: AppColors.oceanFoam,
                       borderRadius: BorderRadius.circular(99),
@@ -437,16 +430,18 @@ class _Pill extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
       decoration: BoxDecoration(
         color: light
-            ? AppColors.cloudWhite.withOpacity(0.22)
+            ? AppColors.cloudWhite.withValues(alpha: 0.22)
             : AppColors.oceanBlue,
         borderRadius: BorderRadius.circular(999),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon,
-              size: 9,
-              color: light ? AppColors.accentGlow : AppColors.oceanFoam),
+          Icon(
+            icon,
+            size: 9,
+            color: light ? AppColors.accentGlow : AppColors.oceanFoam,
+          ),
           const SizedBox(width: 8),
           Text(
             label,
@@ -470,7 +465,7 @@ class _FeaturedEditButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: AppColors.cloudWhite.withOpacity(0.9),
+      color: AppColors.cloudWhite.withValues(alpha: 0.9),
       borderRadius: BorderRadius.circular(999),
       clipBehavior: Clip.antiAlias,
       child: InkWell(

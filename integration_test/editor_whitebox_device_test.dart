@@ -122,4 +122,43 @@ void main() {
     expect(find.text('자유'), findsOneWidget);
     completed.add('WB-CR-01');
   });
+
+  testWidgets('WB-DRAFT-01: recreated EditorPage restores a v3 draft',
+      (tester) async {
+    final draftFixture = File('${fixture.parent.path}/editor_draft_v3.jpg');
+    await fixture.copy(draftFixture.path);
+    addTearDown(() async {
+      if (await draftFixture.exists()) await draftFixture.delete();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(home: EditorPage(imagePath: draftFixture.path)),
+    );
+    await tester.pumpAndSettle(const Duration(seconds: 5));
+    await tester.tap(find.text('기본 보정').first);
+    await tester.pump();
+
+    final exposure = find.byType(Slider).first;
+    final slider = tester.widget<Slider>(exposure);
+    slider.onChanged!(1.25);
+    await tester.pump();
+    await tester.tap(find.byTooltip('적용'));
+    await tester.pump(const Duration(milliseconds: 700));
+    await tester.pumpAndSettle(const Duration(seconds: 3));
+
+    // Destroy the entire page, then construct a fresh State object for the
+    // same source path. This is the lifecycle boundary a unit store test
+    // cannot cover.
+    await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+    await tester.pump();
+    await tester.pumpWidget(
+      MaterialApp(home: EditorPage(imagePath: draftFixture.path)),
+    );
+    await tester.pumpAndSettle(const Duration(seconds: 5));
+    await tester.tap(find.text('기본 보정').first);
+    await tester.pump();
+
+    expect(tester.widget<Slider>(find.byType(Slider).first).value, 1.25);
+    completed.add('WB-DRAFT-01');
+  });
 }

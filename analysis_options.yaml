@@ -14,6 +14,9 @@ analyzer:
   # not application source to analyze.
   exclude:
     - build/**
+    # Exploratory image experiments are not shipped or invoked by CI.
+    - brain/**
+    - scratch/**
 
 linter:
   # The lint rules applied to this project can be customized in the

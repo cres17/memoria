@@ -1,2 +1,4 @@
 #include "AdMob.xcconfig"
 #include "Generated.xcconfig"
+// The vendored LiteRT SwiftPM simulator frameworks ship arm64 slices only.
+EXCLUDED_ARCHS[sdk=iphonesimulator*] = $(inherited) x86_64
