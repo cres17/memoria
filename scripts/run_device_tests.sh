@@ -1,17 +1,22 @@
 #!/bin/bash
-# Existing cross-platform integration suite. The new GPU test has its own
-# mandatory iOS job, fixture preparation and measured performance gate.
+# Deterministic cross-platform simulator/emulator gate. Physical-device/profile
+# benchmarks and manual share/permission matrices have dedicated drivers;
+# adding a test file must never opt those procedures into unattended CI.
+# Metal parity has a separate mandatory iOS job and performance gate.
 set -euo pipefail
-tests=()
-for target in integration_test/*_test.dart; do
-  [ -f "$target" ] || continue
-  [ "$target" != "integration_test/ios_gpu_ops_test.dart" ] || continue
-  tests+=("$target")
+tests=(
+  integration_test/editor_features_device_test.dart
+  integration_test/editor_performance_test.dart
+  integration_test/editor_whitebox_device_test.dart
+  integration_test/ios_native_webp_test.dart
+  integration_test/settings_recovery_ui_test.dart
+)
+for target in "${tests[@]}"; do
+  if [ ! -f "$target" ]; then
+    echo "Missing required CI integration test: $target" >&2
+    exit 1
+  fi
 done
-if [ "${#tests[@]}" -eq 0 ]; then
-  echo 'No cross-platform integration tests selected' >&2
-  exit 1
-fi
 if [ "${1:-}" = '--list' ]; then
   printf '%s\n' "${tests[@]}"
   exit 0

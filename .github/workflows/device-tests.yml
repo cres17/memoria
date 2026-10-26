@@ -39,6 +39,9 @@ jobs:
       - name: Install locked dependencies
         run: flutter pub get --enforce-lockfile
 
+      - name: Verify unattended test selection
+        run: python3 -B scripts/test_device_test_selection.py
+
       - name: Boot an iPhone simulator
         id: sim
         run: |
@@ -125,6 +128,9 @@ jobs:
 
       - name: Install locked dependencies
         run: flutter pub get --enforce-lockfile
+
+      - name: Verify unattended test selection
+        run: python3 -B scripts/test_device_test_selection.py
 
       - name: Build debug APK
         run: flutter build apk --debug

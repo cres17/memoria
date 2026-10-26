@@ -19,6 +19,8 @@ Model handling combines the test branch's landscape-selfie contract and timeout/
 
 The iOS 15 and arm64 SwiftPM settings from the test branch are retained and applied to the iOS CI simulator jobs. Main's direct certificate import and keychain cleanup remain alongside the test branch's verified profile installation and release-configuration checks. Release ad flags remain disabled, with the remote kill switch retained. The GPU feature flag remains off by default.
 
+The cross-platform CI runner explicitly selects unattended feature, performance, editor transaction, WebP and settings-recovery suites. Physical/profile, share-completion, permission-state and separate Metal procedures keep their dedicated drivers; a selection regression check prevents accidental inclusion in generic simulator/emulator CI.
+
 ## Local validation
 
 - Flutter 3.44.6 / Dart 3.12.2.
@@ -28,6 +30,20 @@ The iOS 15 and arm64 SwiftPM settings from the test branch are retained and appl
 - `scripts/check_coverage.py coverage/lcov.info --min 58`: **69.8% (10,432/14,952)**. This measures only source files included in lcov, not all repository code.
 - Provisioning-profile tests: **4 passed**.
 - GPU CI startup/watchdog tests: **4 passed**.
+- Chrome GPU/isolate-context tests: **3 passed**, including the Web-only case skipped by the host runner.
 - iOS arm64 simulator debug build with `SimulatorCI.xcconfig`: passed. An initial build without that CI configuration failed to link Flutter symbols; the supported configuration was then verified.
 
-Native runtime/integration checks, unsigned device release compilation and remote CI are recorded below as they complete. Signed IPA creation, physical-device operation, memory/thermal measurements and GPU rollout are separate from this integration.
+- iOS device release build without signing: passed, `Runner.app` 149.9 MB.
+
+The two formal skips are the Chrome-only isolate test in the host suite and the optional external-photo quality fixture. The current bundled color-v3 model has separate load and round-trip checks; the legacy neural fixture also reports its unavailable optional local inputs.
+
+- iOS 27.0 / iPhone 17 simulator Metal harness: passed. 46 CPU/GPU pixel comparisons (noise max absolute difference 1; blur 2), 10 composed reference comparisons, preview and export timing gates passed. These measurements describe this simulator/host only.
+
+- iOS settings recovery integration: **1 passed**.
+- iOS editor whitebox integration: **4 passed** (reset/apply, back cancellation, crop reset and draft restoration).
+
+- iOS editor performance/cancellation integration: **2 passed**.
+
+- iOS native WebP integration: **1 passed**. Total standard simulator integration suite: **8 passed**, plus the Metal harness.
+
+Remote CI is tracked in PR #31. The app validation above covers code commit `1b3bd6ed42200d3cf7924b5b02d275a7273c1486`; the subsequent runner-only correction has its own selection regression check. Initial head CI passed vulnerability and Android signing checks. Generic device tests are rerun with the explicit unattended suite. Signed IPA creation, physical-device operation, memory/thermal measurements and GPU rollout are separate from this integration.
