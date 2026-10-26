@@ -4,33 +4,6 @@ import 'dart:io';
 
 import 'package:path_provider/path_provider.dart';
 
-sealed class MemoriaException implements Exception {
-  final String message;
-  final Object? details;
-
-  MemoriaException(this.message, [this.details]);
-
-  @override
-  String toString() =>
-      '$runtimeType: $message${details != null ? ' ($details)' : ''}';
-}
-
-class ImageProcessingException extends MemoriaException {
-  ImageProcessingException(super.message, [super.details]);
-}
-
-class LutGenerationException extends MemoriaException {
-  LutGenerationException(super.message, [super.details]);
-}
-
-class ModelInferenceException extends MemoriaException {
-  ModelInferenceException(super.message, [super.details]);
-}
-
-class AssetIoException extends MemoriaException {
-  AssetIoException(super.message, [super.details]);
-}
-
 class ErrorLogger {
   static final List<String> _logs = [];
   static File? _file;

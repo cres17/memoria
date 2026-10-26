@@ -377,7 +377,7 @@
   - `test/features/editor/editor_tool_transaction_test.dart`
   - `test/features/editor/editor_back_navigation_test.dart`
 - 크롭/반전/필터:
-  - `test/engine/crop_engine_test.dart`
+  - `test/features/editor/editor_spatial_renderer_test.dart`
   - `test/features/editor/crop_panel_test.dart`
   - `test/engine/rotate_flip_engine_test.dart`
   - `test/features/editor/rotate_flip_panel_test.dart`
@@ -400,7 +400,7 @@
 단계별 테스트 예시:
 
 ```bash
-flutter test test/engine/crop_engine_test.dart test/features/editor/crop_panel_test.dart
+flutter test test/features/editor/editor_spatial_renderer_test.dart test/features/editor/crop_panel_test.dart
 flutter test test/engine/rotate_flip_engine_test.dart test/features/editor/rotate_flip_panel_test.dart
 flutter test test/features/editor/editor_tool_transaction_test.dart test/features/editor/editor_back_navigation_test.dart
 flutter test test/engine/selective_engine_test.dart test/engine/lens_blur_engine_test.dart
@@ -510,8 +510,8 @@ git diff --check
 검증:
 
 ```bash
-flutter analyze lib/features/editor/editor_page.dart lib/engine/crop_engine.dart test/engine/crop_engine_test.dart
-flutter test test/engine/crop_engine_test.dart test/engine/rotate_flip_engine_test.dart test/features/editor/crop_panel_test.dart test/features/editor/rotate_flip_panel_test.dart test/features/editor/edit_session_controller_test.dart test/filter_apply_whitebox_test.dart
+flutter analyze lib/features/editor/editor_page.dart lib/features/editor/editor_spatial_renderer.dart test/features/editor/editor_spatial_renderer_test.dart
+flutter test test/features/editor/editor_spatial_renderer_test.dart test/engine/rotate_flip_engine_test.dart test/features/editor/crop_panel_test.dart test/features/editor/rotate_flip_panel_test.dart test/features/editor/edit_session_controller_test.dart test/filter_apply_whitebox_test.dart
 git diff --check
 ```
 
@@ -538,7 +538,7 @@ git diff --check
 
 ```bash
 flutter analyze lib/features/editor/editor_page.dart lib/engine/blur_engine.dart test/engine/blur_engine_test.dart
-flutter test test/engine/local_adjust_test.dart test/engine/blur_engine_test.dart test/engine/crop_engine_test.dart test/engine/rotate_flip_engine_test.dart test/features/editor/crop_panel_test.dart test/features/editor/rotate_flip_panel_test.dart test/features/editor/edit_session_controller_test.dart test/filter_apply_whitebox_test.dart
+flutter test test/engine/local_adjust_test.dart test/engine/blur_engine_test.dart test/features/editor/editor_spatial_renderer_test.dart test/engine/rotate_flip_engine_test.dart test/features/editor/crop_panel_test.dart test/features/editor/rotate_flip_panel_test.dart test/features/editor/edit_session_controller_test.dart test/filter_apply_whitebox_test.dart
 git diff --check
 ```
 

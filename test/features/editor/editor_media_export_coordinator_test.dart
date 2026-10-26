@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:memoria/core/services/export_preferences.dart';
 import 'package:memoria/domain/models/adjust_params.dart';
@@ -12,6 +13,53 @@ import 'package:memoria/features/editor/editor_render_recipe.dart';
 import 'package:memoria/features/editor/editor_resource_preparer.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('passes the current share anchor to the platform and retains the file',
+      () async {
+    final directory = await Directory.systemTemp.createTemp('memoria_share_');
+    addTearDown(() => directory.delete(recursive: true));
+    const channel = MethodChannel('dev.fluttercommunity.plus/share');
+    Map<dynamic, dynamic>? arguments;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      arguments = call.arguments as Map<dynamic, dynamic>;
+      return 'shared';
+    });
+    addTearDown(() => TestDefaultBinaryMessengerBinding
+        .instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, null));
+    const anchor = Rect.fromLTWH(32, 64, 240, 72);
+    String? cleanupPath;
+    final coordinator = EditorMediaExportCoordinator(
+      isIos: () => false,
+      temporaryDirectory: () async => directory,
+      loadSettings: (_) async =>
+          const ExportSettings(format: ExportFormat.png, quality: 91),
+      render: _writeValidOutput,
+      scheduleSharedCleanup: (path) => cleanupPath = path,
+    );
+    var originRequests = 0;
+    final result = await coordinator.export(
+      share: true,
+      shareOrigin: () {
+        originRequests++;
+        expect(directory.listSync(), isNotEmpty);
+        return anchor;
+      },
+      buildRequest: _requestFor,
+      onProgress: (_) {},
+    );
+    expect(result.shared, isTrue);
+    expect(originRequests, 1);
+    expect(arguments, containsPair('originX', anchor.left));
+    expect(arguments, containsPair('originY', anchor.top));
+    expect(arguments, containsPair('originWidth', anchor.width));
+    expect(arguments, containsPair('originHeight', anchor.height));
+    expect(cleanupPath, isNotNull);
+    expect(await File(cleanupPath!).exists(), isTrue);
+  });
+
   test('publishes a validated output and removes non-shared temp files',
       () async {
     final directory = await Directory.systemTemp.createTemp('memoria_media_');
@@ -43,6 +91,73 @@ void main() {
     expect(saved, isTrue);
     expect(savedPath, isNotNull);
     expect(await File(savedPath!).exists(), isFalse);
+  });
+
+  test('requests gallery write access only when publishing a saved export',
+      () async {
+    final directory = await Directory.systemTemp.createTemp('memoria_media_');
+    addTearDown(() => directory.delete(recursive: true));
+    var permissionChecks = 0;
+    var saveCalls = 0;
+    final coordinator = EditorMediaExportCoordinator(
+      isIos: () => true,
+      supportsWebp: () async => false,
+      temporaryDirectory: () async => directory,
+      loadSettings: (_) async =>
+          const ExportSettings(format: ExportFormat.jpeg, quality: 91),
+      render: _writeValidOutput,
+      ensureGalleryWriteAccess: () async {
+        permissionChecks++;
+        return true;
+      },
+      saveToGallery: (_) async => saveCalls++,
+      share: (_) async {},
+    );
+
+    await coordinator.export(
+      share: false,
+      buildRequest: _requestFor,
+      onProgress: (_) {},
+    );
+
+    expect(permissionChecks, 1);
+    expect(saveCalls, 1);
+  });
+
+  test('does not publish and returns a typed failure when add-only is denied',
+      () async {
+    final directory = await Directory.systemTemp.createTemp('memoria_media_');
+    addTearDown(() => directory.delete(recursive: true));
+    var saved = false;
+    final coordinator = EditorMediaExportCoordinator(
+      isIos: () => true,
+      supportsWebp: () async => false,
+      temporaryDirectory: () async => directory,
+      loadSettings: (_) async =>
+          const ExportSettings(format: ExportFormat.jpeg, quality: 91),
+      render: _writeValidOutput,
+      ensureGalleryWriteAccess: () async => false,
+      saveToGallery: (_) async => saved = true,
+      share: (_) async {},
+    );
+
+    await expectLater(
+      () => coordinator.export(
+        share: false,
+        buildRequest: _requestFor,
+        onProgress: (_) {},
+      ),
+      throwsA(
+        isA<EditorExportFailure>().having(
+          (failure) => failure.kind,
+          'kind',
+          EditorExportFailureKind.permissionDenied,
+        ),
+      ),
+    );
+
+    expect(saved, isFalse);
+    expect(await directory.list().toList(), isEmpty);
   });
 
   test('normalizes a persisted WebP preference when native support is absent',

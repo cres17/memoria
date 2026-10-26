@@ -98,8 +98,8 @@ class _SettingsPageState extends State<SettingsPage> {
   String get _qualitySubtitle => switch (_exportFormat) {
         ExportFormat.jpeg => 'JPEG $_exportQuality%',
         ExportFormat.webp => 'WebP $_exportQuality%',
-        ExportFormat.png => 'PNG · 무손실',
-        ExportFormat.tiff => 'TIFF · 무손실',
+        ExportFormat.png => 'PNG · ${S.get('settings.lossless')}',
+        ExportFormat.tiff => 'TIFF · ${S.get('settings.lossless')}',
       };
 
   Future<void> _openSystemPermissionSettings() async {
@@ -278,11 +278,23 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             ),
             const SizedBox(height: 16),
-            _buildFormatTile(ExportFormat.jpeg, 'JPEG (고효율)'),
+            _buildFormatTile(
+              ExportFormat.jpeg,
+              'JPEG (${S.get('settings.high_efficiency')})',
+            ),
             if (_webpSupported)
-              _buildFormatTile(ExportFormat.webp, 'WebP (고효율)'),
-            _buildFormatTile(ExportFormat.png, 'PNG (무손실)'),
-            _buildFormatTile(ExportFormat.tiff, 'TIFF (무손실 편집본)'),
+              _buildFormatTile(
+                ExportFormat.webp,
+                'WebP (${S.get('settings.high_efficiency')})',
+              ),
+            _buildFormatTile(
+              ExportFormat.png,
+              'PNG (${S.get('settings.lossless')})',
+            ),
+            _buildFormatTile(
+              ExportFormat.tiff,
+              'TIFF (${S.get('settings.lossless_edit')})',
+            ),
             const SizedBox(height: 8),
           ],
         ),
@@ -329,18 +341,18 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
               ),
               const SizedBox(height: 18),
-              const Text(
-                'JPEG 내보내기 품질',
-                style: TextStyle(
+              Text(
+                S.get('settings.jpeg_quality_title'),
+                style: const TextStyle(
                   color: AppColors.textOnDark,
                   fontSize: 18,
                   fontWeight: FontWeight.w800,
                 ),
               ),
               const SizedBox(height: 6),
-              const Text(
-                '높을수록 디테일은 유지되고 파일 크기는 커집니다.',
-                style: TextStyle(color: AppColors.textOnDarkSub),
+              Text(
+                S.get('settings.quality_explanation'),
+                style: const TextStyle(color: AppColors.textOnDarkSub),
               ),
               const SizedBox(height: 18),
               Wrap(
@@ -516,6 +528,20 @@ class _SettingsPageState extends State<SettingsPage> {
           _SettingCard(
             children: [
               _SettingRow(
+                icon: Icons.privacy_tip_outlined,
+                title: S.get('settings.privacy'),
+                subtitle: S.get('settings.privacy_sub'),
+                onTap: () => context.pushNamed('privacy'),
+              ),
+              const _Divider(),
+              _SettingRow(
+                icon: Icons.help_outline_rounded,
+                title: S.get('settings.support'),
+                subtitle: S.get('settings.support_sub'),
+                onTap: () => context.pushNamed('support'),
+              ),
+              const _Divider(),
+              _SettingRow(
                 icon: Icons.bug_report_outlined,
                 title: S.get('settings.diagnostics'),
                 subtitle: S.get('settings.diagnostics_sub'),
@@ -615,56 +641,65 @@ class _SettingRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
+    final semanticsLabel = subtitle == null ? title : '$title, $subtitle';
+    return Semantics(
+      container: true,
+      excludeSemantics: true,
+      button: onTap != null,
+      enabled: onTap != null,
+      label: semanticsLabel,
       onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        child: Row(
-          children: [
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: AppColors.oceanNavy,
-                borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: AppColors.oceanNavy,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(icon, color: AppColors.textOnDarkSub, size: 18),
               ),
-              child: Icon(icon, color: AppColors.textOnDarkSub, size: 18),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontFamily: 'NotoSerif',
-                      fontSize: 15,
-                      fontWeight: FontWeight.w500,
-                      color: AppColors.textOnDark,
-                    ),
-                  ),
-                  if (subtitle != null) ...[
-                    const SizedBox(height: 2),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                     Text(
-                      subtitle!,
+                      title,
                       style: const TextStyle(
                         fontFamily: 'NotoSerif',
-                        fontSize: 13,
-                        color: AppColors.textOnDarkTert,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.textOnDark,
                       ),
                     ),
+                    if (subtitle != null) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        subtitle!,
+                        style: const TextStyle(
+                          fontFamily: 'NotoSerif',
+                          fontSize: 13,
+                          color: AppColors.textOnDarkTert,
+                        ),
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
-            ),
-            if (trailing != null)
-              trailing!
-            else if (onTap != null)
-              const Icon(Icons.chevron_right_rounded,
-                  color: AppColors.textOnDarkTert, size: 20),
-          ],
+              if (trailing != null)
+                trailing!
+              else if (onTap != null)
+                const Icon(Icons.chevron_right_rounded,
+                    color: AppColors.textOnDarkTert, size: 20),
+            ],
+          ),
         ),
       ),
     );

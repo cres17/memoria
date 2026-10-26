@@ -8,7 +8,9 @@ import 'package:image/image.dart' as img;
 import 'package:memoria/domain/models/filter_preset.dart';
 import 'package:memoria/domain/repositories/filter_repository.dart';
 import 'package:memoria/features/create_filter/create_filter_page.dart';
+import 'package:memoria/features/create_filter/create_filter_reference_analyzer.dart';
 import 'package:memoria/features/create_filter/create_filter_services.dart';
+import 'package:memoria/engine/reference_coverage_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -17,6 +19,7 @@ void main() {
   const pathProviderChannel = MethodChannel('plugins.flutter.io/path_provider');
   late Directory tempDirectory;
   late File sourceImage;
+  late File secondSourceImage;
 
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
@@ -30,6 +33,8 @@ void main() {
       }
     }
     await sourceImage.writeAsBytes(img.encodePng(image));
+    secondSourceImage = File('${tempDirectory.path}/second.png');
+    await secondSourceImage.writeAsBytes(img.encodePng(image));
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(pathProviderChannel, (call) async {
       if (call.method == 'getApplicationDocumentsDirectory' ||
@@ -53,15 +58,19 @@ void main() {
     required CreateFilterGenerator generator,
     required FilterRepository repository,
     required CreateFilterPreviewRenderer previewRenderer,
+    CreateFilterReferenceAnalyzer? referenceAnalyzer,
+    List<String>? recentPaths,
   }) async {
     await tester.pumpWidget(
       MaterialApp(
         home: CreateFilterPage(
           generator: generator,
-          recentPhotoSource: _FixedRecentPhotoSource([sourceImage.path]),
           repository: repository,
           previewRenderer: previewRenderer,
+          referenceAnalyzer: referenceAnalyzer,
           loadAdServices: false,
+          recentPhotoSource:
+              _FixedRecentPhotoSource(recentPaths ?? [sourceImage.path]),
         ),
       ),
     );
@@ -110,6 +119,72 @@ void main() {
     expect(repository.savedIds, isEmpty);
     expect(find.text('필터 생성을 취소했어요.'), findsOneWidget);
     expect(find.text('필터 생성'), findsOneWidget);
+  });
+
+  testWidgets('low coverage explains the block and offers another photo',
+      (tester) async {
+    final repository = _MemoryRepository();
+    await pumpPage(
+      tester,
+      generator: const _LowCoverageGenerator(),
+      repository: repository,
+      previewRenderer: const _NullPreviewRenderer(),
+    );
+
+    await startGeneration(tester);
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(
+      find.text(
+        '이 사진은 색상 정보가 부족해 필터를 정확하게 만들기 어려워요. 여러 색상과 밝기가 포함된 사진을 선택해 주세요.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('다른 사진 선택'), findsOneWidget);
+    expect(find.text('필터 생성'), findsOneWidget);
+    expect(repository.savedIds, isEmpty);
+  });
+
+  testWidgets('a stale reference analysis cannot replace the latest result',
+      (tester) async {
+    final analyzer = _ControlledReferenceAnalyzer();
+    await pumpPage(
+      tester,
+      generator: _PendingGenerator(),
+      repository: _MemoryRepository(),
+      previewRenderer: const _NullPreviewRenderer(),
+      referenceAnalyzer: analyzer,
+      recentPaths: [sourceImage.path, secondSourceImage.path],
+    );
+    expect(analyzer.calls, hasLength(1));
+
+    final secondRecent = find.byKey(const ValueKey('recent-photo-1'));
+    await tester.ensureVisible(secondRecent);
+    await tester.tap(secondRecent);
+    await tester.pump();
+    expect(analyzer.calls, hasLength(2));
+
+    analyzer.complete(
+      1,
+      const CreateFilterReferenceAnalysis(
+        palette: [Colors.blue],
+        tags: ['Cool'],
+      ),
+    );
+    await tester.pump();
+    expect(find.text('Cool'), findsOneWidget);
+
+    analyzer.complete(
+      0,
+      const CreateFilterReferenceAnalysis(
+        palette: [Colors.orange],
+        tags: ['Warm'],
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Cool'), findsOneWidget);
+    expect(find.text('Warm'), findsNothing);
   });
 }
 
@@ -176,11 +251,54 @@ class _PendingGenerator implements CreateFilterGenerator {
   }
 }
 
+class _LowCoverageGenerator implements CreateFilterGenerator {
+  const _LowCoverageGenerator();
+
+  @override
+  Future<Map<String, dynamic>> generateStyle(
+    List<String> styleImagePaths, {
+    required String basePath,
+    required CreateFilterProgressCallback onProgress,
+  }) =>
+      Future<Map<String, dynamic>>.error(
+        const LowReferenceCoverageException(0.01),
+      );
+
+  @override
+  Future<Map<String, dynamic>> generatePair(
+    String beforePath,
+    String afterPath, {
+    required String basePath,
+    required CreateFilterProgressCallback onProgress,
+  }) =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> cancel() async {}
+}
+
 class _NullPreviewRenderer implements CreateFilterPreviewRenderer {
   const _NullPreviewRenderer();
 
   @override
   Future<String?> render(FilterPreset preset, String? sourcePath) async => null;
+}
+
+class _ControlledReferenceAnalyzer implements CreateFilterReferenceAnalyzer {
+  final calls = <List<String>>[];
+  final _completers = <Completer<CreateFilterReferenceAnalysis>>[];
+
+  @override
+  Future<CreateFilterReferenceAnalysis> analyze(List<String> paths) {
+    calls.add(paths);
+    final completer = Completer<CreateFilterReferenceAnalysis>();
+    _completers.add(completer);
+    return completer.future;
+  }
+
+  void complete(int index, CreateFilterReferenceAnalysis result) {
+    _completers[index].complete(result);
+  }
 }
 
 class _MemoryRepository implements FilterRepository {

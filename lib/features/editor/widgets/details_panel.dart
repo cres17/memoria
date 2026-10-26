@@ -39,8 +39,7 @@ class DetailsPanel extends StatelessWidget {
             min: -100,
             max: 100,
             onChanged: (v) => onChanged(params.copyWith(clarity: v)),
-            onChangeEnd: (v) =>
-                onChangeEnd?.call(params.copyWith(clarity: v)),
+            onChangeEnd: (v) => onChangeEnd?.call(params.copyWith(clarity: v)),
           ),
           _DetailsSlider(
             label: S.get('details.sharpen'),
@@ -49,8 +48,7 @@ class DetailsPanel extends StatelessWidget {
             min: 0,
             max: 100,
             onChanged: (v) => onChanged(params.copyWith(sharpen: v)),
-            onChangeEnd: (v) =>
-                onChangeEnd?.call(params.copyWith(sharpen: v)),
+            onChangeEnd: (v) => onChangeEnd?.call(params.copyWith(sharpen: v)),
           ),
         ],
       ),
@@ -107,7 +105,7 @@ class _DetailsSlider extends StatelessWidget {
                       width: 28,
                       height: 28,
                       decoration: BoxDecoration(
-                        color: _kAccent.withOpacity(0.14),
+                        color: _kAccent.withValues(alpha: 0.14),
                         borderRadius: BorderRadius.circular(7),
                       ),
                       child: Icon(icon, size: 15, color: _kAccent),
@@ -125,7 +123,7 @@ class _DetailsSlider extends StatelessWidget {
                   ],
                 ),
                 Tooltip(
-                  message: '두 번 탭하여 초기화',
+                  message: S.get('editor.reset'),
                   child: Text(
                     displayValue,
                     style: const TextStyle(
@@ -142,9 +140,10 @@ class _DetailsSlider extends StatelessWidget {
           SliderTheme(
             data: SliderTheme.of(context).copyWith(
               activeTrackColor: _kAccent,
-              inactiveTrackColor: AppColors.textTertiary.withOpacity(0.15),
+              inactiveTrackColor:
+                  AppColors.textTertiary.withValues(alpha: 0.15),
               thumbColor: _kAccent,
-              overlayColor: _kAccent.withOpacity(0.15),
+              overlayColor: _kAccent.withValues(alpha: 0.15),
               trackHeight: 2.5,
               thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
             ),

@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' show Rect;
 
 import 'package:gal/gal.dart';
 import 'package:memoria/core/error/error_handler.dart';
 import 'package:memoria/core/services/export_preferences.dart';
+import 'package:memoria/core/services/media_permission_service.dart';
 import 'package:memoria/engine/engine_channel.dart';
 import 'package:memoria/engine/export_encoder.dart';
 import 'package:memoria/features/editor/editor_export_failure.dart';
@@ -46,21 +48,20 @@ class EditorMediaExportResult {
   }) : this._(cancelled: false, shared: shared, format: format);
 
   const EditorMediaExportResult.cancelled({required ExportFormat format})
-      : this._(cancelled: true, shared: false, format: format);
+    : this._(cancelled: true, shared: false, format: format);
 }
 
-typedef EditorExportRequestBuilder = Future<EditorExportRequest> Function(
-  EditorMediaExportAttempt attempt,
-);
+typedef EditorExportRequestBuilder =
+    Future<EditorExportRequest> Function(EditorMediaExportAttempt attempt);
 
-typedef EditorExportRunner = Future<EditorExportJobResult> Function(
-  EditorExportRequest request, {
-  void Function(double progress)? onProgress,
-});
+typedef EditorExportRunner =
+    Future<EditorExportJobResult> Function(
+      EditorExportRequest request, {
+      void Function(double progress)? onProgress,
+    });
 
-typedef EditorExportSettingsLoader = Future<ExportSettings> Function(
-  bool allowWebp,
-);
+typedef EditorExportSettingsLoader =
+    Future<ExportSettings> Function(bool allowWebp);
 
 /// Owns the media side of an editor export after the page has prepared pixels.
 ///
@@ -76,11 +77,13 @@ class EditorMediaExportCoordinator {
     required String inputPath,
     required String outputPath,
     required int quality,
-  }) _encodeWebp;
+  })
+  _encodeWebp;
   final bool Function() _isIos;
   final Future<Directory> Function() _temporaryDirectory;
   final Future<void> Function(String path) _saveToGallery;
-  final Future<void> Function(String path) _share;
+  final Future<bool> Function() _ensureGalleryWriteAccess;
+  final Future<void> Function(String path, {Rect? sharePositionOrigin}) _share;
   final void Function(String path) _scheduleSharedCleanup;
 
   bool _exporting = false;
@@ -95,25 +98,39 @@ class EditorMediaExportCoordinator {
       required String inputPath,
       required String outputPath,
       required int quality,
-    })? encodeWebp,
+    })?
+    encodeWebp,
     bool Function()? isIos,
     Future<Directory> Function()? temporaryDirectory,
     Future<void> Function(String path)? saveToGallery,
+    Future<bool> Function()? ensureGalleryWriteAccess,
     Future<void> Function(String path)? share,
     void Function(String path)? scheduleSharedCleanup,
-  })  : _loadSettings = loadSettings ??
-            ((allowWebp) => ExportPreferences.load(allowWebp: allowWebp)),
-        _supportsWebp = supportsWebp ?? EngineChannel.supportsWebPEncoding,
-        _encodeWebp = encodeWebp ?? EngineChannel.encodeWebP,
-        _isIos = isIos ?? (() => Platform.isIOS),
-        _temporaryDirectory = temporaryDirectory ?? getTemporaryDirectory,
-        _saveToGallery = saveToGallery ?? Gal.putImage,
-        _share = share ??
-            ((path) async {
-              await SharePlus.instance.share(ShareParams(files: [XFile(path)]));
-            }),
-        _scheduleSharedCleanup =
-            scheduleSharedCleanup ?? _scheduleDefaultSharedCleanup {
+  }) : _loadSettings =
+           loadSettings ??
+           ((allowWebp) => ExportPreferences.load(allowWebp: allowWebp)),
+       _supportsWebp = supportsWebp ?? EngineChannel.supportsWebPEncoding,
+       _encodeWebp = encodeWebp ?? EngineChannel.encodeWebP,
+       _isIos = isIos ?? (() => Platform.isIOS),
+       _temporaryDirectory = temporaryDirectory ?? getTemporaryDirectory,
+       _saveToGallery = saveToGallery ?? Gal.putImage,
+       _ensureGalleryWriteAccess =
+           ensureGalleryWriteAccess ??
+           (saveToGallery == null
+               ? MediaPermissionService.ensurePhotoLibraryWriteAccess
+               : () async => true),
+       _share = share != null
+           ? ((path, {sharePositionOrigin}) => share(path))
+           : ((path, {sharePositionOrigin}) async {
+               await SharePlus.instance.share(
+                 ShareParams(
+                   files: [XFile(path)],
+                   sharePositionOrigin: sharePositionOrigin,
+                 ),
+               );
+             }),
+       _scheduleSharedCleanup =
+           scheduleSharedCleanup ?? _scheduleDefaultSharedCleanup {
     _exportService = exportService ?? EditorExportService();
     _render = render ?? _exportService.render;
   }
@@ -122,6 +139,7 @@ class EditorMediaExportCoordinator {
 
   Future<EditorMediaExportResult> export({
     required bool share,
+    Rect? Function()? shareOrigin,
     required EditorExportRequestBuilder buildRequest,
     required void Function(double progress) onProgress,
     void Function(int maxDimension)? onRetryAtLowerResolution,
@@ -137,9 +155,11 @@ class EditorMediaExportCoordinator {
       final format = settings.format;
       const attempts = <int?>[null, 4096, 2048];
 
-      for (var attemptIndex = 0;
-          attemptIndex < attempts.length;
-          attemptIndex++) {
+      for (
+        var attemptIndex = 0;
+        attemptIndex < attempts.length;
+        attemptIndex++
+      ) {
         if (_cancelled) {
           return EditorMediaExportResult.cancelled(format: format);
         }
@@ -150,13 +170,16 @@ class EditorMediaExportCoordinator {
         var preserveFinalFile = false;
         try {
           final renderPath = intermediatePath ?? finalPath;
-          final request = await buildRequest(EditorMediaExportAttempt(
-            outputPath: renderPath,
-            renderFormat:
-                format == ExportFormat.webp ? ExportFormat.png : format,
-            quality: settings.quality,
-            maxDimension: attempts[attemptIndex],
-          ));
+          final request = await buildRequest(
+            EditorMediaExportAttempt(
+              outputPath: renderPath,
+              renderFormat: format == ExportFormat.webp
+                  ? ExportFormat.png
+                  : format,
+              quality: settings.quality,
+              maxDimension: attempts[attemptIndex],
+            ),
+          );
           if (_cancelled) {
             return EditorMediaExportResult.cancelled(format: format);
           }
@@ -185,14 +208,23 @@ class EditorMediaExportCoordinator {
           await _validateOutput(finalPath, format);
 
           if (share) {
-            await _share(finalPath);
+            await _share(finalPath, sharePositionOrigin: shareOrigin?.call());
             preserveFinalFile = true;
             _scheduleSharedCleanup(finalPath);
           } else {
+            final granted = await _ensureGalleryWriteAccess();
+            if (!granted) {
+              throw const EditorExportFailure(
+                EditorExportFailureKind.permissionDenied,
+                'Photo-library add-only access was denied',
+              );
+            }
             await _saveToGallery(finalPath);
           }
           return EditorMediaExportResult.completed(
-              shared: share, format: format);
+            shared: share,
+            format: format,
+          );
         } catch (error) {
           final failure = EditorExportFailure.fromError(error);
           if (failure.canRetryAtLowerResolution &&
@@ -249,16 +281,18 @@ class EditorMediaExportCoordinator {
   }
 
   static void _scheduleDefaultSharedCleanup(String path) {
-    unawaited(Future<void>.delayed(const Duration(minutes: 5), () async {
-      try {
-        await _deleteIfPresent(path);
-      } catch (error, stackTrace) {
-        ErrorLogger.log(
-          'Deferred shared-export cleanup failed',
-          error.runtimeType,
-          stackTrace,
-        );
-      }
-    }));
+    unawaited(
+      Future<void>.delayed(const Duration(minutes: 5), () async {
+        try {
+          await _deleteIfPresent(path);
+        } catch (error, stackTrace) {
+          ErrorLogger.log(
+            'Deferred shared-export cleanup failed',
+            error.runtimeType,
+            stackTrace,
+          );
+        }
+      }),
+    );
   }
 }

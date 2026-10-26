@@ -66,6 +66,7 @@ flutter:
     - assets/images/
     - assets/luts/
     - assets/icons/
+    - assets/icons/
     - assets/models/
     - assets/overlays/
     - assets/overlays/grain/

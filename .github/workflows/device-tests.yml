@@ -18,6 +18,8 @@ jobs:
   ios-simulator:
     name: Integration tests (iOS simulator)
     runs-on: macos-latest
+    env:
+      XCODE_XCCONFIG_FILE: ${{ github.workspace }}/ios/Flutter/SimulatorCI.xcconfig
     timeout-minutes: 75
     steps:
       - name: Checkout

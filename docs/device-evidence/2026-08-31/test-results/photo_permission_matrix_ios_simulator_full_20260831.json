@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "scope": "physical-device/photo-permission-current-state",
+  "device": {
+    "name": "iPhone 17 simulator full",
+    "os": "ios",
+    "osVersion": "Version 26.5 (Build 23F77)"
+  },
+  "systemPicker": {
+    "requiresWholeLibraryAccess": false,
+    "promptTriggeredByTest": false
+  },
+  "recentLibrary": {
+    "accessLevel": "readWrite",
+    "state": "notDetermined",
+    "canRead": false,
+    "limited": false,
+    "promptTriggeredByTest": false
+  },
+  "exportSave": {
+    "accessLevel": "addOnly",
+    "photoManagerState": "notDetermined",
+    "galHasAccess": false,
+    "promptTriggeredByTest": false
+  },
+  "limitations": [
+    "This diagnostic is read-only and records the device current state.",
+    "Denied, limited, and authorized transitions require separate manual user choices."
+  ]
+}

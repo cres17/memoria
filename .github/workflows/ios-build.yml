@@ -4,7 +4,7 @@ env:
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, test/color-v3-fallback-routing ]
   pull_request:
   workflow_dispatch:
 
@@ -15,6 +15,8 @@ jobs:
   gpu-ios:
     name: iOS GPU parity and export timing (simulator)
     runs-on: macos-latest
+    env:
+      XCODE_XCCONFIG_FILE: ${{ github.workspace }}/ios/Flutter/SimulatorCI.xcconfig
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -51,6 +53,9 @@ jobs:
   build-ios:
     name: Build iOS (no codesign)
     runs-on: macos-latest
+    env:
+      XCODE_XCCONFIG_FILE: ${{ github.workspace }}/ios/Flutter/SimulatorCI.xcconfig
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -87,15 +92,23 @@ jobs:
         run: flutter pub get --enforce-lockfile
 
       - name: Verify required runtime assets
-        run: |
-          test -s assets/models/direct_mvp_color_transfer_fp16.tflite
-          test "$(find assets/luts -name '*.bin' -type f | wc -l | tr -d ' ')" -ge 23
-          test "$(find assets/images -name '*_thumb.jpg' -type f | wc -l | tr -d ' ')" -ge 24
+        run: flutter test --no-pub test/runtime_assets_test.dart --reporter expanded
 
       - name: Analyze production and tests
         run: |
           python3 tool/prepare_gpu_test_photos.py
           flutter analyze --no-fatal-infos
+
+      - name: Test release signing configuration
+        run: python3 -m unittest discover -s tool -p 'test_install_ios_provisioning_profile.py'
+
+      - name: Prepare pinned macOS inference test runtime
+        run: |
+          set -euo pipefail
+          dart pub cache add flutter_litert --version 3.8.0
+          TEST_TFLITE_LIB_PATH="${PUB_CACHE:-$HOME/.pub-cache}/hosted/pub.dev/flutter_litert-3.8.0/macos/flutter_litert/Sources/flutter_litert/Resources/libtensorflowlite_c-mac.dylib"
+          printf '%s  %s\n' '6c574eb78a2eb814c6176d0a56967d2240e25706f732a04ad28f27020bb71a4f' "$TEST_TFLITE_LIB_PATH" | shasum -a 256 -c -
+          echo "TFLITE_LIB_PATH=$TEST_TFLITE_LIB_PATH" >> "$GITHUB_ENV"
 
       - name: Run unit and widget tests
         run: flutter test --coverage --reporter compact
@@ -124,7 +137,30 @@ jobs:
         run: flutter doctor -v
 
       - name: Build iOS simulator smoke app
+        env:
+          XCODE_XCCONFIG_FILE: ${{ github.workspace }}/ios/Flutter/SimulatorCI.xcconfig
         run: flutter build ios --simulator --debug
+
+      - name: Boot iOS simulator
+        run: |
+          IOS_SIMULATOR_ID="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ && /Shutdown/ {print $2; exit}')"
+          test -n "$IOS_SIMULATOR_ID"
+          xcrun simctl boot "$IOS_SIMULATOR_ID" || true
+          xcrun simctl bootstatus "$IOS_SIMULATOR_ID" -b
+          echo "IOS_SIMULATOR_ID=$IOS_SIMULATOR_ID" >> "$GITHUB_ENV"
+
+      # Keep physical-device benchmarks and permission matrices out of this
+      # deterministic simulator gate. Those suites require explicit device and
+      # authorization-state inputs and publish separate evidence artifacts.
+      - name: Run iOS simulator integration tests
+        env:
+          XCODE_XCCONFIG_FILE: ${{ github.workspace }}/ios/Flutter/SimulatorCI.xcconfig
+        run: |
+          set -euo pipefail
+          flutter test integration_test/settings_recovery_ui_test.dart --device-id "$IOS_SIMULATOR_ID" --reporter compact
+          flutter test integration_test/editor_whitebox_device_test.dart --device-id "$IOS_SIMULATOR_ID" --reporter compact
+          flutter test integration_test/editor_performance_test.dart --device-id "$IOS_SIMULATOR_ID" --reporter compact
+          flutter test integration_test/ios_native_webp_test.dart --device-id "$IOS_SIMULATOR_ID" --reporter compact
 
       - name: Build unsigned iOS release (no codesign)
         run: |

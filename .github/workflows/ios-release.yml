@@ -15,11 +15,11 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
           lfs: true
-          persist-credentials: true
+          persist-credentials: false
           submodules: false
 
       - name: Ensure Git LFS and full history
@@ -32,12 +32,12 @@ jobs:
         shell: bash
 
       - name: Set up Flutter
-        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
         with:
           flutter-version: '3.44.6'
           channel: stable
           cache: true
-          architecture: 'x64'
+          architecture: 'arm64'
 
       - name: Check installed Flutter/Dart
         run: |
@@ -47,11 +47,48 @@ jobs:
       - name: Install locked dependencies
         run: flutter pub get --enforce-lockfile
 
+      - name: Verify required runtime assets
+        run: flutter test --no-pub test/runtime_assets_test.dart --reporter expanded
+
+      - name: Prepare pinned macOS inference test runtime
+        run: |
+          set -euo pipefail
+          dart pub cache add flutter_litert --version 3.8.0
+          TEST_TFLITE_LIB_PATH="${PUB_CACHE:-$HOME/.pub-cache}/hosted/pub.dev/flutter_litert-3.8.0/macos/flutter_litert/Sources/flutter_litert/Resources/libtensorflowlite_c-mac.dylib"
+          printf '%s  %s\n' '6c574eb78a2eb814c6176d0a56967d2240e25706f732a04ad28f27020bb71a4f' "$TEST_TFLITE_LIB_PATH" | shasum -a 256 -c -
+          echo "TFLITE_LIB_PATH=$TEST_TFLITE_LIB_PATH" >> "$GITHUB_ENV"
+
       - name: Analyze and test release source
         run: |
           python3 tool/prepare_gpu_test_photos.py
+          python3 -m unittest discover -s tool -p 'test_install_ios_provisioning_profile.py'
           flutter analyze --no-fatal-infos
           flutter test --reporter compact
+
+      - name: Validate store-release configuration
+        env:
+          IOS_CERT_P12: ${{ secrets.IOS_CERT_P12 }}
+          IOS_CERT_PASSWORD: ${{ secrets.IOS_CERT_PASSWORD }}
+          IOS_PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
+          PRIVACY_POLICY_URL: ${{ vars.PRIVACY_POLICY_URL }}
+          PRIVACY_CONTACT_EMAIL: ${{ vars.PRIVACY_CONTACT_EMAIL }}
+          ADVERTISING_RELEASE_MODE: ${{ vars.ADVERTISING_RELEASE_MODE }}
+        run: |
+          missing=0
+          for name in IOS_CERT_P12 IOS_CERT_PASSWORD IOS_PROVISIONING_PROFILE PRIVACY_POLICY_URL PRIVACY_CONTACT_EMAIL ADVERTISING_RELEASE_MODE; do
+            if [ -z "${!name}" ]; then
+              echo "::error title=Missing release configuration::$name must be configured before a signed store build can run."
+              missing=1
+            fi
+          done
+          case "$ADVERTISING_RELEASE_MODE" in
+            disabled) ;;
+            *)
+              echo "::error title=Invalid advertising release mode::v1 is ad-free, so ADVERTISING_RELEASE_MODE must be exactly disabled."
+              missing=1
+              ;;
+          esac
+          exit "$missing"
 
       # 서명 인증서는 외부 액션에 넘기지 않고 macOS 기본 security 명령으로 임시 키체인에 넣는다.
       # IOS_CERT_P12, IOS_PROVISIONING_PROFILE 시크릿은 base64로 인코딩한 값이어야 한다.
@@ -78,54 +115,32 @@ jobs:
           cp "$RUNNER_TEMP/profile.mobileprovision" "$PROFILE_DIR/$UUID.mobileprovision"
           rm -f "$RUNNER_TEMP/cert.p12"
 
-      - name: Create exportOptions.plist
+      - name: Install profile and configure Runner release signing
+        env:
+          IOS_PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
         run: |
-          cat > exportOptions.plist <<'PL'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>method</key>
-            <string>app-store</string>
-            <key>uploadSymbols</key>
-            <true/>
-            <key>compileBitcode</key>
-            <true/>
-          </dict>
-          </plist>
-          PL
+          set -euo pipefail
+          python3 tool/install_ios_provisioning_profile.py
 
       - name: Check Flutter environment
         run: flutter doctor -v
 
-      # 선택 시크릿: ADMOB_IOS_APP_ID, ADMOB_BANNER_ID_IOS, ADMOB_INTERSTITIAL_ID_IOS, ADMOB_REWARDED_ID_IOS
-      # 없으면 Google 샘플 ID로 빌드되고, 릴리스 빌드는 샘플 ID로 광고를 요청하지 않는다(AdConfig.adsAllowed).
       - name: Build signed IPA
         env:
           FLUTTER_BUILD_MODE: release
-          ADMOB_IOS_APP_ID: ${{ secrets.ADMOB_IOS_APP_ID }}
-          ADMOB_BANNER_ID_IOS: ${{ secrets.ADMOB_BANNER_ID_IOS }}
-          ADMOB_INTERSTITIAL_ID_IOS: ${{ secrets.ADMOB_INTERSTITIAL_ID_IOS }}
-          ADMOB_REWARDED_ID_IOS: ${{ secrets.ADMOB_REWARDED_ID_IOS }}
         run: |
           set -o pipefail
-          defines=""
-          if [ -n "$ADMOB_IOS_APP_ID" ]; then
-            echo "ADMOB_IOS_APP_ID = $ADMOB_IOS_APP_ID" > ios/Flutter/AdMobOverride.xcconfig
-          fi
-          [ -n "$ADMOB_BANNER_ID_IOS" ] && defines="$defines --dart-define=ADMOB_BANNER_ID_IOS=$ADMOB_BANNER_ID_IOS"
-          [ -n "$ADMOB_INTERSTITIAL_ID_IOS" ] && defines="$defines --dart-define=ADMOB_INTERSTITIAL_ID_IOS=$ADMOB_INTERSTITIAL_ID_IOS"
-          [ -n "$ADMOB_REWARDED_ID_IOS" ] && defines="$defines --dart-define=ADMOB_REWARDED_ID_IOS=$ADMOB_REWARDED_ID_IOS"
-          flutter build ipa --export-options-plist=exportOptions.plist --release --obfuscate --split-debug-info=build/symbols $defines --verbose 2>&1 | tee build_ipa_verbose.log
+          flutter build ipa --export-options-plist=exportOptions.plist --release --verbose 2>&1 | tee build_ipa_verbose.log
 
       - name: Collect IPA artifact
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: memoria-ios-ipa
           path: build/ios/ipa
 
       - name: Upload build logs
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ always() && hashFiles('build_ipa_verbose.log') != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: memoria-ipa-logs
           path: build_ipa_verbose.log

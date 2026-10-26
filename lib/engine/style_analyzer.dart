@@ -27,8 +27,8 @@ class StyleProfile {
   final List<int> rCurve, gCurve, bCurve;
 
   /// Zone Lab color casts (fixed L thresholds: 35, 65).
-  final ZoneCast shadowCast;    // L < 35
-  final ZoneCast midtoneCast;   // 35 ≤ L < 65
+  final ZoneCast shadowCast; // L < 35
+  final ZoneCast midtoneCast; // 35 ≤ L < 65
   final ZoneCast highlightCast; // L ≥ 65
 
   /// Mean luminance of the style image (for overall exposure reference).
@@ -65,7 +65,9 @@ class StyleAnalyzer {
       return values.reduce((a, b) => a + b) / values.length;
     }
     double sum = 0.0;
-    for (final v in values) sum += v;
+    for (final v in values) {
+      sum += v;
+    }
     final mean = sum / values.length;
 
     double variance = 0.0;
@@ -133,11 +135,14 @@ class StyleAnalyzer {
 
     final shadowCast = fuseZone(profiles.map((p) => p.shadowCast).toList());
     final midtoneCast = fuseZone(profiles.map((p) => p.midtoneCast).toList());
-    final highlightCast = fuseZone(profiles.map((p) => p.highlightCast).toList());
+    final highlightCast =
+        fuseZone(profiles.map((p) => p.highlightCast).toList());
 
     final meanL = _rejectOutliersAndMean(profiles.map((p) => p.meanL).toList());
-    final blueDominance = _rejectOutliersAndMean(profiles.map((p) => p.blueDominance).toList());
-    final blueCastStrength = _rejectOutliersAndMean(profiles.map((p) => p.blueCastStrength).toList());
+    final blueDominance =
+        _rejectOutliersAndMean(profiles.map((p) => p.blueDominance).toList());
+    final blueCastStrength = _rejectOutliersAndMean(
+        profiles.map((p) => p.blueCastStrength).toList());
 
     return StyleProfile(
       rCurve: rCurve,
@@ -270,19 +275,24 @@ class StyleAnalyzer {
         }
 
         if (lab.l < 35.0) {
-          sSumA += lab.a; sSumB += lab.b; sCount++;
+          sSumA += lab.a;
+          sSumB += lab.b;
+          sCount++;
         } else if (lab.l < 65.0) {
-          mSumA += lab.a; mSumB += lab.b; mCount++;
+          mSumA += lab.a;
+          mSumB += lab.b;
+          mCount++;
         } else {
-          hSumA += lab.a; hSumB += lab.b; hCount++;
+          hSumA += lab.a;
+          hSumB += lab.b;
+          hCount++;
         }
       }
     }
 
     final n = (sc.width * sc.height).toDouble();
-    final blueDominance = blueCount > 0
-        ? (blueDomSum / blueCount).clamp(0.0, 1.0)
-        : 0.0;
+    final blueDominance =
+        blueCount > 0 ? (blueDomSum / blueCount).clamp(0.0, 1.0) : 0.0;
     final blueCastStrength = blueCount > 0
         ? (blueNegBSum / (blueCount * 55.0)).clamp(0.0, 1.0)
         : 0.0;
@@ -299,7 +309,8 @@ class StyleAnalyzer {
       for (int i = 0; i < 256; i++) {
         final highMask = ((i - 32) / 223.0).clamp(0.0, 1.0);
         final w = baseWeight * highMask;
-        bCurve[i] = ((1.0 - w) * bCurve[i] + w * blueCurve[i]).round().clamp(0, 255);
+        bCurve[i] =
+            ((1.0 - w) * bCurve[i] + w * blueCurve[i]).round().clamp(0, 255);
       }
       for (int i = 1; i < 256; i++) {
         if (bCurve[i] < bCurve[i - 1]) bCurve[i] = bCurve[i - 1];
@@ -326,66 +337,13 @@ class StyleAnalyzer {
   }
 }
 
-// ─── Legacy helpers (kept for backward compatibility with test tooling) ───────
-
-/// Pre-computed neutral L CDF: N(μ=50, σ=18) in Lab space [0..100] → 256 bins.
-class NeutralStats {
-  static const double muL  = 50.0;
-  static const double sigL = 18.0;
-  static const double muA  = 0.0;
-  static const double sigA = 8.0;
-  static const double muB  = 0.0;
-  static const double sigB = 8.0;
-
-  static final List<double> cdf = _buildNeutralCdf();
-
-  static List<double> _buildNeutralCdf() {
-    const bins = 256;
-    final hist = List<double>.filled(bins, 0.0);
-    for (int i = 0; i < bins; i++) {
-      final l = i * 100.0 / 255.0;
-      final z = (l - muL) / sigL;
-      hist[i] = math.exp(-0.5 * z * z);
-    }
-    final sum = hist.fold(0.0, (a, b) => a + b);
-    double cumul = 0.0;
-    final cdf = List<double>.filled(bins, 0.0);
-    for (int i = 0; i < bins; i++) {
-      cumul += hist[i] / sum;
-      cdf[i] = cumul;
-    }
-    return cdf;
-  }
-}
-
-/// CDF histogram matching — maps neutral CDF → style CDF.
-List<double> buildToneCurve(List<double> neutralCdf, List<double> styleCdf) {
-  final curve = List<double>.filled(256, 0.0);
-  for (int i = 0; i < 256; i++) {
-    final target = neutralCdf[i];
-    int j = 0;
-    while (j < 255 && styleCdf[j] < target) {
-      j++;
-    }
-    curve[i] = j.toDouble();
-  }
-  return enforceMonotonic(curve);
-}
-
-List<double> enforceMonotonic(List<double> curve) {
-  final result = List<double>.from(curve);
-  for (int i = 1; i < result.length; i++) {
-    if (result[i] < result[i - 1]) result[i] = result[i - 1];
-  }
-  return result;
-}
-
 // ─── Style profile UI helpers ─────────────────────────────────────────────────
 
 /// Extract 4 representative colors from a style image via coarse quantization.
 List<Color> extractPalette(img.Image image) {
   final sc = image.width > 128 || image.height > 128
-      ? img.copyResize(image, width: 64, height: 64, interpolation: img.Interpolation.linear)
+      ? img.copyResize(image,
+          width: 64, height: 64, interpolation: img.Interpolation.linear)
       : image;
 
   // Divide into 4 quadrants and take mean color of each

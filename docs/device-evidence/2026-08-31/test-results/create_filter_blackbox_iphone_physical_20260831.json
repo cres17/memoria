@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "scope": "physical-device/create-filter-ui-black-box",
+  "device": {
+    "name": "iPhone 17 physical",
+    "os": "ios",
+    "osVersion": "Version 26.6.1 (Build 23G83)"
+  },
+  "candidate": {
+    "sha256": "a1b8ecf00632ba359b2d4dec603de6e35fc031aed9af978b14658422e02241a6",
+    "coverageThreshold": 0.03
+  },
+  "lowCoverage": {
+    "blocked": true,
+    "guidanceVisible": true,
+    "chooseAnotherVisible": true,
+    "savedPresetCount": 0,
+    "elapsedMs": 242.221
+  },
+  "highCoverage": {
+    "successSheetVisible": true,
+    "savedPresetCount": 1,
+    "lutExists": true,
+    "previewExists": true,
+    "savedName": "내추럴 톤",
+    "elapsedMs": 2244.87
+  },
+  "rssBytes": {
+    "baseline": 157728768,
+    "after": 343670784,
+    "delta": 185942016
+  },
+  "totalElapsedMs": 5271.437,
+  "limitations": [
+    "The photo-source boundary is replaced with deterministic fixtures.",
+    "The production page, coverage policy, model, worker, preview, and repository transaction are used.",
+    "System photo-picker interaction and photo permissions are outside this test."
+  ]
+}

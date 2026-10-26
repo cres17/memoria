@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:memoria/core/error/error_handler.dart';
-import 'package:memoria/core/services/media_permission_service.dart';
 import 'package:memoria/core/theme/app_colors.dart';
 import 'package:memoria/data/repositories/custom_adjustment_repository.dart';
 import 'package:memoria/data/repositories/filter_repository_impl.dart';
@@ -92,10 +91,6 @@ class _BatchApplyPageState extends State<BatchApplyPage> {
     if (widget.pickPhotos != null) {
       picked = await widget.pickPhotos!();
     } else {
-      if (!await MediaPermissionService.ensurePhotoAccess()) {
-        _message('사진 접근 권한이 필요해요.');
-        return;
-      }
       final files = await ImagePicker().pickMultiImage();
       picked = files.map((f) => f.path).toList();
     }
@@ -103,7 +98,8 @@ class _BatchApplyPageState extends State<BatchApplyPage> {
     setState(() {
       _paths = picked;
       _results = [
-        for (final path in picked) BatchItemResult(path, BatchItemStatus.pending)
+        for (final path in picked)
+          BatchItemResult(path, BatchItemStatus.pending)
       ];
       _finished = false;
     });
@@ -118,7 +114,8 @@ class _BatchApplyPageState extends State<BatchApplyPage> {
       _currentIndex = 0;
       _itemProgress = 0;
       _results = [
-        for (final path in _paths) BatchItemResult(path, BatchItemStatus.pending)
+        for (final path in _paths)
+          BatchItemResult(path, BatchItemStatus.pending)
       ];
     });
     final results = await _service.run(
@@ -144,12 +141,6 @@ class _BatchApplyPageState extends State<BatchApplyPage> {
       _finished = true;
       _results = results;
     });
-  }
-
-  void _message(String text) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(text), behavior: SnackBarBehavior.floating),
-    );
   }
 
   int _count(BatchItemStatus status) =>
@@ -198,9 +189,8 @@ class _BatchApplyPageState extends State<BatchApplyPage> {
                   RadioListTile<String>(
                     value: 'saved:${adj.id}',
                     title: Text(adj.name),
-                    subtitle: Text(adj.look == null
-                        ? '기본 보정값만 저장된 프리셋'
-                        : '기본 보정·필터·효과'),
+                    subtitle: Text(
+                        adj.look == null ? '기본 보정값만 저장된 프리셋' : '기본 보정·필터·효과'),
                   ),
               ],
             ),
@@ -217,7 +207,9 @@ class _BatchApplyPageState extends State<BatchApplyPage> {
           OutlinedButton.icon(
             onPressed: _running ? null : _pick,
             icon: const Icon(Icons.photo_library_outlined),
-            label: Text(_paths.isEmpty ? '사진 여러 장 고르기' : '${_paths.length}장 선택됨 · 다시 고르기'),
+            label: Text(_paths.isEmpty
+                ? '사진 여러 장 고르기'
+                : '${_paths.length}장 선택됨 · 다시 고르기'),
           ),
           for (var i = 0; i < _results.length; i++)
             _ResultTile(

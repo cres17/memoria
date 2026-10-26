@@ -17,9 +17,11 @@ void main() {
       test('Verify signature for ${entry.key}', () {
         img.Image processed;
         if (entry.key == 'flipH') {
-          processed = img.copyFlip(image, direction: img.FlipDirection.horizontal);
+          processed =
+              img.copyFlip(image, direction: img.FlipDirection.horizontal);
         } else if (entry.key == 'flipV') {
-          processed = img.copyFlip(image, direction: img.FlipDirection.vertical);
+          processed =
+              img.copyFlip(image, direction: img.FlipDirection.vertical);
         } else if (entry.key == 'rotate90') {
           processed = img.copyRotate(image, angle: 90);
         } else if (entry.key == 'rotate180') {

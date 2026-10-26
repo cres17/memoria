@@ -56,6 +56,38 @@ void main() {
     expect(committed.width, 3);
   });
 
+  test('production perspective transform changes pixels without resizing', () {
+    final source = img.Image(width: 20, height: 16);
+    for (var y = 0; y < source.height; y++) {
+      for (var x = 0; x < source.width; x++) {
+        source.setPixelRgb(x, y, x * 10, y * 12, 96);
+      }
+    }
+
+    final transformed = EditorSpatialRenderer.apply(
+      source,
+      _recipe(const CropState(perspH: 15, perspV: -8)),
+    );
+
+    expect(transformed.width, source.width);
+    expect(transformed.height, source.height);
+    expect(transformed.getBytes(), isNot(orderedEquals(source.getBytes())));
+    expect(transformed.getPixel(0, 0).r, 0);
+    expect(transformed.getPixel(0, 0).g, 0);
+  });
+
+  test('zero production perspective is an exact no-op', () {
+    final source = img.Image(width: 6, height: 4)
+      ..clear(img.ColorRgba8(21, 42, 84, 255));
+
+    final transformed = EditorSpatialRenderer.apply(
+      source,
+      _recipe(const CropState()),
+    );
+
+    expect(transformed.getBytes(), orderedEquals(source.getBytes()));
+  });
+
   test('segmentation mask follows expand, crop, flip, and rotation', () {
     final source = Float32List(4 * 3)..[1 * 4 + 1] = 1;
     final recipe = _recipe(
