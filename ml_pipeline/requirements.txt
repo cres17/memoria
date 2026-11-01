@@ -6,7 +6,7 @@ torch>=2.14.1
 torchvision>=0.28.0
 timm>=0.9.12
 # Pinned local runtime for MediaPipe Selfie Multiclass semantic-mask cache.
-ai-edge-litert==2.1.6
+ai-edge-litert==2.3.0
 
 # 수치 계산
 numpy>=1.24.0
