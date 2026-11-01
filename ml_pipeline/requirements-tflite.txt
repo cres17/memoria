@@ -15,4 +15,4 @@ litert-torch==0.10.0
 ai-edge-quantizer==0.10.0
 # torch가 끌어오는 하위 의존성 중 알려진 취약점이 있는 버전 제외
 setuptools>=84.1.0
-filelock>=4.2.1
+filelock>=4.2.4
