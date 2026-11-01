@@ -34,7 +34,7 @@ dependencies:
 
   # Network (model download)
   http: ^1.2.1
-  crypto: ^3.0.3
+  crypto: ^3.0.8
 
   # Permissions
   permission_handler: ^13.0.2
